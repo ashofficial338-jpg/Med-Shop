@@ -31,7 +31,15 @@ services:
       # "https://<name>.onrender.com" - update this if you rename the
       # med-shop-web service or add a custom domain.
       - key: CORS_ORIGIN
-        value: https://med-shop-web.onrender.com
+        value: https://med-backend-1-g2db.onrender.com
+
+  # NOTE ON THE LIVE DEPLOY: the backend actually in production was deployed
+  # from its own repo (github.com/ashofficial338-jpg/med-backend), not this
+  # blueprint, and Render assigned it https://med-backend-1-g2db.onrender.com
+  # (the plain "med-backend" name was taken). This file's service names are
+  # for a from-scratch single-repo deploy; on the live med-backend service,
+  # set CORS_ORIGIN directly in the Render dashboard once the frontend's
+  # real URL is known.
 
   # Frontend: static build of the React app. Talks to the API above over
   # VITE_API_URL, which Vite bakes into the build at build time (this is why
