@@ -27,11 +27,11 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      # Restricts CORS to the frontend below. Render service URLs are
-      # "https://<name>.onrender.com" - update this if you rename the
-      # med-shop-web service or add a custom domain.
+      # CORS_ORIGIN must be the FRONTEND's URL (who is allowed to call this
+      # API) - never this backend's own URL. Fill this in once the frontend
+      # below is deployed and you know its real address.
       - key: CORS_ORIGIN
-        value: https://med-backend-1-g2db.onrender.com
+        value: https://med-shop-web.onrender.com
 
   # NOTE ON THE LIVE DEPLOY: the backend actually in production was deployed
   # from its own repo (github.com/ashofficial338-jpg/med-backend), not this
@@ -41,8 +41,8 @@ services:
   # set CORS_ORIGIN directly in the Render dashboard once the frontend's
   # real URL is known.
 
-  # Frontend: static build of the React app. Talks to the API above over
-  # VITE_API_URL, which Vite bakes into the build at build time (this is why
+  # Frontend: static build of the React app. VITE_API_URL must be the
+  # BACKEND's URL + "/api" - Vite bakes this in at build time (this is why
   # it's set here rather than read at runtime).
   - type: web
     name: med-shop-web
@@ -51,7 +51,7 @@ services:
     staticPublishPath: client/dist
     envVars:
       - key: VITE_API_URL
-        value: https://med-shop-api.onrender.com/api
+        value: https://med-backend-1-g2db.onrender.com/api
     routes:
       # Client-side routing (React Router) - unmatched paths fall back to
       # index.html instead of 404ing.
