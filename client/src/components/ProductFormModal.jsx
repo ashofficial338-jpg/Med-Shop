@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createProduct, updateProduct, listCategories } from "../api/products";
+import { resolveAssetUrl } from "../api/client";
 import { listVendors } from "../api/vendors";
 import RequiredMark from "./RequiredMark";
 
@@ -145,7 +146,7 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
         <div className="flex items-center gap-4">
           <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-bg">
             {imagePreview ? (
-              <img src={imagePreview} alt="Preview" className="h-full w-full object-cover" />
+              <img src={resolveAssetUrl(imagePreview)} alt="Preview" className="h-full w-full object-cover" />
             ) : (
               <span className="text-2xl">💊</span>
             )}

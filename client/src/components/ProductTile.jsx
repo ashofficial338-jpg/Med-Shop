@@ -1,5 +1,6 @@
 import { toast } from "react-toastify";
 import { useCart } from "../context/CartContext";
+import { resolveAssetUrl } from "../api/client";
 
 function availability(product) {
   if (product.qty <= 0) return { label: "Out of Stock", className: "bg-danger/15 text-danger" };
@@ -42,7 +43,7 @@ export default function ProductTile({ product, isAdmin, onEdit, onOpen }) {
     >
       <div className="flex h-28 items-center justify-center bg-bg">
         {product.image ? (
-          <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+          <img src={resolveAssetUrl(product.image)} alt={product.name} className="h-full w-full object-cover" />
         ) : (
           <span className="text-3xl">💊</span>
         )}

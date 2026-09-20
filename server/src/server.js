@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
@@ -21,7 +22,16 @@ import dashboardRoutes from "./routes/dashboard.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
-app.use(cors());
+// CORS_ORIGIN is a comma-separated allowlist for a separately-hosted frontend
+// (e.g. "https://med-shop-web.onrender.com"). Left unset, every origin is
+// allowed, which covers same-origin/combined deploys and local dev.
+const allowedOrigins = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim()).filter(Boolean);
+app.use(
+  cors({
+    origin: allowedOrigins?.length ? allowedOrigins : true,
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(morgan("dev"));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
@@ -41,11 +51,14 @@ app.use("/api/sales", salesRoutes);
 app.use("/api/expenses", expensesRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
-// In production this one process serves the built React app too, under the
-// same origin as the API - the client already calls a relative "/api/...",
-// so this needs no CORS setup and no separate frontend host.
-if (process.env.NODE_ENV === "production") {
-  const clientDist = path.join(__dirname, "..", "..", "client", "dist");
+// In a single combined deploy this same process also serves the built React
+// app, under the same origin as the API, so no CORS setup or separate
+// frontend host is needed. When the frontend is deployed as its own static
+// site (client/dist is never built into this service), this block simply
+// finds nothing at clientDist and is skipped - the API keeps working on its
+// own for a separately-hosted frontend using CORS_ORIGIN + VITE_API_URL.
+const clientDist = path.join(__dirname, "..", "..", "client", "dist");
+if (process.env.NODE_ENV === "production" && fs.existsSync(path.join(clientDist, "index.html"))) {
   app.use(express.static(clientDist));
   app.get(/^(?!\/api|\/uploads).*/, (req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));

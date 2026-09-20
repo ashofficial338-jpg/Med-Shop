@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { getProduct, getProductBatches } from "../api/products";
+import { resolveAssetUrl } from "../api/client";
 import { useCart } from "../context/CartContext";
 import ProductFormModal from "./ProductFormModal";
 
@@ -104,7 +105,7 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
           <div className="flex flex-1 flex-col gap-4 p-4">
             <div className="flex h-40 items-center justify-center rounded-xl bg-bg">
               {product.image ? (
-                <img src={product.image} alt={product.name} className="h-full w-full rounded-xl object-cover" />
+                <img src={resolveAssetUrl(product.image)} alt={product.name} className="h-full w-full rounded-xl object-cover" />
               ) : (
                 <span className="text-5xl">💊</span>
               )}

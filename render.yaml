@@ -1,9 +1,12 @@
 services:
+  # Backend: API only. Serves /api/* and /uploads/*; no static frontend files
+  # are built into this service, so server.js's "serve client/dist" block is
+  # simply skipped at runtime.
   - type: web
-    name: med-shop
+    name: med-shop-api
     env: node
     plan: free
-    buildCommand: npm install --prefix client && npm run build --prefix client && npm install --prefix server
+    buildCommand: npm install --prefix server
     startCommand: node server/src/server.js
     envVars:
       - key: NODE_ENV
@@ -24,3 +27,26 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      # Restricts CORS to the frontend below. Render service URLs are
+      # "https://<name>.onrender.com" - update this if you rename the
+      # med-shop-web service or add a custom domain.
+      - key: CORS_ORIGIN
+        value: https://med-shop-web.onrender.com
+
+  # Frontend: static build of the React app. Talks to the API above over
+  # VITE_API_URL, which Vite bakes into the build at build time (this is why
+  # it's set here rather than read at runtime).
+  - type: web
+    name: med-shop-web
+    env: static
+    buildCommand: npm install --prefix client && npm run build --prefix client
+    staticPublishPath: client/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://med-shop-api.onrender.com/api
+    routes:
+      # Client-side routing (React Router) - unmatched paths fall back to
+      # index.html instead of 404ing.
+      - type: rewrite
+        source: /*
+        destination: /index.html
