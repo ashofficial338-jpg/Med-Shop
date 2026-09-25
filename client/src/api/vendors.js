@@ -1,4 +1,5 @@
 import api from "./client";
+import { downloadFile } from "../utils/downloadFile";
 
 export function listVendors(params) {
   return api.get("/vendors", { params }).then((r) => r.data);
@@ -30,4 +31,14 @@ export function getVendorReport(id, period) {
 
 export function rateVendor(id, data) {
   return api.patch(`/vendors/${id}/rating`, data).then((r) => r.data);
+}
+
+export function exportVendorLedger(id, format, name) {
+  const ext = format === "pdf" ? "pdf" : "xlsx";
+  return downloadFile(`/vendors/${id}/ledger/export`, { format }, `GHM_Ledger_${name || id}.${ext}`);
+}
+
+export function exportVendorReport(id, period, format, name) {
+  const ext = format === "pdf" ? "pdf" : "xlsx";
+  return downloadFile(`/vendors/${id}/report/export`, { period, format }, `GHM_VendorReport_${name || id}.${ext}`);
 }

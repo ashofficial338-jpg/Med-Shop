@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import { listExpenses, createExpense } from "../api/expenses";
+import { listExpenses, createExpense, exportExpenses } from "../api/expenses";
+import ExportButtons from "../components/ExportButtons";
 
 const CATEGORIES = ["Rent", "Salary", "Utilities", "Other"];
 const PAYMENT_MODES = ["Cash", "UPI", "Card", "Other"];
@@ -20,12 +21,16 @@ export default function Expenses() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const load = () => {
-    setLoading(true);
+  const buildParams = () => {
     const params = {};
     if (from) params.from = from;
     if (to) params.to = to;
-    listExpenses(params).then((data) => {
+    return params;
+  };
+
+  const load = () => {
+    setLoading(true);
+    listExpenses(buildParams()).then((data) => {
       setExpenses(data);
       setLoading(false);
     });
@@ -63,12 +68,15 @@ export default function Expenses() {
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-semibold text-text">Expenses</h1>
-        <button
-          onClick={() => setShowForm((s) => !s)}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
-        >
-          {showForm ? "Cancel" : "Add Expense"}
-        </button>
+        <div className="flex items-center gap-2">
+          <ExportButtons onExport={(format) => exportExpenses(format, buildParams())} />
+          <button
+            onClick={() => setShowForm((s) => !s)}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+          >
+            {showForm ? "Cancel" : "Add Expense"}
+          </button>
+        </div>
       </div>
 
       {showForm && (

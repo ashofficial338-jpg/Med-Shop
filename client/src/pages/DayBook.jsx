@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import { getDayBookSummary, recordDayBookAdjustment } from "../api/daybook";
+import { getDayBookSummary, recordDayBookAdjustment, exportDayBook } from "../api/daybook";
+import ExportButtons from "../components/ExportButtons";
 
 const TYPES = [
   { key: "cash", label: "Cash", type: "Cash" },
@@ -103,12 +104,15 @@ export default function DayBook() {
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-semibold text-text">Day Book</h1>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
-        />
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
+          />
+          <ExportButtons onExport={(format) => exportDayBook(date, format)} />
+        </div>
       </div>
 
       {loading && <p className="mt-6 text-sm text-muted">Loading…</p>}

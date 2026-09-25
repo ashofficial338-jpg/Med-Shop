@@ -1,4 +1,5 @@
 import api from "./client";
+import { downloadFile } from "../utils/downloadFile";
 
 export function listProducts(params) {
   return api.get("/products", { params }).then((r) => r.data);
@@ -38,19 +39,17 @@ export function listCategories() {
   return api.get("/categories").then((r) => r.data);
 }
 
-// The template endpoint requires the JWT auth header, so a plain <a href> download
-// won't work (browsers don't attach axios's header to a normal navigation) -
-// fetch it as a blob instead and trigger the save via a temporary object URL.
-export async function downloadImportTemplate() {
-  const res = await api.get("/products/import/template", { responseType: "blob" });
-  const url = window.URL.createObjectURL(res.data);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "GHM_Product_Import_Template.xlsx";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+export function downloadImportTemplate() {
+  return downloadFile("/products/import/template", {}, "GHM_Product_Import_Template.xlsx");
+}
+
+export function getStockReport(params) {
+  return api.get("/products/stock-report", { params }).then((r) => r.data);
+}
+
+export function exportStockReport(format, params) {
+  const ext = format === "pdf" ? "pdf" : "xlsx";
+  return downloadFile("/products/stock-report", { ...params, format }, `GHM_Stock_Report.${ext}`);
 }
 
 export function importProducts(file) {

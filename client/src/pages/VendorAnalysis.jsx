@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import Layout from "../components/Layout";
-import { getVendorReport, rateVendor } from "../api/vendors";
+import { getVendorReport, rateVendor, exportVendorReport } from "../api/vendors";
+import ExportButtons from "../components/ExportButtons";
 
 const COLOR_PRIMARY = "#0F6B66";
 const AXIS_TEXT = { fontSize: 12, fill: "#5B7A77" };
@@ -121,9 +122,9 @@ export default function VendorAnalysis() {
         </button>
       </div>
 
-      <div className="mt-6 flex items-center gap-2">
+      <div className="mt-6 flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-text">Purchase Report</h2>
-        <div className="ml-auto flex gap-1">
+        <div className="flex gap-1">
           {["month", "quarter"].map((p) => (
             <button
               key={p}
@@ -135,6 +136,9 @@ export default function VendorAnalysis() {
               {p}-wise
             </button>
           ))}
+        </div>
+        <div className="ml-auto">
+          <ExportButtons onExport={(format) => exportVendorReport(id, period, format, vendor.name)} />
         </div>
       </div>
 

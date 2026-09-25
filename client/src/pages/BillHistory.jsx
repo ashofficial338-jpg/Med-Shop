@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
-import { listSales } from "../api/sales";
+import { listSales, exportSales } from "../api/sales";
 import { useAuth } from "../context/AuthContext";
+import ExportButtons from "../components/ExportButtons";
 
 export default function BillHistory() {
   const { user } = useAuth();
@@ -30,9 +31,12 @@ export default function BillHistory() {
 
   return (
     <Layout>
-      <h1 className="font-display text-2xl font-semibold text-text">
-        {user.role === "admin" ? "Bill History" : "My Bills"}
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-2xl font-semibold text-text">
+          {user.role === "admin" ? "Bill History" : "My Bills"}
+        </h1>
+        <ExportButtons onExport={(format) => exportSales(format, query ? { q: query } : {})} />
+      </div>
 
       <input
         type="text"

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Layout from "../components/Layout";
-import { getCustomerLedger, recordCustomerPayment } from "../api/customers";
+import { getCustomerLedger, recordCustomerPayment, exportCustomerLedger } from "../api/customers";
+import ExportButtons from "../components/ExportButtons";
 
 export default function CustomerLedger() {
   const { id } = useParams();
@@ -73,11 +74,14 @@ export default function CustomerLedger() {
           <h1 className="font-display text-2xl font-semibold text-text">{customer.name} — Ledger</h1>
           <p className="text-sm text-muted">{customer.phone}</p>
         </div>
-        <div className="rounded-xl bg-surface px-4 py-3 text-right shadow-sm">
-          <p className="text-xs text-muted">Outstanding Balance</p>
-          <p className={`font-mono text-xl font-semibold ${outstandingBalance > 0 ? "text-danger" : "text-text"}`}>
-            ₹{outstandingBalance.toFixed(2)}
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-surface px-4 py-3 text-right shadow-sm">
+            <p className="text-xs text-muted">Outstanding Balance</p>
+            <p className={`font-mono text-xl font-semibold ${outstandingBalance > 0 ? "text-danger" : "text-text"}`}>
+              ₹{outstandingBalance.toFixed(2)}
+            </p>
+          </div>
+          <ExportButtons onExport={(format) => exportCustomerLedger(id, format, customer.name)} />
         </div>
       </div>
 

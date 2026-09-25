@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import AdjustStockModal from "../components/AdjustStockModal";
+import ExportButtons from "../components/ExportButtons";
 import { listStockLedger, getExpiryTracker, markStockClearance } from "../api/stock";
+import { getStockReport, exportStockReport } from "../api/products";
 
-const TABS = ["Stock Ledger", "Expiry Tracker"];
+const TABS = ["Stock Ledger", "Expiry Tracker", "Stock Report"];
 
 function ExpiryGroup({ title, batches, selected, onToggle, onToggleAll, badgeCls }) {
   if (batches.length === 0) return null;
@@ -49,6 +51,17 @@ export default function StockManagement() {
   const [loadingTracker, setLoadingTracker] = useState(true);
   const [selected, setSelected] = useState(new Set());
 
+  const [stockReport, setStockReport] = useState(null);
+  const [loadingStockReport, setLoadingStockReport] = useState(true);
+
+  const loadStockReport = () => {
+    setLoadingStockReport(true);
+    getStockReport().then((data) => {
+      setStockReport(data);
+      setLoadingStockReport(false);
+    });
+  };
+
   const loadLedger = () => {
     setLoadingLedger(true);
     listStockLedger().then((data) => {
@@ -68,6 +81,7 @@ export default function StockManagement() {
   useEffect(() => {
     loadLedger();
     loadTracker();
+    loadStockReport();
   }, []);
 
   const toggleOne = (id) => {
@@ -171,6 +185,71 @@ export default function StockManagement() {
               {tracker.expired.length + tracker.expiringSoon.length + tracker.ok.length === 0 && (
                 <p className="mt-4 text-sm text-muted">No records found.</p>
               )}
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "Stock Report" && (
+        <div className="mt-4">
+          {loadingStockReport && <p className="text-sm text-muted">Loading…</p>}
+          {!loadingStockReport && stockReport && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-3">
+                  <div className="rounded-2xl bg-surface p-4 shadow-sm">
+                    <p className="text-xs font-medium text-muted">SKUs</p>
+                    <p className="mt-1 font-mono text-lg font-semibold text-text">{stockReport.totals.skuCount}</p>
+                  </div>
+                  <div className="rounded-2xl bg-surface p-4 shadow-sm">
+                    <p className="text-xs font-medium text-muted">Stock Value (Cost)</p>
+                    <p className="mt-1 font-mono text-lg font-semibold text-text">₹{stockReport.totals.totalValueCost.toFixed(2)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-surface p-4 shadow-sm">
+                    <p className="text-xs font-medium text-muted">Stock Value (MRP)</p>
+                    <p className="mt-1 font-mono text-lg font-semibold text-text">₹{stockReport.totals.totalValueMrp.toFixed(2)}</p>
+                  </div>
+                </div>
+                <ExportButtons onExport={(format) => exportStockReport(format)} />
+              </div>
+
+              <div className="mt-4 overflow-x-auto rounded-xl bg-surface shadow-sm">
+                <table className="w-full text-left text-sm text-text">
+                  <thead className="border-b border-border text-xs uppercase text-muted">
+                    <tr>
+                      <th className="px-4 py-2">Product</th>
+                      <th className="px-4 py-2">Category</th>
+                      <th className="px-4 py-2">Qty on Hand</th>
+                      <th className="px-4 py-2">Status</th>
+                      <th className="px-4 py-2 text-right">Value (Cost)</th>
+                      <th className="px-4 py-2 text-right">Value (MRP)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockReport.rows.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-6 text-center text-muted">No records found.</td>
+                      </tr>
+                    )}
+                    {stockReport.rows.map((r) => (
+                      <tr key={r.productId} className="border-b border-border last:border-0">
+                        <td className="px-4 py-2">
+                          {r.name} <span className="font-mono text-xs text-muted">({r.productCode})</span>
+                        </td>
+                        <td className="px-4 py-2">{r.category}</td>
+                        <td className="px-4 py-2">{r.qtyDisplay}</td>
+                        <td className="px-4 py-2">
+                          {r.isOut && <span className="rounded-full bg-danger/15 px-2 py-0.5 text-xs font-semibold text-danger">Out of Stock</span>}
+                          {!r.isOut && r.isLowStock && <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning">Low Stock</span>}
+                          {!r.isOut && !r.isLowStock && <span className="rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">OK</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono">₹{r.valueCost.toFixed(2)}</td>
+                        <td className="px-4 py-2 text-right font-mono">₹{r.valueMrp.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </div>

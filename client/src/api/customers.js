@@ -1,4 +1,5 @@
 import api from "./client";
+import { downloadFile } from "../utils/downloadFile";
 
 export function searchCustomers(q) {
   return api.get("/customers", { params: { q } }).then((r) => r.data);
@@ -22,4 +23,9 @@ export function getCustomerLedger(id) {
 
 export function recordCustomerPayment(id, data) {
   return api.post(`/customers/${id}/payments`, data).then((r) => r.data);
+}
+
+export function exportCustomerLedger(id, format, name) {
+  const ext = format === "pdf" ? "pdf" : "xlsx";
+  return downloadFile(`/customers/${id}/ledger/export`, { format }, `GHM_Ledger_${name || id}.${ext}`);
 }

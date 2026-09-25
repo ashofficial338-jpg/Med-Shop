@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import { listPurchases } from "../api/purchases";
+import { listPurchases, exportPurchases } from "../api/purchases";
 import { listVendors } from "../api/vendors";
+import ExportButtons from "../components/ExportButtons";
 
 export default function PurchaseHistory() {
   const [purchases, setPurchases] = useState([]);
@@ -11,13 +12,17 @@ export default function PurchaseHistory() {
   const [to, setTo] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = () => {
-    setLoading(true);
+  const buildParams = () => {
     const params = {};
     if (vendor) params.vendor = vendor;
     if (from) params.from = from;
     if (to) params.to = to;
-    listPurchases(params).then((data) => {
+    return params;
+  };
+
+  const load = () => {
+    setLoading(true);
+    listPurchases(buildParams()).then((data) => {
       setPurchases(data);
       setLoading(false);
     });
@@ -37,7 +42,10 @@ export default function PurchaseHistory() {
 
   return (
     <Layout>
-      <h1 className="font-display text-2xl font-semibold text-text">Purchase History</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-2xl font-semibold text-text">Purchase History</h1>
+        <ExportButtons onExport={(format) => exportPurchases(format, buildParams())} />
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <select value={vendor} onChange={(e) => setVendor(e.target.value)} className={selectCls}>

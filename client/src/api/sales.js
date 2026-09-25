@@ -1,4 +1,5 @@
 import api from "./client";
+import { downloadFile } from "../utils/downloadFile";
 
 export function listSales(params) {
   return api.get("/sales", { params }).then((r) => r.data);
@@ -22,4 +23,9 @@ export async function openSalePdf(id) {
   const res = await api.get(`/sales/${id}/pdf`, { responseType: "blob" });
   const url = window.URL.createObjectURL(res.data);
   window.open(url, "_blank");
+}
+
+export function exportSales(format, params) {
+  const ext = format === "pdf" ? "pdf" : "xlsx";
+  return downloadFile("/sales/export", { ...params, format }, `GHM_Sales_Report.${ext}`);
 }

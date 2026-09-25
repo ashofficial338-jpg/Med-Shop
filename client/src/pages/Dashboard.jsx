@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { Link } from "react-router-dom";
 import Layout from "../components/Layout";
+import ExportButtons from "../components/ExportButtons";
 import { getDashboardSummary, downloadDashboardReport } from "../api/dashboard";
 import { getDayBookSummary } from "../api/daybook";
 
@@ -52,6 +53,10 @@ function ChartCard({ title, children, height = 260 }) {
   );
 }
 
+function SectionTitle({ children }) {
+  return <h2 className="mt-8 border-t border-border pt-6 font-display text-lg font-semibold text-text">{children}</h2>;
+}
+
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -83,7 +88,6 @@ export default function Dashboard() {
   const [range, setRange] = useState(DATE_PRESET(30));
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
   const [todayBalances, setTodayBalances] = useState(null);
 
   const load = useCallback(() => {
@@ -102,52 +106,25 @@ export default function Dashboard() {
     getDayBookSummary().then(setTodayBalances);
   }, []);
 
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      await downloadDashboardReport(range);
-    } finally {
-      setExporting(false);
-    }
-  };
-
   const inputCls =
     "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
 
   const revenueByCategory = [...(summary?.revenueByCategory || [])].sort((a, b) => b.total - a.total);
   const fastMovers = summary?.fastMovers || [];
+  const cashFlowToday = todayBalances
+    ? [
+        { type: "Cash", in: todayBalances.cash.in, out: todayBalances.cash.out },
+        { type: "UPI", in: todayBalances.upi.in, out: todayBalances.upi.out },
+        { type: "Credit", in: todayBalances.credit.in, out: todayBalances.credit.out },
+      ]
+    : [];
 
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-semibold text-text">Accounting Dashboard</h1>
-        <button
-          onClick={handleExport}
-          disabled={exporting}
-          className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface disabled:opacity-50"
-        >
-          {exporting ? "Exporting…" : "Export Report"}
-        </button>
+        <ExportButtons onExport={(format) => downloadDashboardReport(range, format)} />
       </div>
-
-      {todayBalances && (
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {[
-            { label: "Cash Today", data: todayBalances.cash },
-            { label: "UPI Today", data: todayBalances.upi },
-            { label: "Credit Outstanding", data: todayBalances.credit },
-          ].map((t) => (
-            <Link
-              key={t.label}
-              to="/day-book"
-              className="rounded-2xl bg-surface p-4 shadow-sm hover:bg-bg"
-            >
-              <p className="text-xs font-medium text-muted">{t.label}</p>
-              <p className="mt-1 font-mono text-lg font-semibold text-text">{currency(t.data.closing)}</p>
-            </Link>
-          ))}
-        </div>
-      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {PRESETS.map((p) => {
@@ -184,14 +161,21 @@ export default function Dashboard() {
 
       {!loading && summary && (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+          <SectionTitle>Sales & Profit</SectionTitle>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
             <StatTile label="Revenue" value={summary.revenue} />
             <StatTile label="Profit" value={summary.profit} tone={summary.profit >= 0 ? "success" : "danger"} />
             <StatTile label="Cost of Goods Sold" value={summary.cogs} />
             <StatTile label="Expenses" value={summary.expenses} />
-            <StatTile label="Expired Write-off" value={summary.expiredWriteOff} tone={summary.expiredWriteOff > 0 ? "danger" : "text"} />
-            <StatTile label="Net GST Payable" value={summary.netGst} />
             <StatTile label="Total Purchases" value={summary.totalPurchases} />
+            <StatTile label="Net GST Payable" value={summary.netGst} />
+            <StatTile label="Expired Write-off" value={summary.expiredWriteOff} tone={summary.expiredWriteOff > 0 ? "danger" : "text"} />
+            <div className="rounded-2xl bg-surface p-4 shadow-sm">
+              <p className="text-xs font-medium text-muted">Sales Count</p>
+              <p className="mt-1 font-mono text-xl font-semibold text-text">{summary.salesCount}</p>
+            </div>
+            <StatTile label="Output GST" value={summary.outputGst} />
+            <StatTile label="Input GST" value={summary.inputGst} />
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -241,7 +225,7 @@ export default function Dashboard() {
             </ChartCard>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div className="mt-4">
             <ChartCard title="Top 5 Products by Revenue" height={fastMovers.length ? fastMovers.length * 44 + 20 : 60}>
               {fastMovers.length === 0 ? (
                 <p className="text-sm text-muted">No records found.</p>
@@ -257,6 +241,45 @@ export default function Dashboard() {
                 </ResponsiveContainer>
               )}
             </ChartCard>
+          </div>
+
+          <SectionTitle>Cash Position</SectionTitle>
+          {todayBalances && (
+            <>
+              <div className="mt-3 grid grid-cols-3 gap-3">
+                {[
+                  { label: "Cash Today", data: todayBalances.cash },
+                  { label: "UPI Today", data: todayBalances.upi },
+                  { label: "Credit Outstanding", data: todayBalances.credit },
+                ].map((t) => (
+                  <Link key={t.label} to="/day-book" className="rounded-2xl bg-surface p-4 shadow-sm hover:bg-bg">
+                    <p className="text-xs font-medium text-muted">{t.label}</p>
+                    <p className="mt-1 font-mono text-lg font-semibold text-text">{currency(t.data.closing)}</p>
+                  </Link>
+                ))}
+              </div>
+
+              <div className="mt-4">
+                <ChartCard title="Today's Cash Flow (In vs Out)" height={200}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={cashFlowToday} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                      <CartesianGrid stroke="#e1e0d9" vertical={false} />
+                      <XAxis dataKey="type" tick={AXIS_TEXT} axisLine={{ stroke: "#c3c2b7" }} tickLine={false} />
+                      <YAxis tick={AXIS_TEXT} axisLine={false} tickLine={false} width={44} />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="in" name="In" fill={COLOR_PROFIT} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                      <Bar dataKey="out" name="Out" fill={COLOR_EXPENSE} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              </div>
+            </>
+          )}
+
+          <SectionTitle>Stock</SectionTitle>
+          <div className="mt-3 grid gap-4 lg:grid-cols-2">
+            <StatTile label="Stock Value (at cost)" value={summary.totalStockValue} />
 
             <div className="rounded-2xl bg-surface p-4 shadow-sm">
               <h2 className="text-sm font-semibold text-text">Needs Attention</h2>
@@ -298,19 +321,10 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl bg-surface p-4 shadow-sm">
-              <p className="text-xs font-medium text-muted">Sales Count</p>
-              <p className="mt-1 font-mono text-xl font-semibold text-text">{summary.salesCount}</p>
-            </div>
-            <div className="rounded-2xl bg-surface p-4 shadow-sm">
-              <p className="text-xs font-medium text-muted">Output GST</p>
-              <p className="mt-1 font-mono text-xl font-semibold text-text">{currency(summary.outputGst)}</p>
-            </div>
-            <div className="rounded-2xl bg-surface p-4 shadow-sm">
-              <p className="text-xs font-medium text-muted">Input GST</p>
-              <p className="mt-1 font-mono text-xl font-semibold text-text">{currency(summary.inputGst)}</p>
-            </div>
+          <SectionTitle>Receivables & Payables</SectionTitle>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatTile label="Customer Receivables" value={todayBalances?.credit.closing ?? 0} tone="danger" />
+            <StatTile label="Total Payables" value={summary.totalPayables} tone="danger" />
           </div>
         </>
       )}
