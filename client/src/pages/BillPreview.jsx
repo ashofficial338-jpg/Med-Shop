@@ -5,14 +5,6 @@ import { getSale, openSalePdf, voidSale } from "../api/sales";
 import { useAuth } from "../context/AuthContext";
 import RequiredMark from "../components/RequiredMark";
 
-// TODO: replace with the real registered business name, GSTIN and address -
-// mirrors the SHOP constant in server/src/utils/billPdf.js.
-const SHOP = {
-  name: "GHM Medical Shop",
-  gstin: "",
-  address: "",
-};
-
 export default function BillPreview() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -45,119 +37,17 @@ export default function BillPreview() {
     }
   };
 
-  // Falls back to computing the tax breakup client-side for a void response
-  // (voidSale returns the raw sale, without the taxBreakup the GET /:id
-  // endpoint adds) - mirrors server/src/utils/saleHelpers.js billTaxBreakup.
-  const breakup =
-    sale.taxBreakup ||
-    (() => {
-      const grossTotal = Number((sale.subtotal + sale.gstAmount).toFixed(2));
-      const discountPercent = grossTotal > 0 ? (sale.discount / grossTotal) * 100 : 0;
-      const postDiscountTotal = Number((sale.subtotal + sale.gstAmount - sale.discount).toFixed(2));
-      const avgGstRate = sale.subtotal > 0 ? sale.gstAmount / sale.subtotal : 0;
-      const base = Number((postDiscountTotal / (1 + avgGstRate)).toFixed(2));
-      const gstAfterDiscount = Number((postDiscountTotal - base).toFixed(2));
-      return {
-        grossTotal,
-        discountPercent,
-        base,
-        cgst: Number((gstAfterDiscount / 2).toFixed(2)),
-        sgst: Number((gstAfterDiscount / 2).toFixed(2)),
-        roundedOff: Math.round(postDiscountTotal),
-      };
-    })();
-
-  const itemBatch = (item) =>
-    item.batchBreakdown?.map((b) => b.batchNo).filter(Boolean).join(",") || "";
-  const itemExpiry = (item) => {
-    const exp = item.batchBreakdown?.[0]?.expiryDate;
-    if (!exp) return "";
-    const d = new Date(exp);
-    return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`;
-  };
-
   return (
     <Layout>
-      <div className="mx-auto max-w-lg rounded-2xl bg-surface p-6 font-mono shadow-sm">
-        <div className="text-center">
-          <p className="text-base font-bold text-text">{SHOP.name}</p>
-          {SHOP.gstin && <p className="text-xs text-muted">GSTIN: {SHOP.gstin}</p>}
-          {SHOP.address && <p className="text-xs text-muted">{SHOP.address}</p>}
-        </div>
-
-        <div className="mt-3 space-y-0.5 text-xs text-text">
-          <p>NO TAX Bill : {sale.billNo}</p>
-
-          {sale.paymentStatus === "void" && (
-            <p className="text-center text-lg font-bold text-danger">VOID</p>
-          )}
-
-          <p>Date: {new Date(sale.createdAt).toLocaleString()}</p>
-          <p>Name: {sale.customer?.name || "Walk-in"}</p>
-          <p>Dr.:</p>
-          <p>Cus Phone: {sale.customer?.phone || ""}</p>
-        </div>
-
-        <div className="mt-3 overflow-x-auto border-t border-dashed border-border pt-2">
-          <table className="w-full min-w-[560px] text-left text-[11px] text-text">
-            <thead>
-              <tr className="border-b border-dashed border-border text-muted">
-                <th className="pr-2 font-normal">Qty</th>
-                <th className="pr-2 font-normal">Product Name</th>
-                <th className="pr-2 font-normal">Mfr</th>
-                <th className="pr-2 font-normal">MRP</th>
-                <th className="pr-2 font-normal">Batch</th>
-                <th className="pr-2 font-normal">Loc</th>
-                <th className="pr-2 font-normal">Exp</th>
-                <th className="pr-2 font-normal">GST</th>
-                <th className="font-normal">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sale.items.map((item, i) => (
-                <tr key={i}>
-                  <td className="pr-2">{item.qty} {item.unitLabel}</td>
-                  <td className="pr-2">{item.name}</td>
-                  <td className="pr-2"></td>
-                  <td className="pr-2">{item.rate.toFixed(2)}</td>
-                  <td className="pr-2">{itemBatch(item)}</td>
-                  <td className="pr-2"></td>
-                  <td className="pr-2">{itemExpiry(item)}</td>
-                  <td className="pr-2">{item.gstPercent}%</td>
-                  <td>{(item.amount + item.gstAmount).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-3 space-y-1 border-t border-dashed border-border pt-3 text-xs text-text">
-          <div className="flex justify-between"><span>Gross Total</span><span>{breakup.grossTotal.toFixed(2)}</span></div>
-          {sale.discount > 0 && (
-            <div className="flex justify-between"><span>Discount {breakup.discountPercent.toFixed(2)}%</span><span>{sale.discount.toFixed(2)}</span></div>
-          )}
-          <div className="flex justify-between"><span>Base</span><span>{breakup.base.toFixed(2)}</span></div>
-          <div className="flex justify-between"><span>CGST</span><span>{breakup.cgst.toFixed(2)}</span></div>
-          <div className="flex justify-between"><span>SGST</span><span>{breakup.sgst.toFixed(2)}</span></div>
-          <div className="flex justify-between font-semibold"><span>Rounded Off to Rs</span><span>{breakup.roundedOff.toFixed(2)}</span></div>
-        </div>
-
-        {sale.paymentStatus === "void" && (
-          <p className="mt-3 text-xs text-danger">Voided: {sale.voidReason}</p>
-        )}
-
-        <div className="mt-3 space-y-0.5 border-t border-dashed border-border pt-2 text-xs text-text">
-          <p>Billed By: {sale.createdBy?.username || ""}</p>
-          <p>SMAN:</p>
-        </div>
-
-        <div className="mt-3 space-y-0.5 text-center text-[10px] text-muted">
-          <p>Goods Once Sold Can't be Taken Back</p>
-          <p>** PRODUCTS HAVE NO DISCOUNT</p>
-        </div>
+      {/* billText is the exact same fixed-width layout the printed PDF uses
+          (built once, server-side, in saleHelpers.buildBillText) - shown
+          verbatim here in a monospace block so the on-screen preview and
+          the print-out always match. */}
+      <div className="mx-auto max-w-3xl overflow-x-auto rounded-2xl bg-surface p-6 shadow-sm">
+        <pre className="whitespace-pre font-mono text-[11px] leading-snug text-text">{sale.billText}</pre>
       </div>
 
-      {error && <p className="mx-auto mt-3 max-w-sm text-sm text-danger">{error}</p>}
+      {error && <p className="mx-auto mt-3 max-w-3xl text-sm text-danger">{error}</p>}
 
       <div className="mx-auto mt-4 flex max-w-sm flex-col gap-2">
         <button

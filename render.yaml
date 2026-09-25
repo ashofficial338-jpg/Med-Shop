@@ -35,7 +35,7 @@ services:
 
   # NOTE ON THE LIVE DEPLOY: the backend actually in production was deployed
   # from its own repo (github.com/ashofficial338-jpg/med-backend), not this
-  # blueprint, and Render assigned it https://med-backend-1-g2db.onrender.com
+  # blueprint, and Render assigned it https://med-backend-6-188x.onrender.com
   # (the plain "med-backend" name was taken). This file's service names are
   # for a from-scratch single-repo deploy; on the live med-backend service,
   # set CORS_ORIGIN directly in the Render dashboard once the frontend's
@@ -51,7 +51,7 @@ services:
     staticPublishPath: client/dist
     envVars:
       - key: VITE_API_URL
-        value: https://med-backend-1-g2db.onrender.com/api
+        value: https://med-backend-6-188x.onrender.com/api
     routes:
       # Client-side routing (React Router) - unmatched paths fall back to
       # index.html instead of 404ing.

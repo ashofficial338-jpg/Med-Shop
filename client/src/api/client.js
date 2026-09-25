@@ -2,7 +2,7 @@ import axios from "axios";
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
-  "https://med-backend-1-g2db.onrender.com/api";
+  "https://med-backend-6-188x.onrender.com/api";
 
 const API_ORIGIN = API_URL.replace(/\/api\/?$/, "");
 
