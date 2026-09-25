@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createProduct, updateProduct, listCategories } from "../api/products";
+import { createProduct, updateProduct, listCategories, enableLooseSelling } from "../api/products";
 import { resolveAssetUrl } from "../api/client";
 import { listVendors } from "../api/vendors";
 import RequiredMark from "./RequiredMark";
@@ -38,6 +38,12 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
   const [imagePreview, setImagePreview] = useState(product?.image || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const [showEnableLoose, setShowEnableLoose] = useState(false);
+  const [enableUnitsPerPack, setEnableUnitsPerPack] = useState("");
+  const [enableLooseUnitName, setEnableLooseUnitName] = useState("");
+  const [enableError, setEnableError] = useState("");
+  const [enabling, setEnabling] = useState(false);
 
   useEffect(() => {
     listCategories().then(setCategories);
@@ -124,6 +130,21 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
       setError(err.response?.data?.message || "Something went wrong. Please try again.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleEnableLoose = async () => {
+    const units = Number(enableUnitsPerPack);
+    if (!(units > 1) || !LOOSE_UNITS.includes(enableLooseUnitName) || enabling) return;
+    setEnabling(true);
+    setEnableError("");
+    try {
+      const updated = await enableLooseSelling(product._id, { unitsPerPack: units, looseUnitName: enableLooseUnitName });
+      onSaved(updated);
+    } catch (err) {
+      setEnableError(err.response?.data?.message || "Something went wrong. Please try again.");
+    } finally {
+      setEnabling(false);
     }
   };
 
@@ -256,6 +277,76 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
           {isEdit && hasLooseSplit && (
             <div className="col-span-2 text-sm text-muted">
               Sold as: whole {form.packUnit} or loose {form.looseUnitName} ({form.unitsPerPack} per {form.packUnit})
+            </div>
+          )}
+
+          {/* A pack-only product can still be switched to also sell loose later -
+              unlike the fields above, this goes through its own endpoint that
+              rescales existing stock/batches into the new unit (see enable-loose
+              in products.js), rather than silently reinterpreting them. */}
+          {isEdit && !hasLooseSplit && (
+            <div className="col-span-2 rounded-xl border border-border p-3">
+              {!showEnableLoose ? (
+                <button
+                  type="button"
+                  onClick={() => setShowEnableLoose(true)}
+                  className="text-sm font-semibold text-primary hover:underline"
+                >
+                  + Also sell this loose, by the piece
+                </button>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-text">Enable Loose Selling</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    One-time change - existing stock is automatically re-counted into the new unit.
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelCls}>Units per {form.packUnit}<RequiredMark /></label>
+                      <input
+                        type="number"
+                        min="2"
+                        placeholder="e.g. 15"
+                        value={enableUnitsPerPack}
+                        onChange={(e) => setEnableUnitsPerPack(e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Loose Unit Name<RequiredMark /></label>
+                      <select value={enableLooseUnitName} onChange={(e) => setEnableLooseUnitName(e.target.value)} className={inputCls}>
+                        <option value="">—</option>
+                        {LOOSE_UNITS.map((u) => (
+                          <option key={u} value={u}>{u}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {Number(enableUnitsPerPack) > 1 && (
+                    <p className="mt-2 text-xs text-muted">
+                      ≈ ₹{(Number(form.packRate) / Number(enableUnitsPerPack)).toFixed(2)} per {enableLooseUnitName || "unit"}
+                    </p>
+                  )}
+                  {enableError && <p className="mt-2 text-sm text-danger">{enableError}</p>}
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleEnableLoose}
+                      disabled={!(Number(enableUnitsPerPack) > 1) || !LOOSE_UNITS.includes(enableLooseUnitName) || enabling}
+                      className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-primary-dark"
+                    >
+                      {enabling ? "Saving…" : "Enable"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEnableLoose(false)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-muted hover:bg-bg"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

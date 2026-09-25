@@ -14,6 +14,8 @@ const ADMIN_NAV_ITEMS = [
   { to: "/stock", label: "Stock" },
   { to: "/customers", label: "Customers" },
   { to: "/bills", label: "Bill History" },
+  { to: "/expenses", label: "Expenses" },
+  { to: "/day-book", label: "Day Book" },
 ];
 
 const STAFF_NAV_ITEMS = [

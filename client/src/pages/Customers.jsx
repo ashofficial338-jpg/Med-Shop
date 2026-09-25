@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import Layout from "../components/Layout";
 import { searchCustomers, getCustomer } from "../api/customers";
 
@@ -59,6 +60,9 @@ export default function Customers() {
               <p className="font-medium text-text">{c.name}</p>
               <p className="text-sm text-muted">{c.phone}</p>
             </div>
+            {c.outstandingBalance > 0 && (
+              <span className="font-mono text-sm font-semibold text-danger">₹{c.outstandingBalance.toFixed(2)} due</span>
+            )}
           </button>
         ))}
       </div>
@@ -72,6 +76,21 @@ export default function Customers() {
             </div>
             <p className="text-sm text-muted">{detail.customer.phone}{detail.customer.email ? ` · ${detail.customer.email}` : ""}</p>
             {detail.customer.address && <p className="text-sm text-muted">{detail.customer.address}</p>}
+
+            <div className="mt-3 flex items-center justify-between rounded-lg bg-bg p-3">
+              <div>
+                <p className="text-xs text-muted">Outstanding Balance</p>
+                <p className={`font-mono text-lg font-semibold ${detail.outstandingBalance > 0 ? "text-danger" : "text-text"}`}>
+                  ₹{detail.outstandingBalance.toFixed(2)}
+                </p>
+              </div>
+              <Link
+                to={`/customers/${detail.customer._id}/ledger`}
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark"
+              >
+                View Ledger
+              </Link>
+            </div>
 
             <h3 className="mt-4 text-sm font-semibold text-text">Purchase History</h3>
             <div className="mt-2 max-h-72 space-y-2 overflow-y-auto">

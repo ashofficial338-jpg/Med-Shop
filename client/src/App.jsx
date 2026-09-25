@@ -13,6 +13,11 @@ import Checkout from "./pages/Checkout";
 import BillPreview from "./pages/BillPreview";
 import BillHistory from "./pages/BillHistory";
 import Customers from "./pages/Customers";
+import CustomerLedger from "./pages/CustomerLedger";
+import VendorLedger from "./pages/VendorLedger";
+import VendorAnalysis from "./pages/VendorAnalysis";
+import Expenses from "./pages/Expenses";
+import DayBook from "./pages/DayBook";
 import StockManagement from "./pages/StockManagement";
 
 function Home() {
@@ -112,6 +117,46 @@ export default function App() {
           element={
             <ProtectedRoute roles={["admin"]}>
               <Customers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customers/:id/ledger"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <CustomerLedger />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/vendors/:id/ledger"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <VendorLedger />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/vendors/:id/analysis"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <VendorAnalysis />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/expenses"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <Expenses />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/day-book"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <DayBook />
             </ProtectedRoute>
           }
         />

@@ -10,6 +10,8 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const [invoiceNo, setInvoiceNo] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [tdsAmount, setTdsAmount] = useState("");
+  const [paymentMode, setPaymentMode] = useState("Credit");
+  const [amountPaid, setAmountPaid] = useState("");
   const [lines, setLines] = useState([{ ...emptyLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -48,6 +50,9 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const gstTotal = lines.reduce((sum, l) => sum + lineGst(l), 0);
   const tds = Number(tdsAmount) || 0;
   const total = subtotal + gstTotal;
+  const isCredit = paymentMode === "Credit";
+  const paidNow = isCredit ? Math.min(Math.max(Number(amountPaid) || 0, 0), total) : total;
+  const balancePayable = Number((total - paidNow).toFixed(2));
 
   const validLines = lines.filter(
     (l) => l.product && Number(l.qtyPacks) > 0 && Number(l.costPrice) >= 0 && l.batchNo.trim() && l.expiryDate
@@ -65,6 +70,8 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
         invoiceNo,
         date,
         tdsAmount: tds,
+        paymentMode,
+        amountPaid: paidNow,
         items: lines.map((l) => ({
           product: l.product,
           qtyPacks: Number(l.qtyPacks),
@@ -160,15 +167,40 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
         </button>
 
         <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
-          <div>
-            <label className={labelCls}>TDS Amount (optional)</label>
-            <input type="number" min="0" step="0.01" value={tdsAmount} onChange={(e) => setTdsAmount(e.target.value)} className={inputCls} />
+          <div className="space-y-3">
+            <div>
+              <label className={labelCls}>TDS Amount (optional)</label>
+              <input type="number" min="0" step="0.01" value={tdsAmount} onChange={(e) => setTdsAmount(e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Payment Mode</label>
+              <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={inputCls}>
+                <option value="Credit">Credit</option>
+                <option value="Cash">Cash</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Cheque">Cheque</option>
+                <option value="UPI">UPI</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            {isCredit && (
+              <div>
+                <label className={labelCls}>Amount Paid Now (optional)</label>
+                <input type="number" min="0" max={total} step="0.01" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} className={inputCls} />
+              </div>
+            )}
           </div>
           <div className="text-right text-sm text-text">
             <p>Subtotal: ₹{subtotal.toFixed(2)}</p>
             <p>GST: ₹{gstTotal.toFixed(2)}</p>
             <p className="text-muted">TDS (tracked separately): ₹{tds.toFixed(2)}</p>
             <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
+            {isCredit && (
+              <>
+                <p className="text-muted">Paid Now: ₹{paidNow.toFixed(2)}</p>
+                <p className="font-semibold text-danger">Balance Payable: ₹{balancePayable.toFixed(2)}</p>
+              </>
+            )}
           </div>
         </div>
 

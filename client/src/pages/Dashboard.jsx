@@ -11,8 +11,10 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import { Link } from "react-router-dom";
 import Layout from "../components/Layout";
 import { getDashboardSummary, downloadDashboardReport } from "../api/dashboard";
+import { getDayBookSummary } from "../api/daybook";
 
 // Categorical slots 1-3 of the validated default dataviz palette (blue/orange/aqua) -
 // this trio clears CVD separation in both light and dark under the strictest
@@ -82,6 +84,7 @@ export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [todayBalances, setTodayBalances] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -94,6 +97,10 @@ export default function Dashboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    getDayBookSummary().then(setTodayBalances);
+  }, []);
 
   const handleExport = async () => {
     setExporting(true);
@@ -122,6 +129,25 @@ export default function Dashboard() {
           {exporting ? "Exporting…" : "Export Report"}
         </button>
       </div>
+
+      {todayBalances && (
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {[
+            { label: "Cash Today", data: todayBalances.cash },
+            { label: "UPI Today", data: todayBalances.upi },
+            { label: "Credit Outstanding", data: todayBalances.credit },
+          ].map((t) => (
+            <Link
+              key={t.label}
+              to="/day-book"
+              className="rounded-2xl bg-surface p-4 shadow-sm hover:bg-bg"
+            >
+              <p className="text-xs font-medium text-muted">{t.label}</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-text">{currency(t.data.closing)}</p>
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {PRESETS.map((p) => {

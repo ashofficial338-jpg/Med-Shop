@@ -15,3 +15,11 @@ export function getCustomer(id) {
 export function updateCustomer(id, data) {
   return api.patch(`/customers/${id}`, data).then((r) => r.data);
 }
+
+export function getCustomerLedger(id) {
+  return api.get(`/customers/${id}/ledger`).then((r) => r.data);
+}
+
+export function recordCustomerPayment(id, data) {
+  return api.post(`/customers/${id}/payments`, data).then((r) => r.data);
+}

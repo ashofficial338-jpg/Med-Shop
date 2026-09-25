@@ -16,6 +16,7 @@ export default function Checkout() {
   const [customer, setCustomer] = useState(null);
   const [discount, setDiscount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Cash");
+  const [amountReceived, setAmountReceived] = useState("");
   const [error, setError] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
   const [needsOverride, setNeedsOverride] = useState(false);
@@ -31,8 +32,13 @@ export default function Checkout() {
   const gstTotal = lines.reduce((sum, l) => sum + lineGst(l), 0);
   const appliedDiscount = isAdmin ? Number(discount) || 0 : 0;
   const total = subtotal + gstTotal - appliedDiscount;
+  const isCredit = paymentMode === "Credit";
+  const receivedNow = isCredit ? Math.min(Math.max(Number(amountReceived) || 0, 0), total) : total;
+  const balanceDue = Number((total - receivedNow).toFixed(2));
+  const canSubmit = !isCredit || Boolean(customer);
 
   const submit = async (withOverride = false) => {
+    if (!canSubmit) return;
     setSaving(true);
     setError("");
     try {
@@ -41,6 +47,7 @@ export default function Checkout() {
         paymentMode,
         discount: appliedDiscount,
         items: lines.map((l) => ({ product: l.product._id, unitType: l.unitType, qty: l.qty })),
+        ...(isCredit ? { amountReceived: receivedNow } : {}),
         ...(withOverride ? { overrideExpiredReason: overrideReason } : {}),
       });
       clearCart();
@@ -112,14 +119,40 @@ export default function Checkout() {
           <option>Card</option>
           <option>UPI</option>
           <option>Other</option>
+          <option value="Credit">Credit</option>
         </select>
+        {isCredit && !customer && (
+          <p className="mt-1 text-xs text-danger">Select a customer above to bill this on credit.</p>
+        )}
       </div>
+
+      {isCredit && (
+        <div className="mt-4">
+          <label className="mb-1 block text-sm font-medium text-text">Amount Received Now (₹)</label>
+          <input
+            type="number"
+            min="0"
+            max={total}
+            step="0.01"
+            value={amountReceived}
+            onChange={(e) => setAmountReceived(e.target.value)}
+            className={`${inputCls} w-32`}
+            placeholder="0.00"
+          />
+        </div>
+      )}
 
       <div className="mt-4 rounded-xl bg-surface p-4 text-sm text-text shadow-sm">
         <div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
         <div className="flex justify-between"><span>GST</span><span>₹{gstTotal.toFixed(2)}</span></div>
         {appliedDiscount > 0 && <div className="flex justify-between"><span>Discount</span><span>-₹{appliedDiscount.toFixed(2)}</span></div>}
         <div className="mt-1 flex justify-between border-t border-border pt-1 font-semibold"><span>Total</span><span>₹{total.toFixed(2)}</span></div>
+        {isCredit && (
+          <>
+            <div className="flex justify-between text-muted"><span>Received Now</span><span>₹{receivedNow.toFixed(2)}</span></div>
+            <div className="flex justify-between font-semibold text-danger"><span>Balance Due</span><span>₹{balanceDue.toFixed(2)}</span></div>
+          </>
+        )}
       </div>
 
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}
@@ -145,7 +178,7 @@ export default function Checkout() {
 
       <button
         onClick={() => submit(false)}
-        disabled={saving}
+        disabled={saving || !canSubmit}
         className="mt-4 w-full rounded-lg bg-accent py-3 text-base font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 hover:brightness-95"
       >
         {saving ? "Processing…" : "Payment Completed"}

@@ -125,10 +125,30 @@ export default function Vendors() {
                   <span className={`text-muted transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
                   <span>
                     <p className="font-medium text-text">{v.name}</p>
-                    <p className="text-sm text-muted">{v.phone} · {v.gstNumber}</p>
+                    <p className="text-sm text-muted">
+                      {v.phone} · {v.gstNumber}
+                      {v.overallRating != null && (
+                        <span className="ml-2 text-warning">{"★".repeat(Math.round(v.overallRating))}<span className="text-muted">{v.overallRating.toFixed(1)}</span></span>
+                      )}
+                    </p>
                   </span>
                 </button>
                 <div className="flex items-center gap-2">
+                  {v.outstandingPayable > 0 && (
+                    <span className="font-mono text-sm font-semibold text-danger">₹{v.outstandingPayable.toFixed(2)} payable</span>
+                  )}
+                  <Link
+                    to={`/vendors/${v._id}/ledger`}
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:bg-bg"
+                  >
+                    Ledger
+                  </Link>
+                  <Link
+                    to={`/vendors/${v._id}/analysis`}
+                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:bg-bg"
+                  >
+                    Analysis
+                  </Link>
                   <button
                     onClick={() => setPurchaseVendor(v)}
                     className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark"

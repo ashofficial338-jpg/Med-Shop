@@ -28,6 +28,12 @@ export function deactivateProduct(id) {
   return api.delete(`/products/${id}`).then((r) => r.data);
 }
 
+// One-time, one-way conversion of a pack-only product to also sell loose -
+// see the server route's comment for why this isn't just another editable field.
+export function enableLooseSelling(id, data) {
+  return api.patch(`/products/${id}/enable-loose`, data).then((r) => r.data);
+}
+
 export function listCategories() {
   return api.get("/categories").then((r) => r.data);
 }
