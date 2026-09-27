@@ -7,7 +7,7 @@ import axios from "axios";
 // so the app also works when opened via the LAN IP without any CORS setup.
 const API_URL = import.meta.env.DEV
   ? "/api"
-  : import.meta.env.VITE_API_URL || "https://med-backend-2-fiwe.onrender.com/api";
+  : import.meta.env.VITE_API_URL || "https://med-shop-1-p6h5.onrender.com/api";
 
 const API_ORIGIN = API_URL.replace(/\/api\/?$/, "");
 
