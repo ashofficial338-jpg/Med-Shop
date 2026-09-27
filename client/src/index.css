@@ -1,0 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-sans: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+
+  --color-bg: #F4FAF9;
+  --color-surface: #FFFFFF;
+  --color-text: #133331;
+  --color-muted: #5B7A77;
+  --color-border: #DCEAE8;
+
+  --color-primary: #0F6B66;
+  --color-primary-dark: #0B4F4B;
+  --color-accent: #E8734A;
+  --color-success: #2F9E5B;
+  --color-warning: #C97A17;
+  --color-danger: #C4423A;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+/* We render our own eye icon for show/hide password; Edge/IE inject a native
+   one in the same spot which overlaps it, so turn theirs off. */
+input[type='password']::-ms-reveal,
+input[type='password']::-ms-clear {
+  display: none;
+}
+
+/* Chrome/Edge autofill updates the input's displayed value without firing a
+   React-visible change event, which left our Login button stuck disabled
+   after autofill. This animation-based hook is the standard way to detect
+   autofill so we can resync React state to it — see handleAutofill in Login.jsx. */
+@keyframes onAutoFill {
+  from {}
+  to {}
+}
+input:-webkit-autofill {
+  animation-name: onAutoFill;
+  animation-duration: 1ms;
+}
