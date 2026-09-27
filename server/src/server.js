@@ -39,6 +39,7 @@ const allowedOrigins = [
   /^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+):\d+$/,
   "https://med-frontend-three.vercel.app",
   "https://med-shop-lac.vercel.app",
+  "https://med-shop-delta.vercel.app",
   ...(process.env.CORS_ORIGIN?.split(",").map((o) => o.trim().replace(/\/$/, "")).filter(Boolean) ?? []),
 ];
 const corsOptions = {
