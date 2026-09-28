@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import ProductTile from "../components/ProductTile";
 import ProductFormModal from "../components/ProductFormModal";
@@ -17,7 +18,9 @@ export default function Products() {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [query, setQuery] = useState("");
+  const [searchParams] = useSearchParams();
+  const urlQuery = searchParams.get("q") || "";
+  const [query, setQuery] = useState(urlQuery);
   const [category, setCategory] = useState("");
   const [availability, setAvailability] = useState("");
   const [loading, setLoading] = useState(true);
@@ -47,6 +50,11 @@ export default function Products() {
   useEffect(() => {
     listCategories().then(setCategories);
   }, []);
+
+  // The top-bar search navigates here with ?q=, including while already on this page.
+  useEffect(() => {
+    setQuery(urlQuery);
+  }, [urlQuery]);
 
   const handleSaved = () => {
     setEditingProduct(null);

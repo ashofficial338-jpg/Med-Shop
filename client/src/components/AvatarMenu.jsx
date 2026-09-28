@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import Icon from "./Icon";
 
 export default function AvatarMenu() {
   const { user, logout } = useAuth();
@@ -29,33 +30,44 @@ export default function AvatarMenu() {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label="Account menu"
-        className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/80 bg-primary font-semibold text-white shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        aria-expanded={open}
+        className="flex items-center gap-2.5 rounded-xl border border-transparent py-1 pl-1 pr-2 transition hover:border-border hover:bg-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
-        {initial}
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-info font-semibold text-white shadow-sm">
+          {initial}
+        </span>
+        <span className="hidden text-left leading-tight sm:block">
+          <span className="block max-w-[9rem] truncate text-sm font-semibold text-text">{user?.username}</span>
+          <span className="block text-[11px] capitalize text-muted">{user?.role === "admin" ? "Pharmacist · Admin" : "Staff"}</span>
+        </span>
+        <Icon name="chevronDown" size={16} className="hidden text-muted sm:block" />
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
+        <div className="fade-up absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-[var(--shadow-lift)]">
           <Link
             to="/profile"
             onClick={() => setOpen(false)}
-            className="block px-4 py-2.5 text-sm text-text hover:bg-bg"
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text hover:bg-bg"
           >
-            Profile
+            <Icon name="settings" size={16} className="text-muted" />
+            Profile &amp; settings
           </Link>
           {user?.role === "admin" && (
             <Link
               to="/users"
               onClick={() => setOpen(false)}
-              className="block px-4 py-2.5 text-sm text-text hover:bg-bg"
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text hover:bg-bg"
             >
+              <Icon name="users" size={16} className="text-muted" />
               Users
             </Link>
           )}
           <button
             onClick={handleLogout}
-            className="block w-full px-4 py-2.5 text-left text-sm text-danger hover:bg-bg"
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger/5"
           >
+            <Icon name="logout" size={16} />
             Logout
           </button>
         </div>

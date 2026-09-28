@@ -1,29 +1,85 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
-  --font-sans: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
 
-  --color-bg: #F4FAF9;
+  /* Light clinical neutrals + charcoal ink, teal brand, soft-blue info. */
+  --color-bg: #F4F6F9;
   --color-surface: #FFFFFF;
-  --color-text: #133331;
-  --color-muted: #5B7A77;
-  --color-border: #DCEAE8;
+  --color-text: #1D2830;
+  --color-muted: #66737F;
+  --color-border: #E4E9EE;
 
-  --color-primary: #0F6B66;
-  --color-primary-dark: #0B4F4B;
+  --color-primary: #0E7C74;
+  --color-primary-dark: #0A5F59;
+  --color-primary-soft: #E6F3F1;
+  --color-info: #2A78D6;
+  --color-info-soft: #EAF2FC;
   --color-accent: #E8734A;
-  --color-success: #2F9E5B;
-  --color-warning: #C97A17;
-  --color-danger: #C4423A;
+  --color-success: #178A55;
+  --color-warning: #B86E0E;
+  --color-danger: #C43D36;
+
+  --shadow-card: 0 1px 2px rgba(16, 36, 48, 0.04), 0 4px 16px -6px rgba(16, 36, 48, 0.08);
+  --shadow-lift: 0 2px 4px rgba(16, 36, 48, 0.05), 0 12px 28px -10px rgba(16, 36, 48, 0.16);
 }
 
 body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Soft card surface used across the dashboard. */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-card);
+}
+.card-hover {
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+.card-hover:hover {
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-1px);
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.fade-up {
+  animation: fadeUp 0.45s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-up { animation: none; }
+  .card-hover:hover { transform: none; }
+}
+
+@keyframes shimmer {
+  from { background-position: -400px 0; }
+  to { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #eef1f4 0%, #f7f9fa 50%, #eef1f4 100%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 0.5rem;
+}
+
+/* Thin, quiet scrollbars for the sidebar and scrolling tables. */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d5dce2 transparent;
 }
 
 /* We render our own eye icon for show/hide password; Edge/IE inject a native
