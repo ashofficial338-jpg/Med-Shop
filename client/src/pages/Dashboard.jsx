@@ -13,6 +13,7 @@ import {
   ExpiringList,
   ProfitLoss,
   ProductProfitability,
+  InventoryTurnover,
 } from "../components/dashboard/DashboardWidgets";
 import { fullDate } from "../components/dashboard/format";
 
@@ -242,6 +243,7 @@ export default function Dashboard() {
 
           <section className="space-y-4">
             <SectionTitle icon="boxes">Stock</SectionTitle>
+            <InventoryTurnover summary={summary} range={range} />
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="self-start">
                 <StatTile

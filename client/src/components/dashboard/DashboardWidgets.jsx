@@ -398,3 +398,58 @@ export function ProductProfitability({ summary }) {
     </section>
   );
 }
+
+// Inventory Turnover Ratio = COGS / Average Inventory, with
+// Average Inventory = (Opening + Closing Inventory) / 2 - computed in dashboard.js.
+export function InventoryTurnover({ summary, range }) {
+  // Older backend builds don't send these fields - see ProductProfitability.
+  if (summary.inventoryTurnover === undefined) {
+    return (
+      <ChartCard title="Inventory Turnover Ratio">
+        <EmptyRow
+          icon="alert"
+          title="Not available yet"
+          text="The server hasn't been updated with inventory turnover. Redeploy the backend to see this figure."
+        />
+      </ChartCard>
+    );
+  }
+
+  const ratio = summary.inventoryTurnover;
+  return (
+    <ChartCard title="Inventory Turnover Ratio" subtitle={`${fullDate(range.from)} – ${fullDate(range.to)}`}>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <div className="relative flex flex-col justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-info-soft to-primary-soft p-6">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-info">
+            <Icon name="boxes" size={15} strokeWidth={2} />
+            Turnover
+          </p>
+          <p className="mt-2 font-display text-3xl font-bold text-text tnum sm:text-4xl">
+            {ratio === null ? "—" : `${ratio.toFixed(2)}×`}
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            {ratio === null
+              ? "No stock on hand in this period."
+              : `Stock was sold through about ${ratio.toFixed(1)} time${ratio === 1 ? "" : "s"} in this period.`}
+          </p>
+          <Icon name="boxes" size={110} strokeWidth={1} className="pointer-events-none absolute -bottom-5 -right-3 text-info opacity-[0.07]" />
+        </div>
+
+        <div>
+          <StatementRow label="Opening Inventory" value={summary.openingInventory} note="at cost, start of period" />
+          <StatementRow sign="+" label="Closing Inventory" value={summary.closingInventory} note="at cost, end of period" />
+          <StatementRow strong sign="÷" label="Average Inventory" value={summary.averageInventory} note="(opening + closing) ÷ 2" />
+          <StatementRow label="Cost of Goods Sold" value={summary.cogs} />
+          <div className="flex items-baseline justify-between gap-3 border-t border-border py-2 font-semibold">
+            <span className="text-sm text-text">
+              <span className="mr-1.5 inline-block w-3 text-muted">=</span>
+              Turnover Ratio
+              <span className="ml-1.5 text-xs font-normal text-muted">COGS ÷ average inventory</span>
+            </span>
+            <span className="shrink-0 text-sm text-text tnum">{ratio === null ? "—" : `${ratio.toFixed(2)}×`}</span>
+          </div>
+        </div>
+      </div>
+    </ChartCard>
+  );
+}

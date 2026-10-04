@@ -8,7 +8,7 @@ import Batch from "../models/Batch.js";
 import Category from "../models/Category.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
-import { buildStockReport } from "../utils/stockReportHelpers.js";
+import { buildStockReport, inventoryValueAt } from "../utils/stockReportHelpers.js";
 import { vendorOutstandingMap } from "../utils/ledgerHelpers.js";
 
 const router = Router();
@@ -172,6 +172,16 @@ async function computeSummary(start, end) {
   // selected date range) - a snapshot of "right now", same as the Day Book.
   const { totals: stockTotals } = await buildStockReport();
   const outstandingMap = await vendorOutstandingMap();
+
+  // Inventory Turnover Ratio = COGS / Average Inventory, where
+  // Average Inventory = (Opening Inventory + Closing Inventory) / 2, all at cost.
+  // Opening is stock value at the start of the range, closing at its end.
+  const [openingInventory, closingInventory] = await Promise.all([
+    inventoryValueAt(start),
+    inventoryValueAt(new Date(end.getTime() + 1)),
+  ]);
+  const averageInventory = (openingInventory + closingInventory) / 2;
+  const inventoryTurnover = averageInventory > 0 ? Number((cogs / averageInventory).toFixed(2)) : null;
   const totalPayables = [...outstandingMap.values()].reduce((sum, v) => sum + v, 0);
 
   return {
@@ -189,6 +199,10 @@ async function computeSummary(start, end) {
     allocatedExpenses: Number((totalExpenses - unallocatedExpenses + expiredWriteOff).toFixed(2)),
     unallocatedExpenses: Number(unallocatedExpenses.toFixed(2)),
     roiPct: roiPct(profit, cogs),
+    openingInventory,
+    closingInventory,
+    averageInventory: Number(averageInventory.toFixed(2)),
+    inventoryTurnover,
     productProfitability,
     outputGst: Number(outputGst.toFixed(2)),
     inputGst: Number(inputGst.toFixed(2)),
@@ -224,6 +238,10 @@ router.get("/export", async (req, res) => {
     { k: summary.profit >= 0 ? "Net Profit" : "Net Loss", v: summary.profit >= 0 ? summary.netProfit : summary.netLoss },
     { k: "Product Investment (cost of goods sold)", v: summary.investment },
     { k: "ROI (%)", v: summary.roiPct === null ? "-" : `${summary.roiPct}%` },
+    { k: "Opening Inventory (cost)", v: summary.openingInventory },
+    { k: "Closing Inventory (cost)", v: summary.closingInventory },
+    { k: "Average Inventory", v: summary.averageInventory },
+    { k: "Inventory Turnover Ratio", v: summary.inventoryTurnover === null ? "-" : `${summary.inventoryTurnover}x` },
     { k: "Output GST", v: summary.outputGst },
     { k: "Input GST", v: summary.inputGst },
     { k: "Net GST Payable", v: summary.netGst },

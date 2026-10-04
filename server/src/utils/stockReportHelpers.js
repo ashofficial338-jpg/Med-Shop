@@ -1,5 +1,6 @@
 import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
+import StockLedger from "../models/StockLedger.js";
 
 function stockDisplay(product) {
   if (product.soldAs === "pack-and-loose" && product.unitsPerPack) {
@@ -72,4 +73,29 @@ export async function buildStockReport({ category, availability } = {}) {
       totalValueMrp: Number(totalValueMrp.toFixed(2)),
     },
   };
+}
+
+// Inventory value at cost as it stood at a past moment `at`: each batch's
+// current qtyRemaining with every stock movement from `at` onwards undone.
+// Every StockLedger write carries its batch, so this rebuilds the history
+// exactly. Same scope and cost-per-unit math as buildStockReport, so the
+// value at "now" matches the Stock Value tile.
+export async function inventoryValueAt(at) {
+  const [batches, later] = await Promise.all([
+    Batch.find({}).populate("product", "soldAs unitsPerPack isActive"),
+    StockLedger.aggregate([
+      { $match: { createdAt: { $gte: at }, batch: { $ne: null } } },
+      { $group: { _id: "$batch", change: { $sum: "$qtyChange" } } },
+    ]),
+  ]);
+  const changeByBatch = new Map(later.map((r) => [String(r._id), r.change]));
+
+  let value = 0;
+  for (const b of batches) {
+    if (!b.product?.isActive) continue;
+    const qty = Math.max(b.qtyRemaining - (changeByBatch.get(String(b._id)) || 0), 0);
+    const costPerUnit = b.product.soldAs === "pack-and-loose" ? b.costPrice / b.product.unitsPerPack : b.costPrice;
+    value += qty * costPerUnit;
+  }
+  return Number(value.toFixed(2));
 }
