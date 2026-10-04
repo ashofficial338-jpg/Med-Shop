@@ -1,5 +1,5 @@
 import { Router } from "express";
-import Expense from "../models/Expense.js";
+import Expense, { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_MODES, NON_CASH_CATEGORIES } from "../models/Expense.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
@@ -8,8 +8,9 @@ const router = Router();
 router.use(requireAuth, requireRole("admin"));
 
 router.get("/", async (req, res) => {
-  const { from, to } = req.query;
+  const { from, to, category } = req.query;
   const filter = {};
+  if (EXPENSE_CATEGORIES.includes(category)) filter.category = category;
   const range = dayRange(from, to);
   if (range) filter.date = range;
   const expenses = await Expense.find(filter).sort({ date: -1 });
@@ -17,8 +18,9 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/export", async (req, res) => {
-  const { from, to, format } = req.query;
+  const { from, to, category, format } = req.query;
   const filter = {};
+  if (EXPENSE_CATEGORIES.includes(category)) filter.category = category;
   const range = dayRange(from, to);
   if (range) filter.date = range;
   const expenses = await Expense.find(filter).sort({ date: -1 });
@@ -62,7 +64,7 @@ router.get("/export", async (req, res) => {
 
 router.post("/", async (req, res) => {
   const { category, amount, date, notes, paymentMode } = req.body;
-  if (!["Rent", "Salary", "Utilities", "Other"].includes(category)) {
+  if (!EXPENSE_CATEGORIES.includes(category)) {
     return res.status(400).json({ message: "This field is required." });
   }
   if (!(Number(amount) > 0)) return res.status(400).json({ message: "Please enter a valid number." });
@@ -71,7 +73,11 @@ router.post("/", async (req, res) => {
   const expense = await Expense.create({
     category,
     amount: Number(amount),
-    paymentMode: ["Cash", "UPI", "Card", "Other"].includes(paymentMode) ? paymentMode : "Cash",
+    paymentMode: NON_CASH_CATEGORIES.includes(category)
+      ? "Non-cash"
+      : EXPENSE_PAYMENT_MODES.includes(paymentMode) && paymentMode !== "Non-cash"
+        ? paymentMode
+        : "Cash",
     date,
     notes: notes || "",
     createdBy: req.user._id,

@@ -2,7 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import Sale from "../models/Sale.js";
 import Purchase from "../models/Purchase.js";
-import Expense from "../models/Expense.js";
+import Expense, { EBITDA_ADDBACKS } from "../models/Expense.js";
 import StockLedger from "../models/StockLedger.js";
 import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
@@ -154,6 +154,18 @@ async function computeSummary(start, end, { category = null, paymentMode = null 
   const grossProfit = revenue - cogs;
   const profit = grossProfit - shopExpenses - expiredWriteOff;
   const pct = (part) => (revenue > 0 ? Number(((part / revenue) * 100).toFixed(1)) : null);
+
+  // EBITDA = Net Profit + Interest + Taxes + Depreciation + Amortization.
+  // Those four are recorded as expense categories, so Net Profit already has
+  // them subtracted; adding them back gives earnings before them. Under a
+  // filter each carries the same revenue share as the other expenses.
+  const addBack = Object.fromEntries(
+    EBITDA_ADDBACKS.map((cat) => [
+      cat.toLowerCase(),
+      expenses.filter((e) => e.category === cat).reduce((sum, e) => sum + e.amount, 0) * expenseShare,
+    ])
+  );
+  const ebitda = profit + addBack.interest + addBack.taxes + addBack.depreciation + addBack.amortization;
   const roiPct = (net, investment) => (investment > 0 ? Number(((net / investment) * 100).toFixed(1)) : null);
 
   // Product Profitability & ROI:
@@ -261,6 +273,12 @@ async function computeSummary(start, end, { category = null, paymentMode = null 
     allocatedExpenses: Number((shopExpenses - unallocatedExpenses + expiredWriteOff).toFixed(2)),
     unallocatedExpenses: Number(unallocatedExpenses.toFixed(2)),
     roiPct: roiPct(profit, cogs),
+    interest: Number(addBack.interest.toFixed(2)),
+    taxes: Number(addBack.taxes.toFixed(2)),
+    depreciation: Number(addBack.depreciation.toFixed(2)),
+    amortization: Number(addBack.amortization.toFixed(2)),
+    ebitda: Number(ebitda.toFixed(2)),
+    ebitdaMarginPct: pct(ebitda),
     openingInventory,
     closingInventory,
     averageInventory: Number(averageInventory.toFixed(2)),
@@ -357,6 +375,12 @@ router.get("/export", async (req, res) => {
     { k: filterLine ? "Expenses (share for these filters)" : "Expenses", v: summary.expenses },
     { k: "Expired Stock Write-off", v: summary.expiredWriteOff },
     { k: summary.profit >= 0 ? "Net Profit" : "Net Loss", v: summary.profit >= 0 ? summary.netProfit : summary.netLoss },
+    { k: "Interest (added back)", v: summary.interest },
+    { k: "Taxes (added back)", v: summary.taxes },
+    { k: "Depreciation (added back)", v: summary.depreciation },
+    { k: "Amortization (added back)", v: summary.amortization },
+    { k: "EBITDA", v: summary.ebitda },
+    { k: "EBITDA Margin (%)", v: summary.ebitdaMarginPct === null ? "-" : `${summary.ebitdaMarginPct}%` },
     { k: "Product Investment (cost of goods sold)", v: summary.investment },
     { k: "ROI (%)", v: summary.roiPct === null ? "-" : `${summary.roiPct}%` },
     { k: "Opening Inventory (cost)", v: summary.openingInventory },

@@ -14,6 +14,7 @@ import {
   ProfitLoss,
   ProductProfitability,
   InventoryTurnover,
+  Ebitda,
 } from "../components/dashboard/DashboardWidgets";
 import { DateFilter, FilterBar, presetFor, useReportFilters } from "../components/dashboard/ReportFilters";
 import { withQuery } from "../utils/query";
@@ -79,6 +80,7 @@ export default function Dashboard() {
     salesDay: (day) => withQuery("/bills", { ...salesQuery, from: day, to: day }),
     purchases: withQuery("/purchases", { from, to, category }),
     expenses: withQuery("/expenses", { from, to }),
+    expenseCategory: (cat) => withQuery("/expenses", { from, to, category: cat }),
     profitability: withQuery("/reports/profitability", { from, to, category, paymentMode }),
     stockReport: withQuery("/stock", { tab: "report", category }),
     writeOffs: withQuery("/stock", { tab: "ledger", type: "stock-clearance" }),
@@ -127,6 +129,8 @@ export default function Dashboard() {
       {summary && (
         <div className={`mt-6 space-y-8 transition-opacity ${loading ? "opacity-60" : ""}`}>
           <ProfitLoss summary={summary} range={range} links={links} />
+
+          <Ebitda summary={summary} range={range} links={links} />
 
           <ProductProfitability summary={summary} links={links} />
 

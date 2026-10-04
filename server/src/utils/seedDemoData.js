@@ -376,6 +376,11 @@ async function seed() {
     { category: "Utilities", amount: 30, date: daysAgo(15), notes: "Electricity bill" },
     { category: "Other", amount: 20, date: daysAgo(10), notes: "Cleaning supplies" },
     { category: "Utilities", amount: 20, date: daysAgo(5), notes: "Internet bill" },
+    // EBITDA add-backs (see dashboard.js); depreciation/amortization are non-cash
+    { category: "Interest", amount: 15, date: daysAgo(12), notes: "Interest on shop loan" },
+    { category: "Taxes", amount: 25, date: daysAgo(6), notes: "Income tax provision" },
+    { category: "Depreciation", amount: 20, paymentMode: "Non-cash", date: daysAgo(3), notes: "Fridge & furniture depreciation" },
+    { category: "Amortization", amount: 10, paymentMode: "Non-cash", date: daysAgo(3), notes: "Billing software licence" },
   ];
   if (await Expense.countDocuments()) {
     console.log("Expenses already present, skipping");

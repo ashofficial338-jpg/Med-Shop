@@ -531,3 +531,77 @@ export function InventoryTurnover({ summary, range, links }) {
     </ChartCard>
   );
 }
+
+// EBITDA = Net Profit + Interest + Taxes + Depreciation + Amortization, all
+// computed in dashboard.js. The four add-backs are expense categories, so each
+// row links to those expenses for the period.
+export function Ebitda({ summary, range, links }) {
+  // Older backend builds don't send these fields - see ProductProfitability.
+  if (summary.ebitda === undefined) {
+    return (
+      <ChartCard title="EBITDA">
+        <EmptyRow
+          icon="alert"
+          title="Not available yet"
+          text="The server hasn't been updated with EBITDA. Redeploy the backend to see this figure."
+        />
+      </ChartCard>
+    );
+  }
+
+  const positive = summary.ebitda >= 0;
+  const tone = positive ? "text-success" : "text-danger";
+  const filtered = isFiltered(summary);
+  const addBacks = [
+    ["Interest", summary.interest],
+    ["Taxes", summary.taxes],
+    ["Depreciation", summary.depreciation],
+    ["Amortization", summary.amortization],
+  ];
+  const noAddBacks = addBacks.every(([, v]) => v === 0);
+
+  return (
+    <ChartCard
+      title="EBITDA"
+      subtitle={`Earnings before interest, taxes, depreciation & amortization · ${fullDate(range.from)} – ${fullDate(range.to)}${filtered ? " · filtered" : ""}`}
+      action={<ViewAll to={links.expenses} label="Expenses" />}
+    >
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <div
+          className={`relative flex flex-col justify-center overflow-hidden rounded-2xl p-6 ${
+            positive ? "bg-gradient-to-br from-success/10 to-info-soft" : "bg-gradient-to-br from-danger/10 to-bg"
+          }`}
+        >
+          <p className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${tone}`}>
+            <Icon name="chart" size={15} strokeWidth={2} />
+            EBITDA
+          </p>
+          <p className={`mt-2 break-all font-display text-3xl font-bold tnum sm:text-4xl ${tone}`}>{money2(summary.ebitda)}</p>
+          <p className="mt-2 text-xs text-muted">
+            {summary.ebitdaMarginPct === null ? "No sales in this period." : `EBITDA margin ${summary.ebitdaMarginPct}% of revenue`}
+          </p>
+          <Icon name="chart" size={110} strokeWidth={1} className={`pointer-events-none absolute -bottom-5 -right-3 opacity-[0.07] ${tone}`} />
+        </div>
+
+        <div>
+          <StatementRow
+            label={summary.profit >= 0 ? "Net Profit" : "Net Loss"}
+            value={summary.profit}
+            tone={summary.profit >= 0 ? "text-success" : "text-danger"}
+            to={links.profitability}
+          />
+          {addBacks.map(([label, value]) => (
+            <StatementRow key={label} sign="+" label={label} value={value} to={links.expenseCategory(label)} />
+          ))}
+          <StatementRow strong sign="=" label="EBITDA" value={summary.ebitda} tone={tone} />
+          {noAddBacks && (
+            <p className="mt-2 text-xs text-muted">
+              No interest, tax, depreciation or amortization recorded for this period, so EBITDA equals net profit. Record them
+              as expenses with those categories.
+            </p>
+          )}
+        </div>
+      </div>
+    </ChartCard>
+  );
+}

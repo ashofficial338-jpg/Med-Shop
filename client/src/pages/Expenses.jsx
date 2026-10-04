@@ -5,7 +5,11 @@ import Layout from "../components/Layout";
 import { listExpenses, createExpense, deleteExpense, exportExpenses } from "../api/expenses";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 
-const CATEGORIES = ["Rent", "Salary", "Utilities", "Other"];
+// Interest/Taxes/Depreciation/Amortization are the dashboard's EBITDA add-backs.
+// Depreciation/Amortization aren't money paid out, so the server always saves
+// them as "Non-cash" (kept out of the Day Book's cash/UPI balances).
+const CATEGORIES = ["Rent", "Salary", "Utilities", "Other", "Interest", "Taxes", "Depreciation", "Amortization"];
+const NON_CASH = ["Depreciation", "Amortization"];
 const PAYMENT_MODES = ["Cash", "UPI", "Card", "Other"];
 
 export default function Expenses() {
@@ -14,6 +18,7 @@ export default function Expenses() {
   const [expenses, setExpenses] = useState([]);
   const [from, setFrom] = useState(searchParams.get("from") || "");
   const [to, setTo] = useState(searchParams.get("to") || "");
+  const [filterCategory, setFilterCategory] = useState(searchParams.get("category") || "");
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
 
@@ -30,6 +35,7 @@ export default function Expenses() {
     const params = {};
     if (from) params.from = from;
     if (to) params.to = to;
+    if (filterCategory) params.category = filterCategory;
     return params;
   };
 
@@ -44,7 +50,7 @@ export default function Expenses() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, filterCategory]);
 
   const inputCls =
     "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
@@ -117,11 +123,17 @@ export default function Expenses() {
               onChange={(e) => setAmount(e.target.value)}
               className={`${inputCls} w-32`}
             />
-            <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={inputCls}>
-              {PAYMENT_MODES.map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </select>
+            {NON_CASH.includes(category) ? (
+              <span className={`${inputCls} text-muted`} title="Depreciation and amortization aren't cash payments">
+                Non-cash
+              </span>
+            ) : (
+              <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={inputCls}>
+                {PAYMENT_MODES.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+              </select>
+            )}
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
             <input
               type="text"
@@ -143,14 +155,21 @@ export default function Expenses() {
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        <select aria-label="Category" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className={inputCls}>
+          <option value="">All categories</option>
+          {CATEGORIES.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
         <span className="text-sm text-muted">to</span>
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
-        {(from || to) && (
+        {(from || to || filterCategory) && (
           <button
             onClick={() => {
               setFrom("");
               setTo("");
+              setFilterCategory("");
             }}
             className="rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-surface"
           >
