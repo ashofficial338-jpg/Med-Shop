@@ -98,6 +98,10 @@ async function makePurchase({ vendor, invoiceNo, date, admin, lines }) {
     });
   }
 
+  // Date the stock movements to the purchase, not "now" - the dashboard's
+  // opening-inventory figure replays the ledger by these timestamps.
+  await StockLedger.collection.updateMany({ refId: purchase._id }, { $set: { createdAt: date } });
+
   return purchase;
 }
 
@@ -177,6 +181,7 @@ async function makeSale({ customer, admin, paymentMode, createdAt, lines }) {
   // Model.updateOne() - go through the native driver to actually change it.
   if (createdAt) {
     await Sale.collection.updateOne({ _id: sale._id }, { $set: { createdAt } });
+    await StockLedger.collection.updateMany({ refId: sale._id }, { $set: { createdAt } });
   }
 
   return sale;
@@ -271,7 +276,7 @@ async function seed() {
     hsnCode: "3004",
     batchNo: "B24218",
     expiryDate: daysAgo(-365),
-    lowStockThreshold: 15,
+    lowStockThreshold: 6,
     vendor: vendors[1]._id,
   };
   const azithro = await createProduct(azithroDef);
@@ -289,7 +294,7 @@ async function seed() {
     hsnCode: "3004",
     batchNo: "B24319",
     expiryDate: daysAgo(-450),
-    lowStockThreshold: 10,
+    lowStockThreshold: 2,
     vendor: vendors[2]._id,
   };
   const coughSyrup = await createProduct(coughSyrupDef);
@@ -307,7 +312,7 @@ async function seed() {
     hsnCode: "3004",
     batchNo: "B24420",
     expiryDate: daysAgo(-300),
-    lowStockThreshold: 10,
+    lowStockThreshold: 2,
     vendor: vendors[3]._id,
   };
   const insulin = await createProduct(insulinDef);
@@ -323,19 +328,19 @@ async function seed() {
     hsnCode: "3304",
     batchNo: "B24521",
     expiryDate: daysAgo(-600),
-    lowStockThreshold: 15,
+    lowStockThreshold: 2,
     vendor: vendors[4]._id,
   };
   const ointment = await createProduct(ointmentDef);
   console.log("Products ready");
 
-  // Purchases (stock-in)
+  // Purchases (stock-in) - small lots, just enough to cover the demo sales below
   const purchaseDefs = [
-    { vendor: vendors[0], invoiceNo: "INV-1001", date: daysAgo(24), lines: [{ product: dolo, qtyPacks: 20, costPrice: doloDef.costPrice, batchNo: doloDef.batchNo, expiryDate: doloDef.expiryDate }] },
-    { vendor: vendors[1], invoiceNo: "INV-2001", date: daysAgo(22), lines: [{ product: azithro, qtyPacks: 15, costPrice: azithroDef.costPrice, batchNo: azithroDef.batchNo, expiryDate: azithroDef.expiryDate }] },
-    { vendor: vendors[2], invoiceNo: "INV-3001", date: daysAgo(20), lines: [{ product: coughSyrup, qtyPacks: 25, costPrice: coughSyrupDef.costPrice, batchNo: coughSyrupDef.batchNo, expiryDate: coughSyrupDef.expiryDate }] },
-    { vendor: vendors[3], invoiceNo: "INV-4001", date: daysAgo(18), lines: [{ product: insulin, qtyPacks: 30, costPrice: insulinDef.costPrice, batchNo: insulinDef.batchNo, expiryDate: insulinDef.expiryDate }] },
-    { vendor: vendors[4], invoiceNo: "INV-5001", date: daysAgo(16), lines: [{ product: ointment, qtyPacks: 40, costPrice: ointmentDef.costPrice, batchNo: ointmentDef.batchNo, expiryDate: ointmentDef.expiryDate }] },
+    { vendor: vendors[0], invoiceNo: "INV-1001", date: daysAgo(24), lines: [{ product: dolo, qtyPacks: 5, costPrice: doloDef.costPrice, batchNo: doloDef.batchNo, expiryDate: doloDef.expiryDate }] },
+    { vendor: vendors[1], invoiceNo: "INV-2001", date: daysAgo(22), lines: [{ product: azithro, qtyPacks: 5, costPrice: azithroDef.costPrice, batchNo: azithroDef.batchNo, expiryDate: azithroDef.expiryDate }] },
+    { vendor: vendors[2], invoiceNo: "INV-3001", date: daysAgo(20), lines: [{ product: coughSyrup, qtyPacks: 6, costPrice: coughSyrupDef.costPrice, batchNo: coughSyrupDef.batchNo, expiryDate: coughSyrupDef.expiryDate }] },
+    { vendor: vendors[3], invoiceNo: "INV-4001", date: daysAgo(18), lines: [{ product: insulin, qtyPacks: 5, costPrice: insulinDef.costPrice, batchNo: insulinDef.batchNo, expiryDate: insulinDef.expiryDate }] },
+    { vendor: vendors[4], invoiceNo: "INV-5001", date: daysAgo(16), lines: [{ product: ointment, qtyPacks: 5, costPrice: ointmentDef.costPrice, batchNo: ointmentDef.batchNo, expiryDate: ointmentDef.expiryDate }] },
   ];
   for (const p of purchaseDefs) {
     const exists = await Purchase.findOne({ vendor: p.vendor._id, invoiceNo: p.invoiceNo });
@@ -364,13 +369,13 @@ async function seed() {
     console.log("Sales ready");
   }
 
-  // Expenses
+  // Expenses - kept small so they're in proportion to the demo sales above
   const expenseDefs = [
-    { category: "Rent", amount: 15000, date: daysAgo(25), notes: "Monthly shop rent" },
-    { category: "Salary", amount: 20000, date: daysAgo(20), notes: "Staff salary" },
-    { category: "Utilities", amount: 3200, date: daysAgo(15), notes: "Electricity bill" },
-    { category: "Other", amount: 1500, date: daysAgo(10), notes: "Cleaning supplies" },
-    { category: "Utilities", amount: 800, date: daysAgo(5), notes: "Internet bill" },
+    { category: "Rent", amount: 100, date: daysAgo(25), notes: "Monthly shop rent" },
+    { category: "Salary", amount: 80, date: daysAgo(20), notes: "Staff salary" },
+    { category: "Utilities", amount: 30, date: daysAgo(15), notes: "Electricity bill" },
+    { category: "Other", amount: 20, date: daysAgo(10), notes: "Cleaning supplies" },
+    { category: "Utilities", amount: 20, date: daysAgo(5), notes: "Internet bill" },
   ];
   if (await Expense.countDocuments()) {
     console.log("Expenses already present, skipping");
