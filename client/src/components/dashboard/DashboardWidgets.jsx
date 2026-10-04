@@ -62,7 +62,23 @@ export function StatTile({ label, value, icon, tone = "teal", valueTone = "text"
   );
 }
 
+// Renders a Link when `to` is set, otherwise the same content without one
+// (view-only dashboards pass no links).
+function MaybeLink({ to, className, children }) {
+  return to ? (
+    <Link to={to} className={className}>
+      {children}
+    </Link>
+  ) : (
+    <div className={className}>{children}</div>
+  );
+}
+
+// links.product etc. are absent for view-only users.
+const linkOf = (fn, arg) => (fn ? fn(arg) : undefined);
+
 export function ViewAll({ to, label = "View all" }) {
+  if (!to) return null;
   return (
     <Link
       to={to}
@@ -96,7 +112,7 @@ export function TopSelling({ items, links }) {
         <ol className="grid gap-x-8 gap-y-1.5 md:grid-cols-2">
           {items.map((p, i) => (
             <li key={p.productId}>
-              <Link to={links.product(p.productId)} className="block rounded-lg px-1.5 py-1.5 transition hover:bg-bg">
+              <MaybeLink to={linkOf(links.product, p.productId)} className="block rounded-lg px-1.5 py-1.5 transition hover:bg-bg">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="flex min-w-0 items-center gap-2.5">
                     <span
@@ -116,7 +132,7 @@ export function TopSelling({ items, links }) {
                     style={{ width: `${(p.totalRevenue / max) * 100}%` }}
                   />
                 </div>
-              </Link>
+              </MaybeLink>
             </li>
           ))}
         </ol>
@@ -140,7 +156,7 @@ export function LowStockList({ items, links }) {
             const pct = Math.min(100, (p.qty / Math.max(p.lowStockThreshold, 1)) * 100);
             return (
               <li key={p._id}>
-                <Link to={links.product(p._id)} className="block rounded-xl border border-border px-3 py-2.5 transition hover:border-primary/30 hover:bg-bg">
+                <MaybeLink to={linkOf(links.product, p._id)} className="block rounded-xl border border-border px-3 py-2.5 transition hover:border-primary/30 hover:bg-bg">
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-text">{p.name}</span>
@@ -156,7 +172,7 @@ export function LowStockList({ items, links }) {
                     </span>
                     <span className="text-[10px] text-muted tnum">min {p.lowStockThreshold}</span>
                   </div>
-                </Link>
+                </MaybeLink>
               </li>
             );
           })}
@@ -178,7 +194,7 @@ export function ExpiringList({ items, links }) {
             const cls = d < 0 ? "bg-danger text-white" : d <= 7 ? "bg-danger/10 text-danger" : "bg-warning/10 text-warning";
             return (
               <li key={b._id}>
-                <Link to={links.expiry} className="-mx-1.5 flex items-center gap-3 rounded-lg px-1.5 py-2.5 transition hover:bg-bg">
+                <MaybeLink to={links.expiry} className="-mx-1.5 flex items-center gap-3 rounded-lg px-1.5 py-2.5 transition hover:bg-bg">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger">
                     <Icon name="hourglass" size={16} />
                   </span>
@@ -193,7 +209,7 @@ export function ExpiringList({ items, links }) {
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tnum ${cls}`}>
                     {d < 0 ? "Expired" : d === 0 ? "Today" : `${d}d left`}
                   </span>
-                </Link>
+                </MaybeLink>
               </li>
             );
           })}
@@ -247,7 +263,7 @@ export function ProfitLoss({ summary, range, links }) {
         action={<ViewAll to={links.profitability} label="By product" />}
       >
         <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <Link
+          <MaybeLink
             to={links.profitability}
             className={`group relative flex flex-col justify-center overflow-hidden rounded-2xl p-6 transition hover:brightness-[0.98] ${
               isProfit ? "bg-gradient-to-br from-success/10 to-primary-soft" : "bg-gradient-to-br from-danger/10 to-bg"
@@ -266,7 +282,7 @@ export function ProfitLoss({ summary, range, links }) {
                 : `${isProfit ? "Net margin" : "Loss equals"} ${Math.abs(summary.netMarginPct)}% of revenue · ${summary.salesCount} sale${summary.salesCount === 1 ? "" : "s"}`}
             </p>
             <Icon name="rupee" size={110} strokeWidth={1} className={`pointer-events-none absolute -bottom-5 -right-3 opacity-[0.07] ${tone}`} />
-          </Link>
+          </MaybeLink>
 
           <div>
             <StatementRow label="Total Sales (Revenue)" value={summary.revenue} note="excl. GST, after discounts" to={links.sales} />
@@ -374,7 +390,7 @@ export function ProfitabilityTable({ rows, linkForProduct, sort, onSort }) {
           {rows.map((p) => (
             <tr key={p.productId} className="transition hover:bg-bg">
               <td className="max-w-[16rem] truncate py-2.5 pr-3 font-medium">
-                {p.productId && p.productId !== "null" ? (
+                {linkForProduct && p.productId && p.productId !== "null" ? (
                   <Link to={linkForProduct(p.productId)} className="text-text hover:text-primary hover:underline">
                     {p.name}
                   </Link>
@@ -503,7 +519,7 @@ export function InventoryTurnover({ summary, range, links }) {
       action={<ViewAll to={links.stockReport} label="Stock report" />}
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <Link
+        <MaybeLink
           to={links.stockReport}
           className="relative flex flex-col justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-info-soft to-primary-soft p-6 transition hover:brightness-[0.98]"
         >
@@ -518,7 +534,7 @@ export function InventoryTurnover({ summary, range, links }) {
               : `Stock was sold through about ${ratio.toFixed(1)} time${ratio === 1 ? "" : "s"} in this period.`}
           </p>
           <Icon name="boxes" size={110} strokeWidth={1} className="pointer-events-none absolute -bottom-5 -right-3 text-info opacity-[0.07]" />
-        </Link>
+        </MaybeLink>
 
         <div>
           <StatementRow label="Opening Inventory" value={summary.openingInventory} note="at cost, start of period" to={links.stockReport} />
@@ -591,7 +607,7 @@ export function Ebitda({ summary, range, links }) {
             to={links.profitability}
           />
           {addBacks.map(([label, value]) => (
-            <StatementRow key={label} sign="+" label={label} value={value} to={links.expenseCategory(label)} />
+            <StatementRow key={label} sign="+" label={label} value={value} to={linkOf(links.expenseCategory, label)} />
           ))}
           <StatementRow strong sign="=" label="EBITDA" value={summary.ebitda} tone={tone} />
           {noAddBacks && (

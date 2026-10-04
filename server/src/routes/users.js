@@ -3,9 +3,24 @@ import bcrypt from "bcryptjs";
 import { body, validationResult } from "express-validator";
 import User from "../models/User.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { PERMISSIONS, sanitizePermissions } from "../utils/permissions.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
+
+// The grantable permissions, for the Roles & Permissions page.
+router.get("/permissions", (req, res) => {
+  res.json(PERMISSIONS);
+});
+
+const publicUser = (user) => ({
+  id: user._id,
+  email: user.email,
+  username: user.username,
+  role: user.role,
+  isActive: user.isActive,
+  permissions: user.permissions || [],
+});
 
 router.get("/", async (req, res) => {
   const q = (req.query.q || "").trim();
@@ -37,7 +52,7 @@ router.post(
       return res.status(400).json({ message: errors.array()[0].msg });
     }
 
-    const { email, username, role, password, isActive = true } = req.body;
+    const { email, username, role, password, isActive = true, permissions } = req.body;
 
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
     if (existing) {
@@ -51,15 +66,10 @@ router.post(
       role,
       passwordHash,
       isActive,
+      permissions: sanitizePermissions(permissions),
     });
 
-    res.status(201).json({
-      id: user._id,
-      email: user.email,
-      username: user.username,
-      role: user.role,
-      isActive: user.isActive,
-    });
+    res.status(201).json(publicUser(user));
   }
 );
 
@@ -69,6 +79,7 @@ router.patch(
     body("username").optional().trim().isLength({ min: 1, max: 50 }),
     body("role").optional().isIn(["admin", "staff"]),
     body("isActive").optional().isBoolean(),
+    body("permissions").optional().isArray(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -87,19 +98,21 @@ router.patch(
         return res.status(400).json({ message: "You cannot deactivate the only Admin account." });
       }
     }
+    // Same safeguard for a role change: the shop must always keep an active Admin.
+    if (req.body.role === "staff" && user.role === "admin" && user.isActive) {
+      const activeAdmins = await User.countDocuments({ role: "admin", isActive: true });
+      if (activeAdmins <= 1) {
+        return res.status(400).json({ message: "You cannot remove the Admin role from the only Admin account." });
+      }
+    }
 
     if (req.body.username !== undefined) user.username = req.body.username;
     if (req.body.role !== undefined) user.role = req.body.role;
     if (req.body.isActive !== undefined) user.isActive = req.body.isActive;
+    if (req.body.permissions !== undefined) user.permissions = sanitizePermissions(req.body.permissions);
     await user.save();
 
-    res.json({
-      id: user._id,
-      email: user.email,
-      username: user.username,
-      role: user.role,
-      isActive: user.isActive,
-    });
+    res.json(publicUser(user));
   }
 );
 

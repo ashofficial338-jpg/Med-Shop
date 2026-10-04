@@ -60,6 +60,16 @@ export function AuthProvider({ children }) {
     setSessionExpired(false);
   }, [clearSession]);
 
+  // Role and permissions can be changed by an Admin while this user is signed
+  // in - re-read them from the server once per page load.
+  useEffect(() => {
+    if (!token) return;
+    api
+      .get("/auth/me")
+      .then(({ data }) => updateUser({ role: data.role, permissions: data.permissions || [] }))
+      .catch(() => {});
+  }, [token, updateUser]);
+
   // 401 from any request (deactivated account, invalid/expired token) -> session-expired modal
   useEffect(() => {
     const id = api.interceptors.response.use(

@@ -3,7 +3,6 @@ import Layout, { STORE_NAME } from "../components/Layout";
 import Icon from "../components/Icon";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import { getDashboardSummary, downloadDashboardReport } from "../api/dashboard";
-import { getDayBookSummary } from "../api/daybook";
 import { SalesTrendChart, CategoryBars, CashFlowChart } from "../components/dashboard/DashboardCharts";
 import {
   SectionTitle,
@@ -18,6 +17,13 @@ import {
 } from "../components/dashboard/DashboardWidgets";
 import { DateFilter, FilterBar, presetFor, useReportFilters } from "../components/dashboard/ReportFilters";
 import { withQuery } from "../utils/query";
+import { useAuth } from "../context/AuthContext";
+import { isAdmin } from "../utils/permissions";
+import { fullDate } from "../components/dashboard/format";
+
+// View-only users get no links: every tile, row and chart renders as plain
+// text. (Undefined, not functions, so charts know not to be clickable.)
+const NO_LINKS = {};
 
 function Skeleton() {
   return (
@@ -36,33 +42,34 @@ function Skeleton() {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  // Click-through, filters, date ranges, exports and reports are admin-only;
+  // the server enforces the same (non-admins get a fixed, trimmed summary).
+  const interactive = isAdmin(user);
   const [filters, setFilters] = useReportFilters();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [todayBalances, setTodayBalances] = useState(null);
   const { from, to, category, paymentMode } = filters;
 
   const load = useCallback(() => {
     setLoading(true);
     setError("");
-    getDashboardSummary({ from, to, category, paymentMode })
+    getDashboardSummary(interactive ? { from, to, category, paymentMode } : {})
       .then(setSummary)
       .catch(() => setError("Couldn't load the dashboard. Check your connection and try again."))
       .finally(() => setLoading(false));
-  }, [from, to, category, paymentMode]);
+  }, [interactive, from, to, category, paymentMode]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  useEffect(() => {
-    getDayBookSummary()
-      .then(setTodayBalances)
-      .catch(() => {});
-  }, []);
-
-  const range = { from, to };
+  // The server reports the period it actually used (fixed for view-only users).
+  const range = interactive || !summary?.access ? { from, to } : { from: summary.access.from, to: summary.access.to };
+  const todayBalances = summary?.cashToday || null;
+  // Sections this user may see; older backends without `access` show everything.
+  const shows = (key) => !summary?.access || summary.access.sections.includes(key);
   const periodLabel = presetFor(range)?.label.toLowerCase() || "selected period";
   const cashFlowToday = todayBalances
     ? [
@@ -75,7 +82,7 @@ export default function Dashboard() {
   // Where each metric leads. Every link carries the filters its page
   // understands, so the detail list shows the same records behind the number.
   const salesQuery = { from, to, category, paymentMode, status: "completed" };
-  const links = {
+  const links = !interactive ? NO_LINKS : {
     sales: withQuery("/bills", salesQuery),
     salesDay: (day) => withQuery("/bills", { ...salesQuery, from: day, to: day }),
     purchases: withQuery("/purchases", { from, to, category }),
@@ -92,25 +99,55 @@ export default function Dashboard() {
   };
 
   return (
-    <Layout toolbar={<DateFilter range={range} onChange={(r) => setFilters(r)} />}>
+    <Layout
+      toolbar={
+        interactive ? (
+          <DateFilter range={range} onChange={(r) => setFilters(r)} />
+        ) : (
+          <span className="flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-muted">
+            <Icon name="calendar" size={17} />
+            <span className="hidden whitespace-nowrap sm:inline">
+              {fullDate(range.from)} – {fullDate(range.to)}
+            </span>
+          </span>
+        )
+      }
+    >
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-primary">{STORE_NAME}</p>
           <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Accounting Dashboard</h1>
           <p className="mt-1 text-sm text-muted">
-            Profit, sales, cash and stock at a glance — {periodLabel}. Click any figure to see the records behind it.
+            {interactive
+              ? `Profit, sales, cash and stock at a glance — ${periodLabel}. Click any figure to see the records behind it.`
+              : "View-only summary of the last 30 days. Details, filters and downloads are available to Admins."}
           </p>
         </div>
-        <ReportDownloadButtons onExport={(format) => downloadDashboardReport(filters, format)} />
+        {interactive ? (
+          <ReportDownloadButtons onExport={(format) => downloadDashboardReport(filters, format)} />
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-bg px-3 py-1.5 text-xs font-semibold text-muted">
+            <Icon name="user" size={14} />
+            View only
+          </span>
+        )}
       </div>
 
-      <div className="mt-5">
-        <FilterBar
-          filters={filters}
-          onChange={setFilters}
-          note="Category narrows sales, profit, purchase and stock figures; payment mode narrows sales and profit. Shop expenses are shared by the filtered sales' revenue. Downloads include these filters."
-        />
-      </div>
+      {interactive && (
+        <div className="mt-5">
+          <FilterBar
+            filters={filters}
+            onChange={setFilters}
+            note="Category narrows sales, profit, purchase and stock figures; payment mode narrows sales and profit. Shop expenses are shared by the filtered sales' revenue. Downloads include these filters."
+          />
+        </div>
+      )}
+
+      {summary && summary.access && summary.access.sections.length === 0 && (
+        <div className="card mt-6 p-6 text-sm text-muted">
+          You can open the dashboard, but no sections have been shared with you yet. Ask an Admin to grant them on Roles &amp; Permissions.
+        </div>
+      )}
 
       {error && (
         <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
@@ -128,12 +165,15 @@ export default function Dashboard() {
 
       {summary && (
         <div className={`mt-6 space-y-8 transition-opacity ${loading ? "opacity-60" : ""}`}>
-          <ProfitLoss summary={summary} range={range} links={links} />
+          {shows("dashboard.profit") && (
+            <>
+              <ProfitLoss summary={summary} range={range} links={links} />
+              <Ebitda summary={summary} range={range} links={links} />
+              <ProductProfitability summary={summary} links={links} />
+            </>
+          )}
 
-          <Ebitda summary={summary} range={range} links={links} />
-
-          <ProductProfitability summary={summary} links={links} />
-
+          {shows("dashboard.sales") && (
           <section className="space-y-4">
             <SectionTitle icon="receipt">Sales &amp; GST</SectionTitle>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -148,8 +188,9 @@ export default function Dashboard() {
             </div>
             <TopSelling items={summary.fastMovers} links={links} />
           </section>
+          )}
 
-          {todayBalances && (
+          {shows("dashboard.cash") && todayBalances && (
             <section className="space-y-4">
               <SectionTitle icon="wallet">Cash Position</SectionTitle>
               <div className="grid gap-6 lg:grid-cols-3">
@@ -163,6 +204,7 @@ export default function Dashboard() {
             </section>
           )}
 
+          {shows("dashboard.stock") && (
           <section className="space-y-4">
             <SectionTitle icon="boxes">Stock</SectionTitle>
             <InventoryTurnover summary={summary} range={range} links={links} />
@@ -181,18 +223,20 @@ export default function Dashboard() {
               <ExpiringList items={summary.expiringSoon} links={links} />
             </div>
           </section>
+          )}
 
+          {shows("dashboard.receivables") && (
           <section className="space-y-4">
             <SectionTitle icon="users">Receivables &amp; Payables</SectionTitle>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <StatTile
                 label="Customer Receivables"
-                value={todayBalances?.credit.closing ?? 0}
+                value={summary.receivables ?? todayBalances?.credit.closing ?? 0}
                 icon="users"
                 tone="danger"
                 valueTone="danger"
                 note="Owed to the shop by customers"
-                to="/customers"
+                to={interactive ? "/customers" : undefined}
               />
               <StatTile
                 label="Total Payables"
@@ -201,10 +245,11 @@ export default function Dashboard() {
                 tone="danger"
                 valueTone="danger"
                 note="Owed by the shop to suppliers"
-                to="/vendors"
+                to={interactive ? "/vendors" : undefined}
               />
             </div>
           </section>
+          )}
         </div>
       )}
     </Layout>

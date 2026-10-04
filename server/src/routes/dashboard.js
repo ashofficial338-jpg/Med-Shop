@@ -11,9 +11,15 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { buildStockReport, inventoryValueAt } from "../utils/stockReportHelpers.js";
 import { vendorOutstandingMap } from "../utils/ledgerHelpers.js";
+import { dayBookSummary } from "../utils/dayBookHelpers.js";
+import { hasPermission, requirePermission } from "../utils/permissions.js";
 
+// Admins get the full, interactive dashboard (filters, date ranges, exports,
+// reports). Other users can be granted a view-only dashboard on the Roles &
+// Permissions page: fixed to the last 30 days, no filters, and only the
+// sections they hold a permission for - see /summary below.
 const router = Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth);
 
 const PAYMENT_MODES = ["Cash", "Card", "UPI", "Other", "Credit"];
 
@@ -299,10 +305,41 @@ async function computeSummary(start, end, { category = null, paymentMode = null 
   };
 }
 
-router.get("/summary", async (req, res) => {
-  const { start, end } = resolveRange(req);
-  const summary = await computeSummary(start, end, resolveFilters(req));
-  res.json(summary);
+// Which summary fields each view-only permission unlocks. Admins get them all.
+const SECTION_FIELDS = {
+  "dashboard.profit": [
+    "revenue", "cogs", "expenses", "totalExpenses", "expiredWriteOff", "grossProfit", "profit", "netProfit", "netLoss",
+    "grossMarginPct", "netMarginPct", "investment", "allocatedExpenses", "unallocatedExpenses", "roiPct", "interest",
+    "taxes", "depreciation", "amortization", "ebitda", "ebitdaMarginPct", "productProfitability", "totalPurchases", "salesCount",
+  ],
+  "dashboard.sales": ["outputGst", "inputGst", "netGst", "salesCount", "salesTrend", "revenueByCategory", "fastMovers"],
+  "dashboard.stock": [
+    "cogs", "openingInventory", "closingInventory", "averageInventory", "inventoryTurnover", "totalStockValue", "lowStock", "expiringSoon",
+  ],
+  "dashboard.cash": ["cashToday"],
+  "dashboard.receivables": ["totalPayables", "receivables"],
+};
+
+router.get("/summary", requirePermission("dashboard.view"), async (req, res) => {
+  const interactive = req.user.role === "admin";
+  // View-only users always see the default period with no filters - those
+  // controls (and anything they send) are admin-only.
+  const { start, end } = interactive ? resolveRange(req) : resolveRange({ query: {} });
+  const summary = await computeSummary(start, end, interactive ? resolveFilters(req) : {});
+
+  // Today's cash position (the Day Book's figures) - "right now", not range-bound.
+  const today = await dayBookSummary(new Date());
+  summary.cashToday = today;
+  summary.receivables = today.credit.closing;
+
+  const sections = Object.keys(SECTION_FIELDS).filter((key) => hasPermission(req.user, key));
+  // Server-local calendar days, matching how resolveRange built the range.
+  const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const access = { interactive, sections, from: day(start), to: day(end) };
+  if (interactive) return res.json({ ...summary, access });
+
+  const allowed = new Set(["filters", ...sections.flatMap((key) => SECTION_FIELDS[key])]);
+  res.json({ ...Object.fromEntries(Object.entries(summary).filter(([k]) => allowed.has(k))), access });
 });
 
 // Human-readable "Category: Tablet · Payment: UPI" line for report headers.
@@ -326,7 +363,7 @@ const profitabilityRows = (summary) =>
   summary.productProfitability.map((p) => ({ ...p, roi: p.roiPct === null ? "-" : p.roiPct }));
 
 // Product Profitability & ROI table on its own, with the dashboard's filters.
-router.get("/profitability/export", async (req, res) => {
+router.get("/profitability/export", requireRole("admin"), async (req, res) => {
   const { start, end } = resolveRange(req);
   const filters = resolveFilters(req);
   const summary = await computeSummary(start, end, filters);
@@ -361,7 +398,7 @@ router.get("/profitability/export", async (req, res) => {
   ]);
 });
 
-router.get("/export", async (req, res) => {
+router.get("/export", requireRole("admin"), async (req, res) => {
   const { start, end } = resolveRange(req);
   const filters = resolveFilters(req);
   const summary = await computeSummary(start, end, filters);

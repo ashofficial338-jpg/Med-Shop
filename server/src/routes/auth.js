@@ -45,14 +45,15 @@ router.post(
         email: user.email,
         username: user.username,
         role: user.role,
+        permissions: user.permissions || [],
       },
     });
   }
 );
 
 router.get("/me", requireAuth, (req, res) => {
-  const { _id, email, username, role } = req.user;
-  res.json({ id: _id, email, username, role });
+  const { _id, email, username, role, permissions } = req.user;
+  res.json({ id: _id, email, username, role, permissions: permissions || [] });
 });
 
 export default router;

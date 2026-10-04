@@ -5,6 +5,7 @@ import Icon from "./Icon";
 import NotificationsMenu from "./NotificationsMenu";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import { can } from "../utils/permissions";
 
 export const STORE_NAME = "GHM Medical Shop";
 
@@ -45,12 +46,18 @@ const ADMIN_NAV = [
     items: [
       { action: "notifications", label: "Notifications", icon: "bell", badge: "alerts" },
       { to: "/users", label: "Users", icon: "user" },
+      { to: "/roles", label: "Roles & Permissions", icon: "check" },
       { to: "/profile", label: "Settings", icon: "settings" },
     ],
   },
 ];
 
 const STAFF_NAV = [
+  {
+    section: "Overview",
+    // Only shown when an Admin has granted the view-only dashboard.
+    items: [{ to: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "dashboard.view" }],
+  },
   {
     section: "Pharmacy",
     items: [
@@ -186,7 +193,9 @@ export default function Layout({ children, toolbar }) {
   const { user } = useAuth();
   const { cartCount } = useCart();
   const location = useLocation();
-  const nav = user.role === "admin" ? ADMIN_NAV : STAFF_NAV;
+  const nav = (user.role === "admin" ? ADMIN_NAV : STAFF_NAV)
+    .map((group) => ({ ...group, items: group.items.filter((item) => !item.permission || can(user, item.permission)) }))
+    .filter((group) => group.items.length > 0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [alertCount, setAlertCount] = useState(0);

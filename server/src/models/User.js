@@ -30,6 +30,12 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Granted by an Admin on the Roles & Permissions page (keys from
+    // utils/permissions.js). Only used for non-admins - admins have all.
+    permissions: {
+      type: [String],
+      default: [],
+    },
   },
   { timestamps: true }
 );

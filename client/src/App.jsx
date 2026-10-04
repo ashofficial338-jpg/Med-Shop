@@ -20,6 +20,7 @@ import Expenses from "./pages/Expenses";
 import DayBook from "./pages/DayBook";
 import StockManagement from "./pages/StockManagement";
 import ProductProfitabilityReport from "./pages/ProductProfitabilityReport";
+import RolesPermissions from "./pages/RolesPermissions";
 
 function Home() {
   const { user } = useAuth();
@@ -60,7 +61,7 @@ export default function App() {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute roles={["admin"]}>
+            <ProtectedRoute permission="dashboard.view">
               <Dashboard />
             </ProtectedRoute>
           }
@@ -166,6 +167,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={["admin"]}>
               <StockManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/roles"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <RolesPermissions />
             </ProtectedRoute>
           }
         />
