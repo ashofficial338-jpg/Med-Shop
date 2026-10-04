@@ -3,10 +3,12 @@ import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import RequiredMark from "../components/RequiredMark";
 import api from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Users() {
+  const { user: me } = useAuth();
   const [users, setUsers] = useState([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -71,6 +73,19 @@ export default function Users() {
     try {
       await api.patch(`/users/${u._id}`, { isActive: !u.isActive });
       toast.success(`${u.username} ${u.isActive ? "deactivated" : "reactivated"}.`);
+      loadUsers(query);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
+    }
+  };
+
+  // Admin-only page; the server also refuses self-deletion, the last Admin,
+  // and anyone with recorded bills/purchases etc. (deactivate them instead).
+  const deleteUser = async (u) => {
+    if (!window.confirm(`Permanently delete ${u.username} (${u.email})? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/users/${u._id}`);
+      toast.success(`${u.username} deleted.`);
       loadUsers(query);
     } catch (err) {
       toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
@@ -211,6 +226,14 @@ export default function Users() {
               >
                 Reset Password
               </button>
+              {String(u._id) !== String(me?.id) && (
+                <button
+                  onClick={() => deleteUser(u)}
+                  className="rounded-lg px-3 py-1 text-sm font-semibold text-danger hover:bg-danger/10"
+                >
+                  Delete
+                </button>
+              )}
             </div>
           </div>
         ))}

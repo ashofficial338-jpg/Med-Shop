@@ -2,6 +2,13 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { body, validationResult } from "express-validator";
 import User from "../models/User.js";
+import Sale from "../models/Sale.js";
+import Purchase from "../models/Purchase.js";
+import Expense from "../models/Expense.js";
+import StockLedger from "../models/StockLedger.js";
+import CustomerPayment from "../models/CustomerPayment.js";
+import SupplierPayment from "../models/SupplierPayment.js";
+import DayBookAdjustment from "../models/DayBookAdjustment.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { PERMISSIONS, sanitizePermissions } from "../utils/permissions.js";
 
@@ -115,6 +122,55 @@ router.patch(
     res.json(publicUser(user));
   }
 );
+
+// Records that keep a reference to the user who made them. A user with any of
+// these can't be deleted (their bills etc. would lose their author) - they're
+// deactivated instead, which blocks login but keeps the history intact.
+const HISTORY = [
+  [Sale, ["createdBy", "voidedBy"], ["bill", "bills"]],
+  [Purchase, ["createdBy"], ["purchase", "purchases"]],
+  [Expense, ["createdBy"], ["expense", "expenses"]],
+  [StockLedger, ["performedBy"], ["stock movement", "stock movements"]],
+  [CustomerPayment, ["recordedBy"], ["customer payment", "customer payments"]],
+  [SupplierPayment, ["recordedBy"], ["supplier payment", "supplier payments"]],
+  [DayBookAdjustment, ["setBy"], ["day book entry", "day book entries"]],
+];
+
+async function historyFor(userId) {
+  const found = [];
+  for (const [Model, fields, [one, many]] of HISTORY) {
+    const n = await Model.countDocuments({ $or: fields.map((f) => ({ [f]: userId })) });
+    if (n) found.push(`${n} ${n === 1 ? one : many}`);
+  }
+  return found;
+}
+
+// Admin-only (router-level requireRole): permanently remove a user.
+router.delete("/:id", async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    return res.status(404).json({ message: "No records found." });
+  }
+  if (String(user._id) === String(req.user._id)) {
+    return res.status(400).json({ message: "You cannot delete your own account." });
+  }
+  if (user.role === "admin" && user.isActive) {
+    const activeAdmins = await User.countDocuments({ role: "admin", isActive: true });
+    if (activeAdmins <= 1) {
+      return res.status(400).json({ message: "You cannot delete the only Admin account." });
+    }
+  }
+
+  const history = await historyFor(user._id);
+  if (history.length) {
+    return res.status(409).json({
+      message: `${user.username} has recorded ${history.join(", ")}, so they can't be deleted. Deactivate them instead - that blocks login and keeps the records.`,
+    });
+  }
+
+  await user.deleteOne();
+  res.json({ message: "User deleted." });
+});
 
 router.post(
   "/:id/reset-password",
