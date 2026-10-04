@@ -60,13 +60,15 @@ export function AuthProvider({ children }) {
     setSessionExpired(false);
   }, [clearSession]);
 
-  // Role and permissions can be changed by an Admin while this user is signed
-  // in - re-read them from the server once per page load.
+  // Name, email, role and permissions can be changed by an Admin while this
+  // user is signed in - re-read them from the server once per page load.
   useEffect(() => {
     if (!token) return;
     api
       .get("/auth/me")
-      .then(({ data }) => updateUser({ role: data.role, permissions: data.permissions || [] }))
+      .then(({ data }) =>
+        updateUser({ username: data.username, email: data.email, role: data.role, permissions: data.permissions || [] })
+      )
       .catch(() => {});
   }, [token, updateUser]);
 

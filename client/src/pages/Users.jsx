@@ -93,8 +93,45 @@ export default function Users() {
   };
 
   const changeRole = async (u, newRole) => {
-    await api.patch(`/users/${u._id}`, { role: newRole });
+    try {
+      await api.patch(`/users/${u._id}`, { role: newRole });
+      toast.success(`${u.username} is now ${newRole === "admin" ? "an Admin" : "Staff"}.`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
+    }
+    // Reload either way so the dropdown shows the saved role, not the attempted one.
     loadUsers(query);
+  };
+
+  // Edit name / email / role. Admin-only page; the server re-checks the email
+  // is unique and that the last active Admin keeps the Admin role.
+  const [editing, setEditing] = useState(null); // { _id, username, email, role }
+  const [editError, setEditError] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const editValid =
+    editing && EMAIL_RE.test(editing.email) && editing.email.length <= 50 && editing.username.trim().length > 0;
+
+  const openEdit = (u) => {
+    setEditing({ _id: u._id, username: u.username, email: u.email, role: u.role });
+    setEditError("");
+  };
+
+  const submitEdit = async (e) => {
+    e.preventDefault();
+    if (!editValid || savingEdit) return;
+    setSavingEdit(true);
+    setEditError("");
+    try {
+      const { username: name, email: mail, role: newRole } = editing;
+      await api.patch(`/users/${editing._id}`, { username: name.trim(), email: mail.trim(), role: newRole });
+      toast.success(`${name.trim()} updated.`);
+      setEditing(null);
+      loadUsers(query);
+    } catch (err) {
+      setEditError(err.response?.data?.message || "Something went wrong. Please try again.");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const submitReset = async (e) => {
@@ -226,6 +263,12 @@ export default function Users() {
               >
                 Reset Password
               </button>
+              <button
+                onClick={() => openEdit(u)}
+                className="rounded-lg px-3 py-1 text-sm font-semibold text-primary hover:bg-bg"
+              >
+                Edit
+              </button>
               {String(u._id) !== String(me?.id) && (
                 <button
                   onClick={() => deleteUser(u)}
@@ -238,6 +281,62 @@ export default function Users() {
           </div>
         ))}
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <form onSubmit={submitEdit} className="w-full max-w-sm space-y-3 rounded-2xl bg-surface p-6 shadow-xl">
+            <h2 className="font-display text-lg font-semibold text-text">Edit User</h2>
+            <label className="block text-sm font-medium text-text">
+              Username <RequiredMark />
+              <input
+                type="text"
+                maxLength={50}
+                value={editing.username}
+                onChange={(e) => setEditing({ ...editing, username: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="block text-sm font-medium text-text">
+              Email <RequiredMark />
+              <input
+                type="email"
+                maxLength={50}
+                value={editing.email}
+                onChange={(e) => setEditing({ ...editing, email: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="block text-sm font-medium text-text">
+              Role
+              <select
+                value={editing.role}
+                onChange={(e) => setEditing({ ...editing, role: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
+              >
+                <option value="staff">Staff</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            {editError && <p className="text-sm text-danger">{editError}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="submit"
+                disabled={!editValid || savingEdit}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-primary-dark"
+              >
+                {savingEdit ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-muted hover:bg-bg"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {resetTargetId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

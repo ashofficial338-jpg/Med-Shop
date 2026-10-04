@@ -83,7 +83,8 @@ router.post(
 router.patch(
   "/:id",
   [
-    body("username").optional().trim().isLength({ min: 1, max: 50 }),
+    body("username").optional().trim().isLength({ min: 1, max: 50 }).withMessage("This field is required."),
+    body("email").optional().isEmail().withMessage("Please enter a valid email address."),
     body("role").optional().isIn(["admin", "staff"]),
     body("isActive").optional().isBoolean(),
     body("permissions").optional().isArray(),
@@ -113,6 +114,13 @@ router.patch(
       }
     }
 
+    if (req.body.email !== undefined) {
+      const email = String(req.body.email).toLowerCase().trim();
+      if (email !== user.email && (await User.exists({ email, _id: { $ne: user._id } }))) {
+        return res.status(409).json({ message: "This value is already in use." });
+      }
+      user.email = email;
+    }
     if (req.body.username !== undefined) user.username = req.body.username;
     if (req.body.role !== undefined) user.role = req.body.role;
     if (req.body.isActive !== undefined) user.isActive = req.body.isActive;
