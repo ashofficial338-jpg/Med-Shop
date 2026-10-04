@@ -56,7 +56,8 @@ app.use(express.json());
 app.use(morgan("dev"));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
-app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+// RENDER_GIT_COMMIT is set by Render on each deploy - lets anyone confirm which commit is live without logging in.
+app.get("/api/health", (req, res) => res.json({ status: "ok", commit: (process.env.RENDER_GIT_COMMIT || "local").slice(0, 7) }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
