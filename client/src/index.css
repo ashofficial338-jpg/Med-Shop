@@ -101,3 +101,37 @@ input:-webkit-autofill {
   animation-name: onAutoFill;
   animation-duration: 1ms;
 }
+
+/* Login page: heartbeat line that draws itself, and slowly drifting glows. */
+.login-ecg {
+  stroke-dasharray: 900;
+  stroke-dashoffset: 900;
+  animation: loginEcg 3.2s ease-in-out 0.3s infinite;
+}
+@keyframes loginEcg {
+  0% { stroke-dashoffset: 900; opacity: 1; }
+  60% { stroke-dashoffset: 0; opacity: 1; }
+  85% { stroke-dashoffset: 0; opacity: 0; }
+  100% { stroke-dashoffset: 900; opacity: 0; }
+}
+.login-blob {
+  animation: loginDrift 14s ease-in-out infinite alternate;
+}
+.login-blob-delay {
+  animation-delay: -7s;
+}
+@keyframes loginDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(24px, 18px) scale(1.06); }
+}
+.login-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.9) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.9) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at 30% 40%, black 20%, transparent 75%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-ecg { animation: none; stroke-dashoffset: 0; }
+  .login-blob { animation: none; }
+}

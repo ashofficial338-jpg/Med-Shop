@@ -6,16 +6,34 @@ const AuthContext = createContext(null);
 const INACTIVITY_LIMIT_MS = 20 * 60 * 1000; // 20 minutes, see Read Me sheet assumption
 const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
 
+// "Remember me" keeps the session in localStorage (survives closing the
+// browser); otherwise it lives in sessionStorage and ends with the browser
+// session. Reads check both, so either kind of sign-in is picked up.
+const read = (key) => {
+  try {
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const storeFor = () => {
+  try {
+    return localStorage.getItem("ghm_token") ? localStorage : sessionStorage;
+  } catch {
+    return sessionStorage;
+  }
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
-    const stored = localStorage.getItem("ghm_user");
+    const stored = read("ghm_user");
     return stored ? JSON.parse(stored) : null;
   });
   // Attach the saved token before the first render: page effects run before
   // this provider's effects, so relying only on the effect below sent the
   // first requests after a page refresh without it (401s, empty pages).
   const [token, setToken] = useState(() => {
-    const saved = localStorage.getItem("ghm_token");
+    const saved = read("ghm_token");
     setAuthToken(saved);
     return saved;
   });
@@ -27,17 +45,23 @@ export function AuthProvider({ children }) {
   }, [token]);
 
   const clearSession = useCallback(() => {
-    localStorage.removeItem("ghm_token");
-    localStorage.removeItem("ghm_user");
+    for (const store of [localStorage, sessionStorage]) {
+      store.removeItem("ghm_token");
+      store.removeItem("ghm_user");
+    }
     setToken(null);
     setUser(null);
     setAuthToken(null);
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const { data } = await api.post("/auth/login", { email, password });
-    localStorage.setItem("ghm_token", data.token);
-    localStorage.setItem("ghm_user", JSON.stringify(data.user));
+  // `identifier` is an email address or a username.
+  const login = useCallback(async (identifier, password, remember = true) => {
+    const { data } = await api.post("/auth/login", { email: identifier, password });
+    const store = remember ? localStorage : sessionStorage;
+    (remember ? sessionStorage : localStorage).removeItem("ghm_token");
+    (remember ? sessionStorage : localStorage).removeItem("ghm_user");
+    store.setItem("ghm_token", data.token);
+    store.setItem("ghm_user", JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
     return data.user;
@@ -50,7 +74,7 @@ export function AuthProvider({ children }) {
   const updateUser = useCallback((partial) => {
     setUser((prev) => {
       const next = { ...prev, ...partial };
-      localStorage.setItem("ghm_user", JSON.stringify(next));
+      storeFor().setItem("ghm_user", JSON.stringify(next));
       return next;
     });
   }, []);
@@ -77,7 +101,7 @@ export function AuthProvider({ children }) {
     const id = api.interceptors.response.use(
       (res) => res,
       (err) => {
-        if (err.response && err.response.status === 401 && localStorage.getItem("ghm_token")) {
+        if (err.response && err.response.status === 401 && read("ghm_token")) {
           setSessionExpired(true);
         }
         return Promise.reject(err);
