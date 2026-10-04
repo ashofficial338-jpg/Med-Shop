@@ -80,9 +80,9 @@ export async function buildStockReport({ category, availability } = {}) {
 // Every StockLedger write carries its batch, so this rebuilds the history
 // exactly. Same scope and cost-per-unit math as buildStockReport, so the
 // value at "now" matches the Stock Value tile.
-export async function inventoryValueAt(at) {
+export async function inventoryValueAt(at, category = null) {
   const [batches, later] = await Promise.all([
-    Batch.find({}).populate("product", "soldAs unitsPerPack isActive"),
+    Batch.find({}).populate("product", "soldAs unitsPerPack isActive category"),
     StockLedger.aggregate([
       { $match: { createdAt: { $gte: at }, batch: { $ne: null } } },
       { $group: { _id: "$batch", change: { $sum: "$qtyChange" } } },
@@ -93,6 +93,7 @@ export async function inventoryValueAt(at) {
   let value = 0;
   for (const b of batches) {
     if (!b.product?.isActive) continue;
+    if (category && String(b.product.category) !== String(category)) continue;
     const qty = Math.max(b.qtyRemaining - (changeByBatch.get(String(b._id)) || 0), 0);
     const costPerUnit = b.product.soldAs === "pack-and-loose" ? b.costPrice / b.product.unitsPerPack : b.costPrice;
     value += qty * costPerUnit;

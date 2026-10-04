@@ -1,4 +1,5 @@
 import { Router } from "express";
+import mongoose from "mongoose";
 import Sale from "../models/Sale.js";
 import Product from "../models/Product.js";
 import Customer from "../models/Customer.js";
@@ -10,6 +11,7 @@ import { streamBillPdf } from "../utils/billPdf.js";
 import { allocateFefo, reverseBreakdown, earliestActiveBatch, landLegacyReturn } from "../utils/batchHelpers.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { dayRange } from "../utils/queryFilters.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -18,16 +20,26 @@ function canAccessSale(sale, user) {
   return user.role === "admin" || String(sale.createdBy) === String(user._id);
 }
 
-router.get("/", async (req, res) => {
-  const { q, from, to } = req.query;
+// Shared by the list and its export, so a download always matches the screen.
+// paymentMode/status/category let dashboard links open a pre-filtered list.
+async function buildSaleFilter(req) {
+  const { q, from, to, paymentMode, status, category } = req.query;
   const filter = {};
   if (req.user.role === "staff") filter.createdBy = req.user._id;
   if (q) filter.billNo = new RegExp(q, "i");
-  if (from || to) {
-    filter.createdAt = {};
-    if (from) filter.createdAt.$gte = new Date(from);
-    if (to) filter.createdAt.$lte = new Date(to);
+  const range = dayRange(from, to);
+  if (range) filter.createdAt = range;
+  if (paymentMode) filter.paymentMode = paymentMode;
+  if (status === "completed" || status === "void") filter.paymentStatus = status;
+  if (category && mongoose.isValidObjectId(category)) {
+    const ids = (await Product.find({ category }, "_id")).map((p) => p._id);
+    filter["items.product"] = { $in: ids };
   }
+  return filter;
+}
+
+router.get("/", async (req, res) => {
+  const filter = await buildSaleFilter(req);
 
   const sales = await Sale.find(filter)
     .populate("customer", "name phone")
@@ -41,15 +53,8 @@ router.get("/", async (req, res) => {
 // Express matches in registration order, so this must come first or "/:id"
 // would treat "export" as a sale id.
 router.get("/export", async (req, res) => {
-  const { q, from, to, format } = req.query;
-  const filter = {};
-  if (req.user.role === "staff") filter.createdBy = req.user._id;
-  if (q) filter.billNo = new RegExp(q, "i");
-  if (from || to) {
-    filter.createdAt = {};
-    if (from) filter.createdAt.$gte = new Date(from);
-    if (to) filter.createdAt.$lte = new Date(to);
-  }
+  const { format } = req.query;
+  const filter = await buildSaleFilter(req);
 
   const sales = await Sale.find(filter).populate("customer", "name phone").populate("createdBy", "username").sort({ createdAt: -1 });
   const rows = sales.map((s) => ({

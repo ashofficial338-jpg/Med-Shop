@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import { listExpenses, createExpense, deleteExpense, exportExpenses } from "../api/expenses";
@@ -8,9 +9,11 @@ const CATEGORIES = ["Rent", "Salary", "Utilities", "Other"];
 const PAYMENT_MODES = ["Cash", "UPI", "Card", "Other"];
 
 export default function Expenses() {
+  // Dashboard links open this page with ?from&to already set.
+  const [searchParams] = useSearchParams();
   const [expenses, setExpenses] = useState([]);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(searchParams.get("from") || "");
+  const [to, setTo] = useState(searchParams.get("to") || "");
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
 
@@ -143,6 +146,17 @@ export default function Expenses() {
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
         <span className="text-sm text-muted">to</span>
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
+        {(from || to) && (
+          <button
+            onClick={() => {
+              setFrom("");
+              setTo("");
+            }}
+            className="rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-surface"
+          >
+            Clear
+          </button>
+        )}
         <span className="ml-auto font-mono text-sm font-semibold text-text">Total: ₹{total.toFixed(2)}</span>
       </div>
 

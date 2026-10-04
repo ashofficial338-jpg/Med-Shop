@@ -1,64 +1,81 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { listPurchases, exportPurchases } from "../api/purchases";
 import { listVendors } from "../api/vendors";
+import { listCategories } from "../api/products";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
+import { compactParams } from "../utils/query";
+
+// Filters live in the URL so dashboard links open this list pre-filtered.
+const FILTER_KEYS = ["vendor", "from", "to", "category"];
 
 export default function PurchaseHistory() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [purchases, setPurchases] = useState([]);
   const [vendors, setVendors] = useState([]);
-  const [vendor, setVendor] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const buildParams = () => {
-    const params = {};
-    if (vendor) params.vendor = vendor;
-    if (from) params.from = from;
-    if (to) params.to = to;
-    return params;
-  };
+  const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
+  const params = compactParams(filters);
+  const paramsKey = JSON.stringify(params);
 
-  const load = () => {
+  const setFilter = (key, value) => setSearchParams(compactParams({ ...filters, [key]: value }), { replace: true });
+
+  useEffect(() => {
     setLoading(true);
-    listPurchases(buildParams()).then((data) => {
+    listPurchases(JSON.parse(paramsKey)).then((data) => {
       setPurchases(data);
       setLoading(false);
     });
-  };
+  }, [paramsKey]);
 
   useEffect(() => {
     listVendors().then(setVendors);
+    listCategories().then(setCategories).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendor, from, to]);
 
   const selectCls =
     "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
+  const total = purchases.reduce((sum, p) => sum + p.total, 0);
 
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-semibold text-text">Purchase History</h1>
-        <ReportDownloadButtons onExport={(format) => exportPurchases(format, buildParams())} />
+        <ReportDownloadButtons onExport={(format) => exportPurchases(format, params)} />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <select value={vendor} onChange={(e) => setVendor(e.target.value)} className={selectCls}>
+        <select aria-label="Vendor" value={filters.vendor} onChange={(e) => setFilter("vendor", e.target.value)} className={selectCls}>
           <option value="">All Vendors</option>
           {vendors.map((v) => (
             <option key={v._id} value={v._id}>{v.name}</option>
           ))}
         </select>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={selectCls} />
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={selectCls} />
+        <select aria-label="Category" value={filters.category} onChange={(e) => setFilter("category", e.target.value)} className={selectCls}>
+          <option value="">All Categories</option>
+          {categories.map((c) => (
+            <option key={c._id} value={c._id}>{c.name}</option>
+          ))}
+        </select>
+        <input type="date" aria-label="From" value={filters.from} onChange={(e) => setFilter("from", e.target.value)} className={selectCls} />
+        <input type="date" aria-label="To" value={filters.to} onChange={(e) => setFilter("to", e.target.value)} className={selectCls} />
+        {Object.keys(params).length > 0 && (
+          <button onClick={() => setSearchParams({}, { replace: true })} className="rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-surface">
+            Clear filters
+          </button>
+        )}
       </div>
 
-      <div className="mt-6 space-y-2">
+      {!loading && purchases.length > 0 && (
+        <p className="mt-3 text-xs text-muted">
+          {purchases.length} purchase{purchases.length === 1 ? "" : "s"} · ₹{total.toFixed(2)} total
+        </p>
+      )}
+
+      <div className="mt-4 space-y-2">
         {loading && <p className="text-sm text-muted">Loading…</p>}
         {!loading && purchases.length === 0 && <p className="text-sm text-muted">No records found.</p>}
 

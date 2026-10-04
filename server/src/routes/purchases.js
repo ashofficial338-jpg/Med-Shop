@@ -1,4 +1,5 @@
 import { Router } from "express";
+import mongoose from "mongoose";
 import Purchase from "../models/Purchase.js";
 import Vendor from "../models/Vendor.js";
 import Product from "../models/Product.js";
@@ -9,19 +10,28 @@ import { computeInternalQty } from "../utils/stockUnits.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
+import { dayRange } from "../utils/queryFilters.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
 
-router.get("/", async (req, res) => {
-  const { vendor, from, to } = req.query;
+// Shared by the list and its export. `category` keeps purchases that include
+// at least one product from that category (used by dashboard links).
+async function buildPurchaseFilter(req) {
+  const { vendor, from, to, category } = req.query;
   const filter = {};
   if (vendor) filter.vendor = vendor;
-  if (from || to) {
-    filter.date = {};
-    if (from) filter.date.$gte = new Date(from);
-    if (to) filter.date.$lte = new Date(to);
+  const range = dayRange(from, to);
+  if (range) filter.date = range;
+  if (category && mongoose.isValidObjectId(category)) {
+    const ids = (await Product.find({ category }, "_id")).map((p) => p._id);
+    filter["items.product"] = { $in: ids };
   }
+  return filter;
+}
+
+router.get("/", async (req, res) => {
+  const filter = await buildPurchaseFilter(req);
   const purchases = await Purchase.find(filter)
     .populate("vendor", "name")
     .populate("items.product", "name productCode")
@@ -33,14 +43,8 @@ router.get("/", async (req, res) => {
 // Express matches in registration order, so this must come first or "/:id"
 // would treat "export" as a purchase id.
 router.get("/export", async (req, res) => {
-  const { vendor, from, to, format } = req.query;
-  const filter = {};
-  if (vendor) filter.vendor = vendor;
-  if (from || to) {
-    filter.date = {};
-    if (from) filter.date.$gte = new Date(from);
-    if (to) filter.date.$lte = new Date(to);
-  }
+  const { format } = req.query;
+  const filter = await buildPurchaseFilter(req);
   const purchases = await Purchase.find(filter).populate("vendor", "name").sort({ date: -1, createdAt: -1 });
   const rows = purchases.map((p) => ({
     invoiceNo: p.invoiceNo,

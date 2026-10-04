@@ -21,15 +21,18 @@ export default function Products() {
   const [searchParams] = useSearchParams();
   const urlQuery = searchParams.get("q") || "";
   const [query, setQuery] = useState(urlQuery);
-  const [category, setCategory] = useState("");
-  const [availability, setAvailability] = useState("");
+  // Dashboard links can preset these (?category, ?availability) and open a
+  // product's detail panel directly (?product=<id>).
+  const [category, setCategory] = useState(searchParams.get("category") || "");
+  const [availability, setAvailability] = useState(searchParams.get("availability") || "");
+  const urlProduct = searchParams.get("product");
   const [loading, setLoading] = useState(true);
 
   const [editingProduct, setEditingProduct] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showCategories, setShowCategories] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState(null);
+  const [selectedProductId, setSelectedProductId] = useState(urlProduct);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -55,6 +58,10 @@ export default function Products() {
   useEffect(() => {
     setQuery(urlQuery);
   }, [urlQuery]);
+
+  useEffect(() => {
+    if (urlProduct) setSelectedProductId(urlProduct);
+  }, [urlProduct]);
 
   const handleSaved = () => {
     setEditingProduct(null);

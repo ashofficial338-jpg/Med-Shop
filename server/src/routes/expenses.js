@@ -2,6 +2,7 @@ import { Router } from "express";
 import Expense from "../models/Expense.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
+import { dayRange } from "../utils/queryFilters.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
@@ -9,11 +10,8 @@ router.use(requireAuth, requireRole("admin"));
 router.get("/", async (req, res) => {
   const { from, to } = req.query;
   const filter = {};
-  if (from || to) {
-    filter.date = {};
-    if (from) filter.date.$gte = new Date(from);
-    if (to) filter.date.$lte = new Date(to);
-  }
+  const range = dayRange(from, to);
+  if (range) filter.date = range;
   const expenses = await Expense.find(filter).sort({ date: -1 });
   res.json(expenses);
 });
@@ -21,11 +19,8 @@ router.get("/", async (req, res) => {
 router.get("/export", async (req, res) => {
   const { from, to, format } = req.query;
   const filter = {};
-  if (from || to) {
-    filter.date = {};
-    if (from) filter.date.$gte = new Date(from);
-    if (to) filter.date.$lte = new Date(to);
-  }
+  const range = dayRange(from, to);
+  if (range) filter.date = range;
   const expenses = await Expense.find(filter).sort({ date: -1 });
   const rows = expenses.map((e) => ({
     date: e.date.toISOString().slice(0, 10),

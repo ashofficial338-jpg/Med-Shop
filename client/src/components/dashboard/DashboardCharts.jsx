@@ -9,6 +9,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
+import { Link, useNavigate } from "react-router-dom";
 import Icon from "../Icon";
 import { money2, moneyCompact, shortDate } from "./format";
 
@@ -91,9 +92,10 @@ const TREND_SERIES = [
   { key: "profit", name: "Profit", color: COLOR_PROFIT },
 ];
 
-export function SalesTrendChart({ data }) {
+export function SalesTrendChart({ data, linkForDay }) {
+  const navigate = useNavigate();
   return (
-    <ChartCard title="Sales Trend" subtitle="Revenue · Expense · Profit per day">
+    <ChartCard title="Sales Trend" subtitle="Revenue · Expense · Profit per day · click a day to see its bills">
       <div className="mb-3 flex flex-wrap gap-4">
         {TREND_SERIES.map((s) => (
           <LegendItem key={s.key} color={s.color} label={s.name} />
@@ -104,7 +106,12 @@ export function SalesTrendChart({ data }) {
       ) : (
         <div className="h-[260px]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <AreaChart
+              data={data}
+              margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+              onClick={(state) => state?.activeLabel && linkForDay && navigate(linkForDay(state.activeLabel))}
+              style={{ cursor: linkForDay ? "pointer" : undefined }}
+            >
               <defs>
                 <linearGradient id="gTrendRevenue" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={COLOR_REVENUE} stopOpacity={0.18} />
@@ -136,11 +143,12 @@ export function SalesTrendChart({ data }) {
   );
 }
 
-export function CategoryBars({ data }) {
+export function CategoryBars({ data, linkFor }) {
+  const navigate = useNavigate();
   const sorted = [...data].sort((a, b) => b.total - a.total);
   const height = Math.max(260, sorted.length * 40 + 20);
   return (
-    <ChartCard title="Revenue by Category" subtitle="Net of GST, this period">
+    <ChartCard title="Revenue by Category" subtitle="Net of GST, this period · click a bar to see its products">
       {sorted.length === 0 ? (
         <EmptyChart height={260} />
       ) : (
@@ -151,7 +159,16 @@ export function CategoryBars({ data }) {
               <XAxis type="number" tickFormatter={moneyCompact} tick={AXIS} axisLine={false} tickLine={false} />
               <YAxis dataKey="category" type="category" tick={AXIS} axisLine={false} tickLine={false} width={96} />
               <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(14,124,116,0.06)" }} />
-              <Bar dataKey="total" name="Revenue" fill={BRAND} radius={[0, 4, 4, 0]} maxBarSize={20} activeBar={{ fill: "#0A5F59" }} />
+              <Bar
+                dataKey="total"
+                name="Revenue"
+                fill={BRAND}
+                radius={[0, 4, 4, 0]}
+                maxBarSize={20}
+                activeBar={{ fill: "#0A5F59" }}
+                cursor={linkFor ? "pointer" : undefined}
+                onClick={(entry) => linkFor && entry?.categoryId && navigate(linkFor(entry.categoryId))}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -160,16 +177,35 @@ export function CategoryBars({ data }) {
   );
 }
 
-export function CashFlowChart({ data }) {
+export function CashFlowChart({ data, to }) {
+  const navigate = useNavigate();
   return (
-    <ChartCard title="Today's Cash Flow" subtitle="Money in vs out, by payment mode" className="lg:col-span-2">
+    <ChartCard
+      title="Today's Cash Flow"
+      subtitle="Money in vs out, by payment mode"
+      className="lg:col-span-2"
+      action={
+        to && (
+          <Link to={to} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-primary transition hover:bg-primary-soft">
+            Day book
+            <Icon name="arrowRight" size={14} />
+          </Link>
+        )
+      }
+    >
       <div className="mb-3 flex flex-wrap gap-4">
         <LegendItem color={COLOR_PROFIT} label="In" />
         <LegendItem color={COLOR_EXPENSE} label="Out" />
       </div>
       <div className="h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={4}>
+          <BarChart
+            data={data}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            barGap={4}
+            onClick={() => to && navigate(to)}
+            style={{ cursor: to ? "pointer" : undefined }}
+          >
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="type" tick={AXIS} axisLine={false} tickLine={false} dy={6} />
             <YAxis tickFormatter={moneyCompact} tick={AXIS} axisLine={false} tickLine={false} width={52} />

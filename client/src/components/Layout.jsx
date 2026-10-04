@@ -36,6 +36,7 @@ const ADMIN_NAV = [
     section: "Finance",
     items: [
       { to: "/day-book", label: "Reports", icon: "chart" },
+      { to: "/reports/profitability", label: "Profitability", icon: "trendUp" },
       { to: "/expenses", label: "Expenses", icon: "wallet" },
     ],
   },

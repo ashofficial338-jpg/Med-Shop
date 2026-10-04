@@ -1,12 +1,24 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import AdjustStockModal from "../components/AdjustStockModal";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import { listStockLedger, getExpiryTracker, markStockClearance, exportStockLedger, exportExpiryTracker } from "../api/stock";
-import { getStockReport, exportStockReport } from "../api/products";
+import { getStockReport, exportStockReport, listCategories } from "../api/products";
+import { compactParams } from "../utils/query";
 
 const TABS = ["Stock Ledger", "Expiry Tracker", "Stock Report"];
+// ?tab=ledger|expiry|report lets dashboard links open the right tab.
+const TAB_SLUGS = { ledger: "Stock Ledger", expiry: "Expiry Tracker", report: "Stock Report" };
+const LEDGER_TYPES = [
+  ["purchase", "Purchase"],
+  ["sale", "Sale"],
+  ["manual-add", "Manual add"],
+  ["manual-reduce", "Manual reduce"],
+  ["void-reversal", "Void reversal"],
+  ["stock-clearance", "Stock clearance (expired)"],
+];
 
 function ExpiryGroup({ title, batches, selected, onToggle, onToggleAll, badgeCls }) {
   if (batches.length === 0) return null;
@@ -41,7 +53,15 @@ function ExpiryGroup({ title, batches, selected, onToggle, onToggleAll, badgeCls
 }
 
 export default function StockManagement() {
-  const [tab, setTab] = useState(TABS[0]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = TAB_SLUGS[searchParams.get("tab")] || TABS[0];
+  const ledgerType = searchParams.get("type") || "";
+  const reportCategory = searchParams.get("category") || "";
+  const reportAvailability = searchParams.get("availability") || "";
+  const setParam = (patch) =>
+    setSearchParams(compactParams({ ...Object.fromEntries(searchParams), ...patch }), { replace: true });
+  const setTab = (t) => setParam({ tab: Object.keys(TAB_SLUGS).find((k) => TAB_SLUGS[k] === t) });
+  const [categories, setCategories] = useState([]);
 
   const [ledger, setLedger] = useState([]);
   const [loadingLedger, setLoadingLedger] = useState(true);
@@ -54,9 +74,10 @@ export default function StockManagement() {
   const [stockReport, setStockReport] = useState(null);
   const [loadingStockReport, setLoadingStockReport] = useState(true);
 
+  const reportParams = compactParams({ category: reportCategory, availability: reportAvailability });
   const loadStockReport = () => {
     setLoadingStockReport(true);
-    getStockReport().then((data) => {
+    getStockReport(reportParams).then((data) => {
       setStockReport(data);
       setLoadingStockReport(false);
     });
@@ -64,7 +85,7 @@ export default function StockManagement() {
 
   const loadLedger = () => {
     setLoadingLedger(true);
-    listStockLedger().then((data) => {
+    listStockLedger(compactParams({ type: ledgerType })).then((data) => {
       setLedger(data);
       setLoadingLedger(false);
     });
@@ -79,10 +100,22 @@ export default function StockManagement() {
   };
 
   useEffect(() => {
-    loadLedger();
     loadTracker();
-    loadStockReport();
+    listCategories().then(setCategories).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadLedger();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ledgerType]);
+
+  useEffect(() => {
+    loadStockReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportCategory, reportAvailability]);
+
+  const selectCls =
+    "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
 
   const toggleOne = (id) => {
     setSelected((prev) => {
@@ -143,7 +176,15 @@ export default function StockManagement() {
             >
               Adjust Stock
             </button>
-            <ReportDownloadButtons onExport={(format) => exportStockLedger(format)} />
+            <div className="flex flex-wrap items-center gap-2">
+              <select aria-label="Movement type" value={ledgerType} onChange={(e) => setParam({ type: e.target.value })} className={selectCls}>
+                <option value="">All movements</option>
+                {LEDGER_TYPES.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <ReportDownloadButtons onExport={(format) => exportStockLedger(format, compactParams({ type: ledgerType }))} />
+            </div>
           </div>
 
           <div className="mt-4 space-y-1.5">
@@ -218,7 +259,22 @@ export default function StockManagement() {
                     <p className="mt-1 font-mono text-lg font-semibold text-text">₹{stockReport.totals.totalValueMrp.toFixed(2)}</p>
                   </div>
                 </div>
-                <ReportDownloadButtons onExport={(format) => exportStockReport(format)} />
+                <ReportDownloadButtons onExport={(format) => exportStockReport(format, reportParams)} />
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <select aria-label="Category" value={reportCategory} onChange={(e) => setParam({ category: e.target.value })} className={selectCls}>
+                  <option value="">All Categories</option>
+                  {categories.map((c) => (
+                    <option key={c._id} value={c._id}>{c.name}</option>
+                  ))}
+                </select>
+                <select aria-label="Availability" value={reportAvailability} onChange={(e) => setParam({ availability: e.target.value })} className={selectCls}>
+                  <option value="">All Availability</option>
+                  <option value="available">Available</option>
+                  <option value="low">Low Stock</option>
+                  <option value="out">Out of Stock</option>
+                </select>
               </div>
 
               <div className="mt-4 overflow-x-auto rounded-xl bg-surface shadow-sm">

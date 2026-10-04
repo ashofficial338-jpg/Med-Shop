@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Layout, { STORE_NAME } from "../components/Layout";
 import Icon from "../components/Icon";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
@@ -15,120 +15,8 @@ import {
   ProductProfitability,
   InventoryTurnover,
 } from "../components/dashboard/DashboardWidgets";
-import { fullDate } from "../components/dashboard/format";
-
-function localIso(d) {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-function lastDays(days) {
-  const to = new Date();
-  const from = new Date(to.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
-  return { from: localIso(from), to: localIso(to) };
-}
-
-const PRESETS = [
-  { label: "Today", range: () => lastDays(1) },
-  { label: "Last 7 days", range: () => lastDays(7) },
-  { label: "Last 30 days", range: () => lastDays(30) },
-  { label: "Last 90 days", range: () => lastDays(90) },
-  {
-    label: "This month",
-    range: () => {
-      const now = new Date();
-      return { from: localIso(new Date(now.getFullYear(), now.getMonth(), 1)), to: localIso(now) };
-    },
-  },
-];
-
-function presetFor(range) {
-  return PRESETS.find((p) => {
-    const r = p.range();
-    return r.from === range.from && r.to === range.to;
-  });
-}
-
-function DateFilter({ range, onChange }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const active = presetFor(range);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
-    const onKey = (e) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const inputCls =
-    "w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10";
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text transition hover:border-primary/30"
-      >
-        <Icon name="calendar" size={17} className="text-primary" />
-        <span className="hidden whitespace-nowrap sm:inline">
-          {active ? active.label : `${fullDate(range.from)} – ${fullDate(range.to)}`}
-        </span>
-        <Icon name="chevronDown" size={15} className="text-muted" />
-      </button>
-
-      {open && (
-        <div className="fade-up absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-border bg-surface p-1.5 shadow-[var(--shadow-lift)]">
-          {PRESETS.map((p) => {
-            const isActive = active?.label === p.label;
-            return (
-              <button
-                key={p.label}
-                onClick={() => {
-                  onChange(p.range());
-                  setOpen(false);
-                }}
-                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition hover:bg-bg ${isActive ? "font-semibold text-primary" : "text-text"}`}
-              >
-                {p.label}
-                {isActive && <Icon name="check" size={16} strokeWidth={2.5} />}
-              </button>
-            );
-          })}
-          <div className="mt-1 border-t border-border px-2 pb-1.5 pt-2.5">
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Custom range</p>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="date"
-                aria-label="From"
-                value={range.from}
-                max={range.to}
-                onChange={(e) => e.target.value && onChange({ ...range, from: e.target.value })}
-                className={inputCls}
-              />
-              <span className="text-xs text-muted">–</span>
-              <input
-                type="date"
-                aria-label="To"
-                value={range.to}
-                min={range.from}
-                onChange={(e) => e.target.value && onChange({ ...range, to: e.target.value })}
-                className={inputCls}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+import { DateFilter, FilterBar, presetFor, useReportFilters } from "../components/dashboard/ReportFilters";
+import { withQuery } from "../utils/query";
 
 function Skeleton() {
   return (
@@ -147,20 +35,21 @@ function Skeleton() {
 }
 
 export default function Dashboard() {
-  const [range, setRange] = useState(() => lastDays(30));
+  const [filters, setFilters] = useReportFilters();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [todayBalances, setTodayBalances] = useState(null);
+  const { from, to, category, paymentMode } = filters;
 
   const load = useCallback(() => {
     setLoading(true);
     setError("");
-    getDashboardSummary(range)
+    getDashboardSummary({ from, to, category, paymentMode })
       .then(setSummary)
       .catch(() => setError("Couldn't load the dashboard. Check your connection and try again."))
       .finally(() => setLoading(false));
-  }, [range]);
+  }, [from, to, category, paymentMode]);
 
   useEffect(() => {
     load();
@@ -172,6 +61,7 @@ export default function Dashboard() {
       .catch(() => {});
   }, []);
 
+  const range = { from, to };
   const periodLabel = presetFor(range)?.label.toLowerCase() || "selected period";
   const cashFlowToday = todayBalances
     ? [
@@ -181,15 +71,43 @@ export default function Dashboard() {
       ]
     : [];
 
+  // Where each metric leads. Every link carries the filters its page
+  // understands, so the detail list shows the same records behind the number.
+  const salesQuery = { from, to, category, paymentMode, status: "completed" };
+  const links = {
+    sales: withQuery("/bills", salesQuery),
+    salesDay: (day) => withQuery("/bills", { ...salesQuery, from: day, to: day }),
+    purchases: withQuery("/purchases", { from, to, category }),
+    expenses: withQuery("/expenses", { from, to }),
+    profitability: withQuery("/reports/profitability", { from, to, category, paymentMode }),
+    stockReport: withQuery("/stock", { tab: "report", category }),
+    writeOffs: withQuery("/stock", { tab: "ledger", type: "stock-clearance" }),
+    expiry: "/stock?tab=expiry",
+    lowStock: withQuery("/products", { availability: "low", category }),
+    product: (id) => withQuery("/products", { product: id }),
+    category: (id) => withQuery("/products", { category: id }),
+    dayBook: "/day-book",
+  };
+
   return (
-    <Layout toolbar={<DateFilter range={range} onChange={setRange} />}>
+    <Layout toolbar={<DateFilter range={range} onChange={(r) => setFilters(r)} />}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-primary">{STORE_NAME}</p>
           <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Accounting Dashboard</h1>
-          <p className="mt-1 text-sm text-muted">Profit, sales, cash and stock at a glance — {periodLabel}.</p>
+          <p className="mt-1 text-sm text-muted">
+            Profit, sales, cash and stock at a glance — {periodLabel}. Click any figure to see the records behind it.
+          </p>
         </div>
-        <ReportDownloadButtons onExport={(format) => downloadDashboardReport(range, format)} />
+        <ReportDownloadButtons onExport={(format) => downloadDashboardReport(filters, format)} />
+      </div>
+
+      <div className="mt-5">
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          note="Category narrows sales, profit, purchase and stock figures; payment mode narrows sales and profit. Shop expenses are shared by the filtered sales' revenue. Downloads include these filters."
+        />
       </div>
 
       {error && (
@@ -208,23 +126,23 @@ export default function Dashboard() {
 
       {summary && (
         <div className={`mt-6 space-y-8 transition-opacity ${loading ? "opacity-60" : ""}`}>
-          <ProfitLoss summary={summary} range={range} />
+          <ProfitLoss summary={summary} range={range} links={links} />
 
-          <ProductProfitability summary={summary} />
+          <ProductProfitability summary={summary} links={links} />
 
           <section className="space-y-4">
             <SectionTitle icon="receipt">Sales &amp; GST</SectionTitle>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatTile label="Sales Count" value={summary.salesCount} isCount icon="receipt" tone="violet" to="/bills" />
-              <StatTile label="Output GST" value={summary.outputGst} icon="arrowRight" tone="blue" />
-              <StatTile label="Input GST" value={summary.inputGst} icon="truck" tone="slate" />
-              <StatTile label="Net GST Payable" value={summary.netGst} icon="rupee" tone="teal" />
+              <StatTile label="Sales Count" value={summary.salesCount} isCount icon="receipt" tone="violet" to={links.sales} />
+              <StatTile label="Output GST" value={summary.outputGst} icon="arrowRight" tone="blue" note="GST collected on sales" to={links.sales} />
+              <StatTile label="Input GST" value={summary.inputGst} icon="truck" tone="slate" note="GST paid on purchases" to={links.purchases} />
+              <StatTile label="Net GST Payable" value={summary.netGst} icon="rupee" tone="teal" note="Output − input GST" to={links.sales} />
             </div>
             <div className="grid gap-6 lg:grid-cols-2">
-              <SalesTrendChart data={summary.salesTrend} />
-              <CategoryBars data={summary.revenueByCategory} />
+              <SalesTrendChart data={summary.salesTrend} linkForDay={links.salesDay} />
+              <CategoryBars data={summary.revenueByCategory} linkFor={links.category} />
             </div>
-            <TopSelling items={summary.fastMovers} />
+            <TopSelling items={summary.fastMovers} links={links} />
           </section>
 
           {todayBalances && (
@@ -232,18 +150,18 @@ export default function Dashboard() {
               <SectionTitle icon="wallet">Cash Position</SectionTitle>
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-1">
-                  <StatTile label="Cash Today" value={todayBalances.cash.closing} icon="wallet" tone="success" to="/day-book" />
-                  <StatTile label="UPI Today" value={todayBalances.upi.closing} icon="rupee" tone="blue" to="/day-book" />
-                  <StatTile label="Credit Outstanding" value={todayBalances.credit.closing} icon="clock" tone="warning" to="/day-book" />
+                  <StatTile label="Cash Today" value={todayBalances.cash.closing} icon="wallet" tone="success" to={links.dayBook} />
+                  <StatTile label="UPI Today" value={todayBalances.upi.closing} icon="rupee" tone="blue" to={links.dayBook} />
+                  <StatTile label="Credit Outstanding" value={todayBalances.credit.closing} icon="clock" tone="warning" to={links.dayBook} />
                 </div>
-                <CashFlowChart data={cashFlowToday} />
+                <CashFlowChart data={cashFlowToday} to={links.dayBook} />
               </div>
             </section>
           )}
 
           <section className="space-y-4">
             <SectionTitle icon="boxes">Stock</SectionTitle>
-            <InventoryTurnover summary={summary} range={range} />
+            <InventoryTurnover summary={summary} range={range} links={links} />
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="self-start">
                 <StatTile
@@ -252,11 +170,11 @@ export default function Dashboard() {
                   icon="boxes"
                   tone="teal"
                   note="Current stock on hand, valued at purchase cost"
-                  to="/stock"
+                  to={links.stockReport}
                 />
               </div>
-              <LowStockList items={summary.lowStock} />
-              <ExpiringList items={summary.expiringSoon} />
+              <LowStockList items={summary.lowStock} links={links} />
+              <ExpiringList items={summary.expiringSoon} links={links} />
             </div>
           </section>
 
