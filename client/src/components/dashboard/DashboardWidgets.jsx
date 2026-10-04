@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "../Icon";
 import { ChartCard } from "./DashboardCharts";
-import { money, money2, count, fullDate, daysUntil } from "./format";
+import { money, money2, count, percent, fullDate, daysUntil } from "./format";
 
 const TONES = {
   teal: "bg-primary-soft text-primary",
@@ -29,8 +30,8 @@ export function SectionTitle({ icon, children, action }) {
   );
 }
 
-// `value` is ₹ unless `isCount` is set.
-export function StatTile({ label, value, icon, tone = "teal", valueTone = "text", isCount, note, to }) {
+// `value` is ₹ unless `isCount` is set; `display` overrides the formatting entirely.
+export function StatTile({ label, value, icon, tone = "teal", valueTone = "text", isCount, display, note, to }) {
   const body = (
     <>
       <div className="flex items-center justify-between gap-3">
@@ -40,7 +41,7 @@ export function StatTile({ label, value, icon, tone = "teal", valueTone = "text"
         </span>
       </div>
       <p className={`mt-2 font-display text-2xl font-bold leading-tight tracking-tight tnum ${VALUE_TONES[valueTone]}`}>
-        {isCount ? count(value) : money2(value)}
+        {display ?? (isCount ? count(value) : money2(value))}
       </p>
       {note && <p className="mt-1 text-[11px] text-muted">{note}</p>}
     </>
@@ -281,6 +282,119 @@ export function ProfitLoss({ summary, range }) {
         Purchases are stock bought in this period. They count as cost only when that stock is sold (Cost of Goods Sold), so
         they are not subtracted again.
       </p>
+    </section>
+  );
+}
+
+const signTone = (n) => (n > 0 ? "text-success" : n < 0 ? "text-danger" : "text-text");
+const PRODUCT_ROWS = 10;
+
+// Per-product figures come from dashboard.js:
+// ROI (%) = Net Profit / Product Investment x 100, where
+// Net Profit = (Sales Revenue - COGS) - Allocated Expenses.
+export function ProductProfitability({ summary }) {
+  const [showAll, setShowAll] = useState(false);
+
+  // The frontend (Vercel) and backend (Render) deploy separately, so the API
+  // can briefly be an older build without these fields - show a notice
+  // instead of crashing the whole dashboard on undefined.
+  if (!Array.isArray(summary.productProfitability)) {
+    return (
+      <section className="space-y-4" aria-label="Product Profitability and ROI">
+        <SectionTitle icon="chart">Product Profitability &amp; ROI</SectionTitle>
+        <ChartCard title="Profitability by Product">
+          <EmptyRow
+            icon="alert"
+            title="Not available yet"
+            text="The server hasn't been updated with product ROI. Redeploy the backend to see these figures."
+          />
+        </ChartCard>
+      </section>
+    );
+  }
+
+  const rows = summary.productProfitability;
+  const visible = showAll ? rows : rows.slice(0, PRODUCT_ROWS);
+  const roiTone = summary.roiPct === null ? "text" : summary.roiPct > 0 ? "success" : summary.roiPct < 0 ? "danger" : "text";
+  const netTone = summary.profit > 0 ? "success" : summary.profit < 0 ? "danger" : "text";
+
+  return (
+    <section className="space-y-4" aria-label="Product Profitability and ROI">
+      <SectionTitle icon="chart">Product Profitability &amp; ROI</SectionTitle>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <StatTile label="Product Investment" value={summary.investment} icon="boxes" tone="blue" note="Cost of goods sold" />
+        <StatTile label="Sales Revenue" value={summary.revenue} icon="rupee" tone="teal" note="Excl. GST, after discounts" />
+        <StatTile label="Gross Profit" value={summary.grossProfit} icon="trendUp" tone="success" note="Revenue − COGS" />
+        <StatTile
+          label="Allocated Expenses"
+          value={summary.allocatedExpenses}
+          icon="wallet"
+          tone="warning"
+          note="Expenses + expired write-off"
+        />
+        <StatTile label="Net Profit" value={summary.profit} icon="trendUp" tone="success" valueTone={netTone} note="Gross profit − expenses" />
+        <StatTile
+          label="ROI (%)"
+          display={percent(summary.roiPct)}
+          icon="chart"
+          tone="violet"
+          valueTone={roiTone}
+          note="Net profit ÷ investment × 100"
+        />
+      </div>
+
+      <ChartCard
+        title="Profitability by Product"
+        subtitle="Expenses are shared across products by their share of revenue; expired write-offs go to their own product"
+      >
+        {rows.length === 0 ? (
+          <EmptyRow icon="pill" title="No records found" text="Product profit and ROI will show here once sales come in." />
+        ) : (
+          <>
+            <div className="-mx-5 overflow-x-auto px-5">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    <th className="py-2 pr-3 font-semibold">Product</th>
+                    <th className="px-3 py-2 text-right font-semibold">Investment</th>
+                    <th className="px-3 py-2 text-right font-semibold">Revenue</th>
+                    <th className="px-3 py-2 text-right font-semibold">Gross Profit</th>
+                    <th className="px-3 py-2 text-right font-semibold">Alloc. Expenses</th>
+                    <th className="px-3 py-2 text-right font-semibold">Net Profit</th>
+                    <th className="py-2 pl-3 text-right font-semibold">ROI</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/70">
+                  {visible.map((p) => (
+                    <tr key={p.productId}>
+                      <td className="max-w-[16rem] truncate py-2.5 pr-3 font-medium text-text">{p.name}</td>
+                      <td className="px-3 py-2.5 text-right text-text tnum">{money2(p.investment)}</td>
+                      <td className="px-3 py-2.5 text-right text-text tnum">{money2(p.revenue)}</td>
+                      <td className={`px-3 py-2.5 text-right tnum ${signTone(p.grossProfit)}`}>{money2(p.grossProfit)}</td>
+                      <td className="px-3 py-2.5 text-right text-text tnum">{money2(p.allocatedExpenses)}</td>
+                      <td className={`px-3 py-2.5 text-right font-semibold tnum ${signTone(p.netProfit)}`}>{money2(p.netProfit)}</td>
+                      <td className={`py-2.5 pl-3 text-right font-semibold tnum ${signTone(p.roiPct ?? 0)}`}>{percent(p.roiPct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {rows.length > PRODUCT_ROWS && (
+              <button
+                onClick={() => setShowAll((v) => !v)}
+                className="mt-3 rounded-lg px-2 py-1 text-xs font-semibold text-primary transition hover:bg-primary-soft"
+              >
+                {showAll ? "Show top 10" : `Show all ${rows.length} products`}
+              </button>
+            )}
+          </>
+        )}
+        {summary.unallocatedExpenses > 0 && (
+          <p className="mt-3 text-xs text-muted">
+            {money2(summary.unallocatedExpenses)} of expenses could not be allocated because there were no sales in this period.
+          </p>
+        )}
+      </ChartCard>
     </section>
   );
 }

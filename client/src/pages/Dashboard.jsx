@@ -12,6 +12,7 @@ import {
   LowStockList,
   ExpiringList,
   ProfitLoss,
+  ProductProfitability,
 } from "../components/dashboard/DashboardWidgets";
 import { fullDate } from "../components/dashboard/format";
 
@@ -207,6 +208,8 @@ export default function Dashboard() {
       {summary && (
         <div className={`mt-6 space-y-8 transition-opacity ${loading ? "opacity-60" : ""}`}>
           <ProfitLoss summary={summary} range={range} />
+
+          <ProductProfitability summary={summary} />
 
           <section className="space-y-4">
             <SectionTitle icon="receipt">Sales &amp; GST</SectionTitle>

@@ -27,6 +27,11 @@ export function count(n) {
   return inr.format(Number(n || 0));
 }
 
+// ROI/margin figures arrive as a number (e.g. 16.4) or null when undefined.
+export function percent(n) {
+  return n === null || n === undefined ? "—" : `${n}%`;
+}
+
 export function shortDate(iso) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 }
