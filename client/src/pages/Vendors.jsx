@@ -91,7 +91,7 @@ export default function Vendors() {
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-semibold text-text">Vendors</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Vendors</h1>
         <div className="flex flex-wrap gap-2">
           <ReportDownloadButtons onExport={(format) => exportVendors(format, query.trim() ? { q: query.trim() } : {})} />
           <Link

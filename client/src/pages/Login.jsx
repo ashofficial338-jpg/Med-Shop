@@ -156,7 +156,7 @@ export default function Login() {
   const year = new Date().getFullYear();
 
   return (
-    <div className="grid min-h-screen bg-bg lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+    <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* Brand panel (desktop / large tablet) */}
       <aside className="relative hidden overflow-hidden bg-gradient-to-br from-[#0A5F59] via-primary to-[#139186] p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
         <div className="login-blob pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-2xl" />
@@ -176,7 +176,7 @@ export default function Login() {
             <Icon name="pulse" size={14} strokeWidth={2} />
             Care, counted precisely
           </p>
-          <h2 className="mt-5 font-display text-4xl font-bold leading-[1.15] tracking-tight xl:text-[44px]">
+          <h2 className="fade-up mt-5 font-display text-4xl font-extrabold leading-[1.1] tracking-tight xl:text-[48px]">
             Your pharmacy, running smoothly every day.
           </h2>
           <p className="mt-4 text-base leading-relaxed text-white/75">
@@ -185,10 +185,10 @@ export default function Login() {
           <div className="mt-6">
             <PulseLine />
           </div>
-          <ul className="mt-6 space-y-4">
+          <ul className="stagger mt-6 space-y-4">
             {FEATURES.map((f) => (
-              <li key={f.title} className="flex gap-3.5">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20">
+              <li key={f.title} className="group flex gap-3.5">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur transition duration-500 group-hover:scale-110 group-hover:bg-white/20">
                   <Icon name={f.icon} size={18} />
                 </span>
                 <span>
@@ -226,8 +226,9 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="fade-up rounded-3xl border border-border bg-surface p-7 shadow-[var(--shadow-lift)] sm:p-9">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Welcome back</h1>
+          <div className="login-card slide-up relative overflow-hidden rounded-[28px] border border-white/70 p-7 sm:p-9">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+            <h1 className="text-gradient font-display text-[28px] font-extrabold tracking-tight sm:text-[32px]">Welcome back</h1>
             <p className="mt-1.5 text-sm text-muted">Sign in to continue to your workspace.</p>
 
             <form onSubmit={handleSubmit} className="mt-7 space-y-5" noValidate>

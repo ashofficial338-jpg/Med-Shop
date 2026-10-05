@@ -88,7 +88,7 @@ export default function RolesPermissions() {
 
   return (
     <Layout>
-      <h1 className="font-display text-2xl font-semibold text-text">Roles &amp; Permissions</h1>
+      <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Roles &amp; Permissions</h1>
       <p className="mt-1 text-sm text-muted">
         Choose each user's role and what non-admin users can see on the dashboard. Changes save immediately and apply on the
         user's next page load.

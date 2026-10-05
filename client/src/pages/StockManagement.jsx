@@ -153,7 +153,7 @@ export default function StockManagement() {
 
   return (
     <Layout>
-      <h1 className="font-display text-2xl font-semibold text-text">Stock Management</h1>
+      <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Stock Management</h1>
 
       <div className="mt-4 flex gap-1 border-b border-border">
         {TABS.map((t) => (

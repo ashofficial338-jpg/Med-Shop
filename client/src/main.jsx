@@ -7,6 +7,9 @@ import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { CartProvider } from './context/CartContext.jsx'
+import { installFx } from './utils/fx.js'
+
+installFx()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -14,7 +17,7 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <CartProvider>
           <App />
-          <ToastContainer position="top-right" autoClose={3000} />
+          <ToastContainer position="top-right" autoClose={3000} newestOnTop pauseOnFocusLoss={false} />
         </CartProvider>
       </AuthProvider>
     </BrowserRouter>

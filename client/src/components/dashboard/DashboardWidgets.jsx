@@ -1,16 +1,28 @@
 import { Link } from "react-router-dom";
 import Icon from "../Icon";
+import CountUp from "../CountUp";
 import { ChartCard } from "./DashboardCharts";
 import { money, money2, count, percent, fullDate, daysUntil } from "./format";
 
 const TONES = {
-  teal: "bg-primary-soft text-primary",
-  blue: "bg-info-soft text-info",
-  violet: "bg-[#f0eefc] text-[#5b4fc4]",
-  slate: "bg-bg text-text",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning",
-  danger: "bg-danger/10 text-danger",
+  teal: "bg-gradient-to-br from-primary-soft to-[#d3ede9] text-primary ring-primary/10",
+  blue: "bg-gradient-to-br from-info-soft to-[#d9e8fa] text-info ring-info/10",
+  violet: "bg-gradient-to-br from-[#f3f1fd] to-[#e4e0fa] text-[#5b4fc4] ring-[#5b4fc4]/10",
+  slate: "bg-gradient-to-br from-bg to-[#e6ebef] text-text ring-text/5",
+  success: "bg-gradient-to-br from-success/10 to-success/20 text-success ring-success/10",
+  warning: "bg-gradient-to-br from-warning/10 to-warning/20 text-warning ring-warning/10",
+  danger: "bg-gradient-to-br from-danger/10 to-danger/20 text-danger ring-danger/10",
+};
+
+// Accent hairline across the top of each stat tile.
+const ACCENTS = {
+  teal: "from-primary/0 via-primary/60 to-primary/0",
+  blue: "from-info/0 via-info/60 to-info/0",
+  violet: "from-[#5b4fc4]/0 via-[#5b4fc4]/55 to-[#5b4fc4]/0",
+  slate: "from-text/0 via-text/25 to-text/0",
+  success: "from-success/0 via-success/60 to-success/0",
+  warning: "from-warning/0 via-warning/60 to-warning/0",
+  danger: "from-danger/0 via-danger/60 to-danger/0",
 };
 
 const VALUE_TONES = { text: "text-text", success: "text-success", danger: "text-danger" };
@@ -19,7 +31,7 @@ export function SectionTitle({ icon, children, action }) {
   return (
     <div className="flex items-center justify-between gap-3 pt-2">
       <h2 className="flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-text">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#2FC1B0] to-primary text-white shadow-[0_8px_18px_-8px_rgba(14,124,116,0.8)]">
           <Icon name={icon} size={17} />
         </span>
         {children}
@@ -34,14 +46,17 @@ export function SectionTitle({ icon, children, action }) {
 export function StatTile({ label, value, icon, tone = "teal", valueTone = "text", isCount, display, note, to }) {
   const body = (
     <>
+      <span className={`pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r opacity-0 transition-opacity duration-500 group-hover:opacity-100 ${ACCENTS[tone]}`} />
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] font-medium text-muted">{label}</p>
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${TONES[tone]}`}>
-          <Icon name={icon} size={17} />
+        <span
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-6 group-hover:scale-110 ${TONES[tone]}`}
+        >
+          <Icon name={icon} size={18} />
         </span>
       </div>
-      <p className={`mt-2 font-display text-2xl font-bold leading-tight tracking-tight tnum ${VALUE_TONES[valueTone]}`}>
-        {display ?? (isCount ? count(value) : money2(value))}
+      <p className={`mt-3 font-display text-[26px] font-bold leading-tight tracking-tight tnum ${VALUE_TONES[valueTone]}`}>
+        {display ?? <CountUp value={value} format={isCount ? count : money2} />}
       </p>
       {note && <p className="mt-1 text-[11px] text-muted">{note}</p>}
       {to && (
@@ -265,7 +280,7 @@ export function ProfitLoss({ summary, range, links }) {
         <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           <MaybeLink
             to={links.profitability}
-            className={`group relative flex flex-col justify-center overflow-hidden rounded-2xl p-6 transition hover:brightness-[0.98] ${
+            className={`group relative flex flex-col justify-center overflow-hidden rounded-2xl p-6 ring-1 ring-black/[0.03] transition hover:brightness-[0.98] ${
               isProfit ? "bg-gradient-to-br from-success/10 to-primary-soft" : "bg-gradient-to-br from-danger/10 to-bg"
             }`}
           >
@@ -273,15 +288,15 @@ export function ProfitLoss({ summary, range, links }) {
               <Icon name={isProfit ? "trendUp" : "trendDown"} size={15} strokeWidth={2} />
               {isProfit ? "Net profit" : "Net loss"}
             </p>
-            <p className={`mt-2 break-all font-display text-3xl font-bold tnum sm:text-4xl ${tone}`}>
-              {money2(isProfit ? summary.netProfit : summary.netLoss)}
+            <p className={`mt-2 break-all font-display text-3xl font-bold tracking-tight tnum sm:text-[40px] ${tone}`}>
+              <CountUp value={isProfit ? summary.netProfit : summary.netLoss} format={money2} duration={1200} />
             </p>
             <p className="mt-2 text-xs text-muted">
               {summary.netMarginPct === null
                 ? "No sales in this period."
                 : `${isProfit ? "Net margin" : "Loss equals"} ${Math.abs(summary.netMarginPct)}% of revenue · ${summary.salesCount} sale${summary.salesCount === 1 ? "" : "s"}`}
             </p>
-            <Icon name="rupee" size={110} strokeWidth={1} className={`pointer-events-none absolute -bottom-5 -right-3 opacity-[0.07] ${tone}`} />
+            <Icon name="rupee" size={110} strokeWidth={1} className={`pointer-events-none absolute -bottom-5 -right-3 opacity-[0.07] transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-rotate-6 group-hover:scale-110 ${tone}`} />
           </MaybeLink>
 
           <div>
@@ -521,7 +536,7 @@ export function InventoryTurnover({ summary, range, links }) {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <MaybeLink
           to={links.stockReport}
-          className="relative flex flex-col justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-info-soft to-primary-soft p-6 transition hover:brightness-[0.98]"
+          className="group relative flex flex-col justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-info-soft to-primary-soft p-6 ring-1 ring-info/10 transition hover:brightness-[0.98]"
         >
           <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-info">
             <Icon name="boxes" size={15} strokeWidth={2} />
@@ -533,7 +548,7 @@ export function InventoryTurnover({ summary, range, links }) {
               ? "No stock on hand in this period."
               : `Stock was sold through about ${ratio.toFixed(1)} time${ratio === 1 ? "" : "s"} in this period.`}
           </p>
-          <Icon name="boxes" size={110} strokeWidth={1} className="pointer-events-none absolute -bottom-5 -right-3 text-info opacity-[0.07]" />
+          <Icon name="boxes" size={110} strokeWidth={1} className="pointer-events-none absolute -bottom-5 -right-3 text-info opacity-[0.07] transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-rotate-6 group-hover:scale-110" />
         </MaybeLink>
 
         <div>
@@ -584,7 +599,7 @@ export function Ebitda({ summary, range, links }) {
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <div
-          className={`relative flex flex-col justify-center overflow-hidden rounded-2xl p-6 ${
+          className={`group relative flex flex-col justify-center overflow-hidden rounded-2xl p-6 ring-1 ring-black/[0.03] ${
             positive ? "bg-gradient-to-br from-success/10 to-info-soft" : "bg-gradient-to-br from-danger/10 to-bg"
           }`}
         >
@@ -592,11 +607,13 @@ export function Ebitda({ summary, range, links }) {
             <Icon name="chart" size={15} strokeWidth={2} />
             EBITDA
           </p>
-          <p className={`mt-2 break-all font-display text-3xl font-bold tnum sm:text-4xl ${tone}`}>{money2(summary.ebitda)}</p>
+          <p className={`mt-2 break-all font-display text-3xl font-bold tracking-tight tnum sm:text-[40px] ${tone}`}>
+            <CountUp value={summary.ebitda} format={money2} duration={1200} />
+          </p>
           <p className="mt-2 text-xs text-muted">
             {summary.ebitdaMarginPct === null ? "No sales in this period." : `EBITDA margin ${summary.ebitdaMarginPct}% of revenue`}
           </p>
-          <Icon name="chart" size={110} strokeWidth={1} className={`pointer-events-none absolute -bottom-5 -right-3 opacity-[0.07] ${tone}`} />
+          <Icon name="chart" size={110} strokeWidth={1} className={`pointer-events-none absolute -bottom-5 -right-3 opacity-[0.07] transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-rotate-6 group-hover:scale-110 ${tone}`} />
         </div>
 
         <div>

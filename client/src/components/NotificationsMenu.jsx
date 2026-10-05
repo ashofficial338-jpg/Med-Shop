@@ -84,7 +84,7 @@ export default function NotificationsMenu({ open, onOpenChange, onCountChange, i
         onClick={() => onOpenChange(!open)}
         aria-label={`Notifications${items.length ? ` (${items.length})` : ""}`}
         aria-expanded={open}
-        className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface text-muted transition hover:border-primary/30 hover:text-primary"
+        className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface text-muted shadow-[0_1px_2px_rgba(16,36,48,0.05)] transition hover:-translate-y-px hover:border-primary/30 hover:text-primary hover:shadow-[0_8px_18px_-10px_rgba(14,124,116,0.6)]"
       >
         <Icon name="bell" />
         {items.length > 0 && (
@@ -95,7 +95,7 @@ export default function NotificationsMenu({ open, onOpenChange, onCountChange, i
       </button>
 
       {open && (
-        <div className="fade-up absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-lift)]">
+        <div className="pop-in absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-lift)]">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <p className="text-sm font-semibold text-text">Notifications</p>
             <span className="text-xs text-muted">{items.length} alert{items.length === 1 ? "" : "s"}</span>

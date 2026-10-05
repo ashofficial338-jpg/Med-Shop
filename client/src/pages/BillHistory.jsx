@@ -51,7 +51,7 @@ export default function BillHistory() {
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-semibold text-text">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">
           {user.role === "admin" ? "Bill History" : "My Bills"}
         </h1>
         <ExportButtons onExport={(format) => exportSales(format, params)} />

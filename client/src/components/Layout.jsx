@@ -76,32 +76,39 @@ const STAFF_NAV = [
 ];
 
 function Badge({ children, tone = "primary" }) {
-  const cls = tone === "danger" ? "bg-danger/10 text-danger" : "bg-primary-soft text-primary";
+  const cls =
+    tone === "danger"
+      ? "bg-gradient-to-br from-[#E2574F] to-danger text-white shadow-[0_4px_12px_-4px_rgba(196,61,54,0.8)]"
+      : "bg-gradient-to-br from-[#2FC1B0] to-primary text-white shadow-[0_4px_12px_-4px_rgba(47,193,176,0.8)]";
   return <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold tnum ${cls}`}>{children}</span>;
 }
 
 function Sidebar({ nav, onNavigate, onOpenNotifications, badges }) {
   const itemCls = (active) =>
-    `group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
-      active ? "bg-primary-soft text-primary" : "text-muted hover:bg-bg hover:text-text"
+    `group relative flex w-full items-center gap-3 rounded-xl px-3 py-[7px] text-sm font-medium transition-all duration-300 ${
+      active ? "nav-active text-white" : "text-white/60 hover:translate-x-0.5 hover:bg-white/[0.06] hover:text-white"
     }`;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 px-5 pb-5 pt-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#1B9C8F] text-white shadow-sm">
-          <Icon name="cross" size={18} strokeWidth={2} />
+    <div className="sidebar-surface relative flex h-full flex-col overflow-hidden">
+      {/* Fine grid texture, faded toward the bottom. */}
+      <div className="login-grid pointer-events-none absolute inset-0 opacity-[0.035]" />
+
+      <div className="relative flex items-center gap-3 px-5 pb-6 pt-6">
+        <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2FC1B0] via-primary to-[#0A5F59] text-white shadow-[0_8px_24px_-8px_rgba(47,193,176,0.9)] ring-1 ring-white/20">
+          <Icon name="cross" size={19} strokeWidth={2} />
+          <span className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/25 to-transparent" />
         </div>
         <div className="min-w-0">
-          <p className="font-display text-[15px] font-bold leading-tight text-text">GHM Pharmacy</p>
-          <p className="text-xs text-muted">Management Suite</p>
+          <p className="font-display text-[15px] font-bold leading-tight tracking-tight text-white">GHM Pharmacy</p>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#7FE6D6]/70">Management Suite</p>
         </div>
       </div>
 
-      <nav className="thin-scroll flex-1 space-y-5 overflow-y-auto px-3 pb-4" aria-label="Main">
+      <nav className="dark-scroll relative flex-1 space-y-5 overflow-y-auto px-3 pb-4" aria-label="Main">
         {nav.map((group) => (
           <div key={group.section}>
-            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted/70">
+            <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/30">
               {group.section}
             </p>
             <div className="space-y-0.5">
@@ -109,8 +116,14 @@ function Sidebar({ nav, onNavigate, onOpenNotifications, badges }) {
                 const badge = item.badge ? badges[item.badge] : null;
                 const content = (active) => (
                   <>
-                    <span className={active ? "text-primary" : "text-muted/80 group-hover:text-text"}>
-                      <Icon name={item.icon} />
+                    <span
+                      className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-300 ${
+                        active
+                          ? "bg-gradient-to-br from-[#2FC1B0] to-primary text-white shadow-[0_6px_16px_-6px_rgba(47,193,176,0.9)]"
+                          : "text-white/50 group-hover:bg-white/[0.06] group-hover:text-[#7FE6D6]"
+                      }`}
+                    >
+                      <Icon name={item.icon} size={17} />
                     </span>
                     {item.label}
                     {badge ? <Badge tone={item.badge === "alerts" ? "danger" : "primary"}>{badge}</Badge> : null}
@@ -134,12 +147,13 @@ function Sidebar({ nav, onNavigate, onOpenNotifications, badges }) {
         ))}
       </nav>
 
-      <div className="m-3 rounded-2xl border border-border bg-gradient-to-br from-primary-soft to-info-soft p-4">
-        <div className="flex items-center gap-2 text-primary">
+      <div className="relative m-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
+        <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-[#2FC1B0]/20 blur-2xl" />
+        <div className="relative flex items-center gap-2 text-[#7FE6D6]">
           <Icon name="pill" size={16} />
           <p className="text-xs font-semibold">Dispense with care</p>
         </div>
-        <p className="mt-1 text-xs leading-relaxed text-muted">
+        <p className="relative mt-1 text-xs leading-relaxed text-white/55">
           Batches are sold first-expiry-first-out automatically at checkout.
         </p>
       </div>
@@ -169,8 +183,8 @@ function SearchBox() {
   };
 
   return (
-    <form onSubmit={submit} role="search" className="relative hidden w-full max-w-md md:block">
-      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+    <form onSubmit={submit} role="search" className="group relative hidden w-full max-w-md md:block">
+      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted transition-colors group-focus-within:text-primary">
         <Icon name="search" size={17} />
       </span>
       <input
@@ -178,9 +192,9 @@ function SearchBox() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="Search medicines by name or code…"
-        className="h-10 w-full rounded-xl border border-border bg-bg pl-10 pr-16 text-sm text-text placeholder:text-muted/70 transition focus:border-primary/50 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-primary/10"
+        className="h-11 w-full rounded-2xl border border-border bg-white/70 pl-11 pr-16 text-sm text-text shadow-[inset_0_1px_2px_rgba(16,36,48,0.04)] placeholder:text-muted/70 focus:bg-surface focus:outline-none"
       />
-      <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted">
+      <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface px-1.5 py-0.5 font-sans text-[10px] font-semibold text-muted shadow-[0_1px_0_rgba(16,36,48,0.08)]">
         Ctrl K
       </kbd>
     </form>
@@ -209,19 +223,21 @@ export default function Layout({ children, toolbar }) {
   };
 
   return (
-    <div className="min-h-screen bg-bg">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border bg-surface lg:block">
+    <div className="min-h-screen">
+      <div key={location.pathname} className="route-progress" aria-hidden="true" />
+
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 shadow-[8px_0_40px_-20px_rgba(7,26,34,0.5)] lg:block">
         <Sidebar nav={nav} badges={badges} onOpenNotifications={openNotifications} />
       </aside>
 
       {drawerOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-text/30 backdrop-blur-[2px]" onClick={() => setDrawerOpen(false)} />
-          <aside className="fade-up absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface shadow-xl">
+          <div className="fade-in absolute inset-0 bg-[#07181E]/45 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} />
+          <aside className="slide-in-left absolute inset-y-0 left-0 w-72 max-w-[85vw] shadow-xl">
             <button
               onClick={() => setDrawerOpen(false)}
               aria-label="Close menu"
-              className="absolute right-3 top-5 rounded-lg p-1.5 text-muted hover:bg-bg"
+              className="absolute right-3 top-6 z-10 rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
             >
               <Icon name="close" />
             </button>
@@ -236,12 +252,12 @@ export default function Layout({ children, toolbar }) {
       )}
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 border-b border-border bg-surface/85 backdrop-blur-md">
-          <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <header className="glass sticky top-0 z-20 border-b border-white/60 shadow-[0_1px_0_rgba(16,36,48,0.06),0_8px_24px_-18px_rgba(16,36,48,0.25)]">
+          <div className="flex h-[68px] items-center gap-3 px-4 sm:px-6 lg:px-8">
             <button
               onClick={() => setDrawerOpen(true)}
               aria-label="Open menu"
-              className="-ml-1 rounded-lg p-2 text-muted hover:bg-bg lg:hidden"
+              className="-ml-1 rounded-xl p-2 text-muted hover:bg-bg hover:text-primary lg:hidden"
             >
               <Icon name="menu" />
             </button>
@@ -253,7 +269,7 @@ export default function Layout({ children, toolbar }) {
               </span>
               <div className="leading-tight">
                 <p className="whitespace-nowrap text-sm font-semibold text-text">{STORE_NAME}</p>
-                <p className="text-[11px] text-muted">Main counter · Open</p>
+                <p className="text-[11px] font-medium text-success">Main counter · Open</p>
               </div>
               <span className="mx-3 h-8 w-px bg-border" />
             </div>
@@ -273,7 +289,9 @@ export default function Layout({ children, toolbar }) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main key={location.pathname} className="page-enter mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          {children}
+        </main>
       </div>
     </div>
   );

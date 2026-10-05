@@ -66,7 +66,7 @@ export default function Checkout() {
 
   return (
     <Layout>
-      <h1 className="font-display text-2xl font-semibold text-text">Checkout</h1>
+      <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Checkout</h1>
 
       <div className="mt-4 space-y-2">
         {lines.map((line) => (

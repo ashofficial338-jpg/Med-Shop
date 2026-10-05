@@ -30,7 +30,7 @@ export function ChartCard({ title, subtitle, action, children, className = "" })
     <section className={`card fade-up flex min-w-0 flex-col p-5 ${className}`}>
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="font-display text-[15px] font-semibold text-text">{title}</h2>
+          <h2 className="font-display text-base font-bold tracking-tight text-text">{title}</h2>
           {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
         </div>
         {action}
@@ -133,6 +133,8 @@ export function SalesTrendChart({ data, linkForDay }) {
                   fill={s.key === "revenue" ? "url(#gTrendRevenue)" : "none"}
                   dot={data.length <= 14 ? { r: 3, strokeWidth: 0, fill: s.color } : false}
                   activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }}
+                  animationDuration={1100}
+                  animationEasing="ease-out"
                 />
               ))}
             </AreaChart>

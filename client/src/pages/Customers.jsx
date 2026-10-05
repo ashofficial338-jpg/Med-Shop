@@ -93,7 +93,7 @@ export default function Customers() {
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-semibold text-text">Customers</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Customers</h1>
         <div className="flex flex-wrap items-center gap-2">
           <ReportDownloadButtons onExport={(format) => exportCustomers(format, query.trim() ? { q: query.trim() } : {})} />
           <button

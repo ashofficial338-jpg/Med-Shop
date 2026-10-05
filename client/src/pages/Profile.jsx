@@ -99,7 +99,7 @@ export default function Profile() {
 
   return (
     <Layout>
-      <h1 className="font-display text-2xl font-semibold text-text">My Profile</h1>
+      <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">My Profile</h1>
 
       <form onSubmit={handleSaveUsername} className="mt-6 max-w-sm space-y-4 rounded-2xl bg-surface p-5 shadow-sm">
         <div>

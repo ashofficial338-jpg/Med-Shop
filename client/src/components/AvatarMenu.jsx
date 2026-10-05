@@ -33,7 +33,7 @@ export default function AvatarMenu() {
         aria-expanded={open}
         className="flex items-center gap-2.5 rounded-xl border border-transparent py-1 pl-1 pr-2 transition hover:border-border hover:bg-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-info font-semibold text-white shadow-sm">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#2FC1B0] via-primary to-info font-semibold text-white shadow-[0_6px_16px_-6px_rgba(14,124,116,0.8)] ring-2 ring-white">
           {initial}
         </span>
         <span className="hidden text-left leading-tight sm:block">
@@ -44,7 +44,7 @@ export default function AvatarMenu() {
       </button>
 
       {open && (
-        <div className="fade-up absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-[var(--shadow-lift)]">
+        <div className="pop-in absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-[var(--shadow-lift)]">
           <Link
             to="/profile"
             onClick={() => setOpen(false)}

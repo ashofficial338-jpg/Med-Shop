@@ -115,8 +115,11 @@ export default function Dashboard() {
     >
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-medium text-primary">{STORE_NAME}</p>
-          <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Accounting Dashboard</h1>
+          <p className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary ring-1 ring-primary/10">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(14,124,116,0.9)]" />
+            {STORE_NAME}
+          </p>
+          <h1 className="text-gradient mt-3 font-display text-3xl font-extrabold tracking-tight sm:text-[34px]">Accounting Dashboard</h1>
           <p className="mt-1 text-sm text-muted">
             {interactive
               ? `Profit, sales, cash and stock at a glance — ${periodLabel}. Click any figure to see the records behind it.`
@@ -176,7 +179,7 @@ export default function Dashboard() {
           {shows("dashboard.sales") && (
           <section className="space-y-4">
             <SectionTitle icon="receipt">Sales &amp; GST</SectionTitle>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <StatTile label="Sales Count" value={summary.salesCount} isCount icon="receipt" tone="violet" to={links.sales} />
               <StatTile label="Output GST" value={summary.outputGst} icon="arrowRight" tone="blue" note="GST collected on sales" to={links.sales} />
               <StatTile label="Input GST" value={summary.inputGst} icon="truck" tone="slate" note="GST paid on purchases" to={links.purchases} />
@@ -194,7 +197,7 @@ export default function Dashboard() {
             <section className="space-y-4">
               <SectionTitle icon="wallet">Cash Position</SectionTitle>
               <div className="grid gap-6 lg:grid-cols-3">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-1">
+                <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-1">
                   <StatTile label="Cash Today" value={todayBalances.cash.closing} icon="wallet" tone="success" to={links.dayBook} />
                   <StatTile label="UPI Today" value={todayBalances.upi.closing} icon="rupee" tone="blue" to={links.dayBook} />
                   <StatTile label="Credit Outstanding" value={todayBalances.credit.closing} icon="clock" tone="warning" to={links.dayBook} />
@@ -228,7 +231,7 @@ export default function Dashboard() {
           {shows("dashboard.receivables") && (
           <section className="space-y-4">
             <SectionTitle icon="users">Receivables &amp; Payables</SectionTitle>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <StatTile
                 label="Customer Receivables"
                 value={summary.receivables ?? todayBalances?.credit.closing ?? 0}

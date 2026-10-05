@@ -150,7 +150,7 @@ export default function Users() {
   return (
     <Layout>
       <div className="flex items-center justify-between">
-        <h1 className="font-display text-2xl font-semibold text-text">Users</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Users</h1>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"

@@ -71,12 +71,12 @@ export default function Products() {
   };
 
   const selectCls =
-    "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
+    "h-11 rounded-xl border border-border bg-surface px-3.5 text-sm text-text shadow-[0_1px_2px_rgba(16,36,48,0.04)] focus:outline-none";
 
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-semibold text-text">Products</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Products</h1>
         {isAdmin && (
           <div className="flex flex-wrap gap-2">
             <button
@@ -125,13 +125,28 @@ export default function Products() {
 
       <div className="mt-6 flex items-start gap-4">
         <div
-          className={`grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] ${
+          className={`stagger grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] ${
             cartCount > 0 ? "pb-20" : ""
           }`}
         >
-          {loading && <p className="col-span-full text-sm text-muted">Loading…</p>}
+          {loading &&
+            products.length === 0 &&
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="card overflow-hidden">
+                <div className="skeleton h-28 rounded-none" />
+                <div className="space-y-2 p-3.5">
+                  <div className="skeleton h-3.5 w-3/4" />
+                  <div className="skeleton h-3 w-1/2" />
+                  <div className="skeleton mt-4 h-8 w-full rounded-xl" />
+                </div>
+              </div>
+            ))}
           {!loading && products.length === 0 && (
-            <p className="col-span-full text-sm text-muted">No records found.</p>
+            <div className="card col-span-full flex flex-col items-center gap-2 py-14 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">💊</span>
+              <p className="font-display font-semibold text-text">No records found</p>
+              <p className="text-sm text-muted">Try a different search, category or availability filter.</p>
+            </div>
           )}
           {products.map((p) => (
             <ProductTile

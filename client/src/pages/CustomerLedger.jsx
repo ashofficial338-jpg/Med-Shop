@@ -71,7 +71,7 @@ export default function CustomerLedger() {
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-text">{customer.name} — Ledger</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">{customer.name} — Ledger</h1>
           <p className="text-sm text-muted">{customer.phone}</p>
         </div>
         <div className="flex items-center gap-3">
