@@ -4,6 +4,7 @@ import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
+import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { streamExcelReport, streamPdfReport, formatDateTime } from "../utils/reportExport.js";
 
 const router = Router();
@@ -91,6 +92,7 @@ router.get("/export", async (req, res) => {
 
 router.post("/adjust", async (req, res) => {
   const { product: productId, adjustmentType, qty, reason, batchId, batchNo, expiryDate, costPrice } = req.body;
+  const rack = cleanRack(req.body.rack);
 
   if (!productId) return res.status(400).json({ message: "This field is required." });
   if (!["add", "reduce"].includes(adjustmentType)) {
@@ -99,6 +101,10 @@ router.post("/adjust", async (req, res) => {
   const quantity = Number(qty);
   if (!(quantity > 0)) return res.status(400).json({ message: "Please enter a valid number." });
   if (!reason || !reason.trim()) return res.status(400).json({ message: "This field is required." });
+  if (adjustmentType === "add") {
+    const rackError = await rackPositionError(rack);
+    if (rackError) return res.status(400).json({ message: rackError });
+  }
 
   const product = await Product.findById(productId);
   if (!product) return res.status(404).json({ message: "No records found." });
@@ -123,6 +129,7 @@ router.post("/adjust", async (req, res) => {
       if (!batch) return res.status(404).json({ message: "No records found." });
       batch.qtyReceived += quantity;
       batch.qtyRemaining += quantity;
+      batch.rack = rack;
       await batch.save();
     } else {
       if (!batchNo || !expiryDate || costPrice === undefined || costPrice === "") {
@@ -135,9 +142,11 @@ router.post("/adjust", async (req, res) => {
         costPrice,
         addQty: quantity,
         receivedAt: new Date(),
+        rack,
       });
     }
     product.qty += quantity;
+    product.rack = rack;
   }
 
   await product.save();

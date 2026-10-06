@@ -9,6 +9,7 @@ import { uploadProductImage, uploadedImageUrl } from "../middleware/upload.js";
 import { generateProductCode, resolveCategory, computeLooseRate, deriveSoldAs } from "../utils/productHelpers.js";
 import { computeInternalQty as computeQty } from "../utils/stockUnits.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
+import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { buildStockReport } from "../utils/stockReportHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 
@@ -23,6 +24,10 @@ function stripCostPriceIfStaff(product, role) {
   const obj = product.toObject ? product.toObject() : product;
   if (role === "staff") delete obj.costPrice;
   return obj;
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function availabilityFilter(filter, availability) {
@@ -51,13 +56,15 @@ async function withBatchSummary(products) {
 }
 
 router.get("/", requireAuth, async (req, res) => {
-  const { q, category, availability, vendor } = req.query;
+  const { q, category, availability, vendor, rack } = req.query;
   const filter = { isActive: true };
 
   if (q) {
-    filter.$or = [{ name: new RegExp(q, "i") }, { productCode: new RegExp(q, "i") }];
+    const pattern = new RegExp(escapeRegex(q), "i");
+    filter.$or = [{ name: pattern }, { productCode: pattern }, { rack: String(q).trim().toUpperCase() }];
   }
   if (category) filter.category = category;
+  if (rack !== undefined) filter.rack = String(rack).trim().toUpperCase();
   if (vendor) filter.vendor = vendor;
   availabilityFilter(filter, availability);
 
@@ -281,8 +288,11 @@ router.post("/", requireAuth, requireRole("admin"), (req, res) => {
         return res.status(400).json({ message: "This field is required." });
       }
 
-      const productCode = await generateProductCode(b.name || "");
       const qty = computeQty({ ...b, soldAs });
+      const rack = cleanRack(b.rack);
+      const rackError = await rackPositionError(rack, { required: qty > 0 });
+      if (rackError) return res.status(400).json({ message: rackError });
+      const productCode = await generateProductCode(b.name || "");
       const looseRate = computeLooseRate({ soldAs, packRate: b.packRate, unitsPerPack: b.unitsPerPack });
 
       const product = await Product.create({
@@ -302,6 +312,7 @@ router.post("/", requireAuth, requireRole("admin"), (req, res) => {
         gstPercent: b.gstPercent,
         hsnCode: b.hsnCode || "",
         lowStockThreshold: b.lowStockThreshold ?? 10,
+        rack,
         vendor: b.vendor || null,
       });
 
@@ -318,6 +329,7 @@ router.post("/", requireAuth, requireRole("admin"), (req, res) => {
           costPrice: b.costPrice,
           addQty: qty,
           receivedAt: new Date(),
+          rack,
         });
       }
 
@@ -348,6 +360,13 @@ router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
       }
       if (b.vendor !== undefined) {
         product.vendor = b.vendor || null;
+      }
+      // Handled apart from the field loop below so a rack can be cleared to "".
+      if (b.rack !== undefined) {
+        const rack = cleanRack(b.rack);
+        const rackError = await rackPositionError(rack, { required: false });
+        if (rackError) return res.status(400).json({ message: rackError });
+        product.rack = rack;
       }
 
       // Batch No / Expiry / Cost Price / Qty are no longer product-level -
@@ -464,6 +483,7 @@ router.get("/import/template", requireAuth, requireRole("admin"), async (req, re
     { header: "Batch No", key: "batchNo", width: 16 },
     { header: "Expiry Date (YYYY-MM-DD)", key: "expiryDate", width: 20 },
     { header: "Low Stock Threshold", key: "lowStockThreshold", width: 18 },
+    { header: "Rack", key: "rack", width: 12 }, // required - a rack position like A-001; every imported row adds stock
   ];
   sheet.addRow({
     name: "Dolo 650",
@@ -481,6 +501,7 @@ router.get("/import/template", requireAuth, requireRole("admin"), async (req, re
     batchNo: "B2024117",
     expiryDate: "2027-06-30",
     lowStockThreshold: 10,
+    rack: "D-001",
   });
 
   res.setHeader(
@@ -516,6 +537,7 @@ router.post("/import", requireAuth, requireRole("admin"), importUpload.single("f
     "Batch No": "batchNo",
     "Expiry Date (YYYY-MM-DD)": "expiryDate",
     "Low Stock Threshold": "lowStockThreshold",
+    Rack: "rack",
   };
 
   const results = [];
@@ -542,6 +564,9 @@ router.post("/import", requireAuth, requireRole("admin"), importUpload.single("f
       if (!data.batchNo) throw new Error("Batch No is required.");
       if (!data.expiryDate) throw new Error("Expiry Date is required.");
       if (!data.packRate || Number(data.packRate) <= 0) throw new Error("Pack Rate must be greater than 0.");
+      const rack = cleanRack(data.rack);
+      const rackError = await rackPositionError(rack);
+      if (rackError) throw new Error(rackError);
 
       const category = await resolveCategory(String(data.category));
 
@@ -565,8 +590,10 @@ router.post("/import", requireAuth, requireRole("admin"), importUpload.single("f
           costPrice: data.costPrice || 0,
           addQty,
           receivedAt: new Date(),
+          rack,
         });
         existing.qty += addQty;
+        existing.rack = rack;
         // Restocking a deleted product brings it back rather than adding
         // stock to a product no list shows.
         existing.isActive = true;
@@ -591,6 +618,7 @@ router.post("/import", requireAuth, requireRole("admin"), importUpload.single("f
           gstPercent: data.gstPercent,
           hsnCode: data.hsnCode || "",
           lowStockThreshold: data.lowStockThreshold ?? 10,
+          rack,
         });
         await upsertBatch({
           product: created,
@@ -599,6 +627,7 @@ router.post("/import", requireAuth, requireRole("admin"), importUpload.single("f
           costPrice: data.costPrice || 0,
           addQty,
           receivedAt: new Date(),
+          rack,
         });
         results.push({ row: rowNum, name: data.name, status: "success", message: "Product created." });
       }

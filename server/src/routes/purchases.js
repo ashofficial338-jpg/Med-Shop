@@ -8,6 +8,7 @@ import SupplierPayment from "../models/SupplierPayment.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { computeInternalQty } from "../utils/stockUnits.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
+import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
@@ -133,6 +134,9 @@ router.post("/", async (req, res) => {
       if (!(costPrice >= 0)) return res.status(400).json({ message: "Please enter a valid number." });
       if (!item.batchNo) return res.status(400).json({ message: "This field is required." });
       if (!item.expiryDate) return res.status(400).json({ message: "Please enter a valid date." });
+      const rack = cleanRack(item.rack);
+      const rackError = await rackPositionError(rack);
+      if (rackError) return res.status(400).json({ message: rackError });
 
       const lineAmount = Number((qtyPacks * costPrice).toFixed(2));
       const lineGst = Number(((lineAmount * product.gstPercent) / 100).toFixed(2));
@@ -146,6 +150,7 @@ router.post("/", async (req, res) => {
         costPrice,
         batchNo: item.batchNo,
         expiryDate: item.expiryDate,
+        rack,
         lineAmount,
         lineGst,
         _productDoc: product,
@@ -209,10 +214,12 @@ router.post("/", async (req, res) => {
         addQty,
         receivedAt: date,
         purchase: purchase._id,
+        rack: item.rack,
       });
       purchase.items[i].batch = batch._id;
 
       product.qty += addQty;
+      product.rack = item.rack;
       await product.save();
 
       await StockLedger.create({

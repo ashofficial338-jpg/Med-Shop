@@ -62,6 +62,11 @@ export default function ProductTile({ product, isAdmin, onEdit, onOpen }) {
           <span className={`h-1.5 w-1.5 rounded-full ${avail.dot}`} />
           {avail.label}
         </span>
+        {product.rack && (
+          <span className="absolute right-2.5 top-2.5 rounded-lg bg-primary px-2 py-0.5 text-[11px] font-bold text-white shadow-sm">
+            Rack ID: {product.rack}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-1 p-3.5">

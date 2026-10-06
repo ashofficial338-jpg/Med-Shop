@@ -40,6 +40,9 @@ const PATHS = {
   shield: "M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6zM9 12l2 2 4-4",
   pulse: "M3 12h4l2-5 4 10 2-5h6",
   info: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5M12 8h.01",
+  rack: "M4 3v18M20 3v18M4 9h16M4 15h16M4 21h16M8 6h3M8 12h5M8 18h2",
+  edit: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
+  trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
 };
 
 export default function Icon({ name, size = 18, className = "", strokeWidth = 1.75 }) {

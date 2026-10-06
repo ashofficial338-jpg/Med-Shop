@@ -26,6 +26,14 @@ const purchaseItemSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    // Rack this line's stock was shelved on.
+    rack: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 20,
+      default: "",
+    },
     batch: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Batch",

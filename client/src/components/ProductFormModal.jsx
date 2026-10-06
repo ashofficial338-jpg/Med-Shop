@@ -3,6 +3,8 @@ import { createProduct, updateProduct, listCategories, enableLooseSelling } from
 import { resolveAssetUrl } from "../api/client";
 import { listVendors } from "../api/vendors";
 import RequiredMark from "./RequiredMark";
+import RackInput from "./RackInput";
+import { RACK_REQUIRED_MESSAGE, validPosition } from "../utils/rack";
 
 const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
@@ -27,17 +29,20 @@ const emptyForm = {
   expiryDate: "",
   costPrice: "",
   lowStockThreshold: "10",
+  rack: "",
 };
 
-export default function ProductFormModal({ product, onClose, onSaved }) {
+// defaultRack presets the rack position when adding from a rack view (e.g. "C-004").
+export default function ProductFormModal({ product, onClose, onSaved, defaultRack = "" }) {
   const isEdit = Boolean(product);
   const [categories, setCategories] = useState([]);
   const [vendors, setVendors] = useState([]);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState({ ...emptyForm, rack: validPosition(defaultRack) });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(product?.image || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [rackMissing, setRackMissing] = useState(false);
 
   const [showEnableLoose, setShowEnableLoose] = useState(false);
   const [enableUnitsPerPack, setEnableUnitsPerPack] = useState("");
@@ -70,6 +75,7 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
         expiryDate: "",
         costPrice: "",
         lowStockThreshold: product.lowStockThreshold ?? "10",
+        rack: validPosition(product.rack),
       });
     }
   }, [product]);
@@ -78,6 +84,8 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
   // by whether a pack actually breaks into more than one unit. Every product
   // still arrives as whole packs either way.
   const hasLooseSplit = Number(form.unitsPerPack) > 1;
+  // Opening stock being entered means it's going on a shelf - rack becomes required.
+  const addsStock = !isEdit && (Number(form.qtyPacks) > 0 || Number(form.qtyLooseExtra) > 0);
 
   const computedPerUnit =
     hasLooseSplit && Number(form.packRate) > 0
@@ -113,12 +121,18 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
+    if (addsStock && !validPosition(form.rack)) {
+      setRackMissing(true);
+      setError(RACK_REQUIRED_MESSAGE);
+      return;
+    }
     setSaving(true);
     setError("");
 
     const fd = new FormData();
     Object.entries(form).forEach(([k, v]) => {
       if (isEdit && (k === "unitsPerPack" || k === "looseUnitName")) return; // locked after creation
+      if (k === "rack") return fd.append(k, v.trim()); // sent even when blank, so clearing it sticks
       if (v !== "" && v !== undefined && v !== null) fd.append(k, v);
     });
     if (imageFile) fd.append("image", imageFile);
@@ -186,6 +200,17 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
             <label className={labelCls}>Product Name<RequiredMark /></label>
             <input type="text" maxLength={150} value={form.name} onChange={set("name")} className={inputCls} />
           </div>
+
+          <RackInput
+            id="product-rack"
+            className="col-span-2"
+            labelClassName={labelCls}
+            value={form.rack}
+            onChange={(v) => setForm((f) => ({ ...f, rack: v }))}
+            required={addsStock}
+            invalid={rackMissing && addsStock && !validPosition(form.rack)}
+            label={addsStock ? "Rack (where this stock is shelved)" : "Rack"}
+          />
 
           <div className="col-span-2">
             <label className={labelCls}>Category<RequiredMark /></label>

@@ -38,6 +38,14 @@ const batchSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    // Rack this lot was shelved on when it came in.
+    rack: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 20,
+      default: "",
+    },
     receivedAt: {
       type: Date,
       required: true,

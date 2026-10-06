@@ -6,6 +6,7 @@ import Category from "../models/Category.js";
 import Vendor from "../models/Vendor.js";
 import Customer from "../models/Customer.js";
 import Product from "../models/Product.js";
+import Rack from "../models/Rack.js";
 import Purchase from "../models/Purchase.js";
 import Sale from "../models/Sale.js";
 import Expense from "../models/Expense.js";
@@ -229,12 +230,26 @@ async function seed() {
   for (const c of customerDefs) customers.push(await getOrCreate(Customer, { phone: c.phone }, c));
   console.log("Customers ready");
 
+  // Racks A-F with 20 positions each (A-001 ... A-020); products below sit on one.
+  for (const letter of ["A", "B", "C", "D", "E", "F"]) {
+    await Rack.updateOne({ letter }, { $setOnInsert: { letter, positions: 20 } }, { upsert: true });
+  }
+  console.log("Racks ready");
+
   // Products - batchNo/expiryDate/costPrice describe the OPENING batch only
   // (created separately below via the Purchases step, same as the real app);
   // Product itself no longer stores them.
   async function createProduct(def) {
     const existing = await Product.findOne({ name: def.name });
-    if (existing) return existing;
+    if (existing) {
+      // Re-running the seed on older demo data gives it a rack position too
+      // (or upgrades an old plain rack letter like "D" to "D-001").
+      if (def.rack && !/^[A-Z]-\d{3}$/.test(existing.rack || "")) {
+        existing.rack = def.rack;
+        await existing.save();
+      }
+      return existing;
+    }
     const productCode = await generateProductCode(def.name);
     const looseRate = computeLooseRate({ soldAs: def.soldAs, packRate: def.packRate, unitsPerPack: def.unitsPerPack });
     const { batchNo, expiryDate, costPrice, ...productFields } = def;
@@ -256,6 +271,7 @@ async function seed() {
     hsnCode: "3004",
     batchNo: "B24117",
     expiryDate: daysAgo(-540),
+    rack: "D-001",
     lowStockThreshold: 20,
     vendor: vendors[0]._id,
   };
@@ -276,6 +292,7 @@ async function seed() {
     hsnCode: "3004",
     batchNo: "B24218",
     expiryDate: daysAgo(-365),
+    rack: "B-001",
     lowStockThreshold: 6,
     vendor: vendors[1]._id,
   };
@@ -294,6 +311,7 @@ async function seed() {
     hsnCode: "3004",
     batchNo: "B24319",
     expiryDate: daysAgo(-450),
+    rack: "E-001",
     lowStockThreshold: 2,
     vendor: vendors[2]._id,
   };
@@ -312,6 +330,7 @@ async function seed() {
     hsnCode: "3004",
     batchNo: "B24420",
     expiryDate: daysAgo(-300),
+    rack: "F-001",
     lowStockThreshold: 2,
     vendor: vendors[3]._id,
   };
@@ -328,6 +347,7 @@ async function seed() {
     hsnCode: "3304",
     batchNo: "B24521",
     expiryDate: daysAgo(-600),
+    rack: "C-001",
     lowStockThreshold: 2,
     vendor: vendors[4]._id,
   };

@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { listProducts } from "../api/products";
 import { createPurchase } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
+import RackInput from "./RackInput";
+import { RACK_REQUIRED_MESSAGE, validPosition } from "../utils/rack";
 
-const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "" };
+const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
 
 export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const [products, setProducts] = useState([]);
@@ -15,6 +17,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const [lines, setLines] = useState([{ ...emptyLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [rackMissing, setRackMissing] = useState(false);
 
   useEffect(() => {
     listProducts().then(setProducts);
@@ -30,6 +33,11 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
 
   const setLine = (idx, key, value) => {
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, [key]: value } : l)));
+  };
+
+  // Picking a product pre-fills the rack it already lives on.
+  const selectProduct = (idx, id) => {
+    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, product: id, rack: validPosition(productById(id)?.rack) || l.rack } : l)));
   };
 
   const addLine = () => setLines((ls) => [...ls, { ...emptyLine }]);
@@ -62,6 +70,11 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
+    if (lines.some((l) => !validPosition(l.rack))) {
+      setRackMissing(true);
+      setError(RACK_REQUIRED_MESSAGE);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -78,6 +91,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
           costPrice: Number(l.costPrice),
           batchNo: l.batchNo,
           expiryDate: l.expiryDate,
+          rack: l.rack.trim(),
         })),
       });
       onSaved(saved);
@@ -117,7 +131,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 <div className="col-span-2 sm:col-span-1">
                   <label className={labelCls}>Product<RequiredMark /></label>
-                  <select value={line.product} onChange={(e) => setLine(idx, "product", e.target.value)} className={inputCls}>
+                  <select value={line.product} onChange={(e) => selectProduct(idx, e.target.value)} className={inputCls}>
                     <option value="">Select…</option>
                     {vendorProducts.length > 0 && (
                       <optgroup label={`${vendor.name}'s products`}>
@@ -149,6 +163,14 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
                   <label className={labelCls}>Expiry Date<RequiredMark /></label>
                   <input type="date" value={line.expiryDate} onChange={(e) => setLine(idx, "expiryDate", e.target.value)} className={inputCls} />
                 </div>
+                <RackInput
+                  id={`purchase-rack-${idx}`}
+                  className="col-span-2"
+                  value={line.rack}
+                  onChange={(v) => setLine(idx, "rack", v)}
+                  invalid={rackMissing && !validPosition(line.rack)}
+                  labelClassName={labelCls}
+                />
               </div>
               <div className="mt-2 flex items-center justify-between text-xs text-muted">
                 <span>Line: ₹{lineAmount(line).toFixed(2)} + GST ₹{lineGst(line).toFixed(2)}</span>

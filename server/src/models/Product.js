@@ -96,6 +96,15 @@ const productSchema = new mongoose.Schema(
       default: 10,
       min: 0,
     },
+    // Physical shelf/rack the product is stored on (e.g. "D", "A3"), so staff
+    // can look up where to pick it from. Blank means not yet assigned.
+    rack: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 20,
+      default: "",
+    },
     vendor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Vendor",
@@ -110,5 +119,6 @@ const productSchema = new mongoose.Schema(
 );
 
 productSchema.index({ name: "text", productCode: "text" });
+productSchema.index({ rack: 1 });
 
 export default mongoose.model("Product", productSchema);

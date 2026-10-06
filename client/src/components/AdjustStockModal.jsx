@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { listProducts, getProductBatches } from "../api/products";
 import { adjustStock } from "../api/stock";
 import RequiredMark from "./RequiredMark";
+import RackInput from "./RackInput";
+import { RACK_REQUIRED_MESSAGE, validPosition } from "../utils/rack";
 
 const NEW_BATCH = "__new__";
 
@@ -18,6 +20,8 @@ export default function AdjustStockModal({ onClose, onSaved }) {
   const [newCostPrice, setNewCostPrice] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [rack, setRack] = useState("");
+  const [rackMissing, setRackMissing] = useState(false);
 
   useEffect(() => {
     listProducts().then(setProducts);
@@ -45,6 +49,11 @@ export default function AdjustStockModal({ onClose, onSaved }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
+    if (adjustmentType === "add" && !validPosition(rack)) {
+      setRackMissing(true);
+      setError(RACK_REQUIRED_MESSAGE);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -57,6 +66,7 @@ export default function AdjustStockModal({ onClose, onSaved }) {
         batchNo: isNewBatch ? newBatchNo.trim() : undefined,
         expiryDate: isNewBatch ? newExpiryDate : undefined,
         costPrice: isNewBatch ? newCostPrice : undefined,
+        rack: adjustmentType === "add" ? rack.trim() : undefined,
       });
       onSaved();
     } catch (err) {
@@ -80,7 +90,14 @@ export default function AdjustStockModal({ onClose, onSaved }) {
 
         <div>
           <label className={labelCls}>Product<RequiredMark /></label>
-          <select value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls}>
+          <select
+            value={product}
+            onChange={(e) => {
+              setProduct(e.target.value);
+              setRack(validPosition(products.find((p) => p._id === e.target.value)?.rack)); // pre-fill its current position
+            }}
+            className={inputCls}
+          >
             <option value="">Select…</option>
             {products.map((p) => (
               <option key={p._id} value={p._id}>{p.name} ({p.productCode})</option>
@@ -138,6 +155,17 @@ export default function AdjustStockModal({ onClose, onSaved }) {
               <input type="number" step="0.01" min="0" value={newCostPrice} onChange={(e) => setNewCostPrice(e.target.value)} className={inputCls} />
             </div>
           </div>
+        )}
+
+        {adjustmentType === "add" && product && (
+          <RackInput
+            id="adjust-rack"
+            value={rack}
+            onChange={setRack}
+            invalid={rackMissing && !validPosition(rack)}
+            label="Rack (where this stock is shelved)"
+            labelClassName={labelCls}
+          />
         )}
 
         <div>

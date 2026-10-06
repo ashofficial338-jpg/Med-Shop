@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { getProduct, getProductBatches, deactivateProduct } from "../api/products";
+import { stockDisplay } from "../utils/stock";
 import { resolveAssetUrl } from "../api/client";
 import { useCart } from "../context/CartContext";
 import ProductFormModal from "./ProductFormModal";
+import Icon from "./Icon";
 
 function batchStatus(expiryDate) {
   const now = new Date();
@@ -18,15 +20,6 @@ function availability(product) {
   if (product.qty <= 0) return { label: "Out of Stock", className: "bg-danger/15 text-danger" };
   if (product.qty <= product.lowStockThreshold) return { label: "Low Stock", className: "bg-warning/15 text-warning" };
   return { label: "Available", className: "bg-success/15 text-success" };
-}
-
-function stockDisplay(product) {
-  if (product.soldAs === "pack-and-loose" && product.unitsPerPack) {
-    const packs = Math.floor(product.qty / product.unitsPerPack);
-    const loose = product.qty % product.unitsPerPack;
-    return `${packs} ${product.packUnit}${packs === 1 ? "" : "s"}${loose ? ` + ${loose} ${product.looseUnitName}${loose === 1 ? "" : "s"}` : ""}`;
-  }
-  return `${product.qty} ${product.packUnit}${product.qty === 1 ? "" : "s"}`;
 }
 
 // Right-side detail drawer for a product. Lives inline (flex sibling of the
@@ -130,6 +123,10 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
               <div>
                 <h3 className="font-display text-xl font-semibold text-text">{product.name}</h3>
                 <p className="font-mono text-xs text-muted">{product.productCode}</p>
+                <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">
+                  <Icon name="rack" size={13} />
+                  {product.rack ? `Rack ID: ${product.rack}` : "No Rack ID assigned"}
+                </p>
               </div>
               {isAdmin && (
                 <div className="flex shrink-0 gap-2">

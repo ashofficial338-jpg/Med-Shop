@@ -7,6 +7,7 @@ import Profile from "./pages/Profile";
 import Users from "./pages/Users";
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
+import RackFinder from "./pages/RackFinder";
 import Vendors from "./pages/Vendors";
 import PurchaseHistory from "./pages/PurchaseHistory";
 import Checkout from "./pages/Checkout";
@@ -71,6 +72,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Products />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/racks"
+          element={
+            <ProtectedRoute>
+              <RackFinder />
             </ProtectedRoute>
           }
         />

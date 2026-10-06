@@ -4,7 +4,7 @@ import Batch from "../models/Batch.js";
 // a batch with the same batch number (a genuine re-delivery of the same lot).
 // addQty is in the product's internal stock unit (loose units for a
 // pack-and-loose product, packs otherwise) - same convention as Product.qty.
-export async function upsertBatch({ product, batchNo, expiryDate, costPrice, addQty, receivedAt, purchase }) {
+export async function upsertBatch({ product, batchNo, expiryDate, costPrice, addQty, receivedAt, purchase, rack }) {
   const cleanBatchNo = String(batchNo).trim();
   let batch = await Batch.findOne({ product: product._id, batchNo: cleanBatchNo });
 
@@ -14,6 +14,7 @@ export async function upsertBatch({ product, batchNo, expiryDate, costPrice, add
     batch.costPrice = costPrice;
     batch.receivedAt = receivedAt || new Date();
     if (purchase) batch.purchase = purchase;
+    if (rack) batch.rack = rack;
     await batch.save();
   } else {
     batch = await Batch.create({
@@ -25,6 +26,7 @@ export async function upsertBatch({ product, batchNo, expiryDate, costPrice, add
       qtyRemaining: addQty,
       receivedAt: receivedAt || new Date(),
       purchase: purchase || null,
+      rack: rack || "",
     });
   }
   return batch;
