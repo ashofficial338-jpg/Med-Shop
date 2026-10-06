@@ -14,7 +14,7 @@ import { RACK_LETTERS, POSITION_PATTERN, positionsOf, rackLetter } from "../util
 
 // An older backend without the rack field accepts the save but silently
 // drops it - check the echoed product so that never looks like success.
-const RACK_NOT_SAVED = "The server did not save the rack position. The backend needs to be updated to the latest version.";
+const RACK_NOT_SAVED = "The rack position was not saved. Please try again.";
 const MAX_RESULTS = 50;
 
 // Ignores case, spaces and dashes, so "dolo650" finds "Dolo 650" and
@@ -299,20 +299,21 @@ export default function RackFinder() {
     const [productRes, rackRes] = await Promise.allSettled([listProducts(), listRacks()]);
     if (productRes.status === "fulfilled") setProducts(productRes.value);
     if (rackRes.status === "fulfilled") setRacks(rackRes.value);
-    const failed = [productRes, rackRes].find((r) => r.status === "rejected");
-    setLoadError(
-      !failed
-        ? ""
-        : failed.reason?.response?.status === 404
-        ? "Racks are not available on the server yet. The backend needs to be updated to the latest version."
-        : failed.reason?.response?.data?.message || "Could not load rack data. Check your connection and try again."
-    );
+    setLoadError([productRes, rackRes].some((r) => r.status === "rejected") ? "Could not load rack data. Retrying…" : "");
     setLoading(false);
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // A failed load (e.g. the server restarting during a deploy) retries on its
+  // own every few seconds, and the notice clears itself once it succeeds.
+  useEffect(() => {
+    if (!loadError) return;
+    const timer = setTimeout(load, 5000);
+    return () => clearTimeout(timer);
+  }, [loadError, load]);
 
   // "/" jumps to the search box from anywhere on the page.
   useEffect(() => {
@@ -433,13 +434,13 @@ export default function RackFinder() {
       </div>
 
       {!loading && loadError && (
-        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
+        <div role="status" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/20 bg-warning/10 px-4 py-2.5 text-sm text-warning">
           <span className="flex items-center gap-2">
-            <Icon name="alert" size={16} />
+            <Icon name="clock" size={16} />
             {loadError}
           </span>
-          <button onClick={load} className="rounded-lg bg-surface px-3 py-1.5 text-xs font-semibold text-danger ring-1 ring-danger/20 hover:bg-danger/5">
-            Try again
+          <button onClick={load} className="rounded-lg bg-surface px-3 py-1 text-xs font-semibold text-warning ring-1 ring-warning/20 hover:bg-warning/5">
+            Retry now
           </button>
         </div>
       )}
