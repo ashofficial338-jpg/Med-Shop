@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import RequiredMark from "./RequiredMark";
 import { listRacks } from "../api/racks";
-import { positionsOf, rackLetter } from "../utils/rack";
+import { NO_RACK, positionsOf, rackLetter } from "../utils/rack";
 
 // Rack + Rack Position picker for stock-in forms. `value` is a position code
-// like "A-001" ("" until both are chosen). Only racks added under Manage
-// Racks are offered. `invalid` highlights it after a save attempt without one.
+// like "A-001", NO_RACK for the always-available "No Rack" fallback, or ""
+// until a choice is made. `invalid` highlights it after a save attempt without one.
 export default function RackInput({ id, value, onChange, invalid, label = "Rack", required = true, className = "", labelClassName = "" }) {
   const [racks, setRacks] = useState(null);
   // A chosen position decides the rack; until one is picked, remember the
   // rack the user selected so its positions can be listed.
   const [pickedLetter, setPickedLetter] = useState("");
-  const letter = value ? rackLetter(value) : pickedLetter;
+  const isNoRack = value === NO_RACK;
+  const letter = isNoRack ? NO_RACK : value ? rackLetter(value) : pickedLetter;
 
   useEffect(() => {
     listRacks().then(setRacks).catch(() => setRacks([]));
@@ -34,13 +35,15 @@ export default function RackInput({ id, value, onChange, invalid, label = "Rack"
             id={id}
             value={letter}
             onChange={(e) => {
-              setPickedLetter(e.target.value);
-              onChange(""); // a new rack needs its position picked again
+              const choice = e.target.value;
+              setPickedLetter(choice === NO_RACK ? "" : choice);
+              onChange(choice === NO_RACK ? NO_RACK : ""); // a new rack needs its position picked again
             }}
             aria-invalid={(invalid && !letter) || undefined}
             className={`${fieldCls} ${stateCls(!letter)}`}
           >
             <option value="">{racks === null ? "Loading…" : "Select rack…"}</option>
+            <option value={NO_RACK}>No Rack</option>
             {racks?.map((r) => (
               <option key={r.letter} value={r.letter}>Rack {r.letter}</option>
             ))}
@@ -53,13 +56,13 @@ export default function RackInput({ id, value, onChange, invalid, label = "Rack"
           </label>
           <select
             id={`${id}-position`}
-            value={rack && value ? value : ""}
+            value={rack && value && !isNoRack ? value : ""}
             onChange={(e) => onChange(e.target.value)}
             disabled={!rack}
-            aria-invalid={(invalid && !value) || undefined}
-            className={`${fieldCls} ${stateCls(!value)}`}
+            aria-invalid={(invalid && !value && !isNoRack) || undefined}
+            className={`${fieldCls} ${stateCls(!value && Boolean(letter))}`}
           >
-            <option value="">{rack ? "Select position…" : "Pick a rack first"}</option>
+            <option value="">{isNoRack ? "Not needed" : rack ? "Select position…" : "Pick a rack first"}</option>
             {rack &&
               positionsOf(rack).map((code) => (
                 <option key={code} value={code}>{code}</option>
@@ -68,7 +71,7 @@ export default function RackInput({ id, value, onChange, invalid, label = "Rack"
         </div>
       </div>
       {racks?.length === 0 && (
-        <p className="mt-1 text-xs text-warning">No racks yet. Add one from Rack Finder → Manage Racks.</p>
+        <p className="mt-1 text-xs text-muted">No racks set up yet - choose No Rack, or add racks from Rack Finder → Manage Racks.</p>
       )}
     </div>
   );

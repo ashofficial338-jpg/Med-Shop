@@ -3,7 +3,7 @@ import { listProducts } from "../api/products";
 import { createPurchase } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
-import { RACK_REQUIRED_MESSAGE, validPosition } from "../utils/rack";
+import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
 
 const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
 
@@ -70,7 +70,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
-    if (lines.some((l) => !validPosition(l.rack))) {
+    if (lines.some((l) => !isRackChoice(l.rack))) {
       setRackMissing(true);
       setError(RACK_REQUIRED_MESSAGE);
       return;
@@ -168,7 +168,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
                   className="col-span-2"
                   value={line.rack}
                   onChange={(v) => setLine(idx, "rack", v)}
-                  invalid={rackMissing && !validPosition(line.rack)}
+                  invalid={rackMissing && !isRackChoice(line.rack)}
                   labelClassName={labelCls}
                 />
               </div>

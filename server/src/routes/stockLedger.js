@@ -102,7 +102,7 @@ router.post("/adjust", async (req, res) => {
   if (!(quantity > 0)) return res.status(400).json({ message: "Please enter a valid number." });
   if (!reason || !reason.trim()) return res.status(400).json({ message: "This field is required." });
   if (adjustmentType === "add") {
-    const rackError = await rackPositionError(rack);
+    const rackError = await rackPositionError(req.body.rack);
     if (rackError) return res.status(400).json({ message: rackError });
   }
 

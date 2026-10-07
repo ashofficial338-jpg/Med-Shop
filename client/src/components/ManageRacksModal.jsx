@@ -7,7 +7,9 @@ const DEFAULT_POSITIONS = 20;
 
 // Add racks A-Z and set how many positions each one has (A-001 ... A-0NN).
 // `initialLetter` preselects a rack to add, e.g. when an unused letter is tapped.
-export default function ManageRacksModal({ racks, productCounts, initialLetter = "", onClose, onChanged }) {
+// `allowed` ({ add, edit, delete }) hides what the user has no permission for;
+// admins have all three, others only what an Admin granted.
+export default function ManageRacksModal({ racks, productCounts, initialLetter = "", allowed, onClose, onChanged }) {
   const free = RACK_LETTERS.filter((l) => !racks.some((r) => r.letter === l));
   const [letter, setLetter] = useState(free.includes(initialLetter) ? initialLetter : free[0] || "");
   const [positions, setPositions] = useState(String(DEFAULT_POSITIONS));
@@ -56,8 +58,11 @@ export default function ManageRacksModal({ racks, productCounts, initialLetter =
   };
 
   const handleDelete = (rack) => {
-    if (!window.confirm(`Delete Rack ${rack.letter}?`)) return;
-    run(() => deleteRack(rack.letter), `Rack ${rack.letter} deleted`);
+    const count = productCounts[rack.letter] || 0;
+    const moved = `${count} product${count === 1 ? "" : "s"}`;
+    const warning = count ? `\n\n${moved} on it will move to No Rack.` : "";
+    if (!window.confirm(`Delete Rack ${rack.letter}?${warning}`)) return;
+    run(() => deleteRack(rack.letter), count ? `Rack ${rack.letter} deleted. ${moved} moved to No Rack.` : `Rack ${rack.letter} deleted`);
   };
 
   const inputCls =
@@ -71,7 +76,7 @@ export default function ManageRacksModal({ racks, productCounts, initialLetter =
           <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close">✕</button>
         </div>
 
-        {free.length > 0 ? (
+        {!allowed.add ? null : free.length > 0 ? (
           <form onSubmit={handleAdd} className="rounded-xl border border-border p-4">
             <p className="text-sm font-semibold text-text">Add Rack</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
@@ -116,7 +121,9 @@ export default function ManageRacksModal({ racks, productCounts, initialLetter =
         <div>
           <p className="text-sm font-semibold text-text">Your racks ({racks.length})</p>
           {racks.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">No racks yet. Add your first rack above.</p>
+            <p className="mt-2 text-sm text-muted">
+              No racks yet.{allowed.add ? " Add your first rack above." : ""} Products without a rack are listed under No Rack.
+            </p>
           ) : (
             <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
               {racks.map((rack) => {
@@ -137,13 +144,14 @@ export default function ManageRacksModal({ racks, productCounts, initialLetter =
                           type="number"
                           min="1"
                           max="999"
+                          disabled={!allowed.edit}
                           aria-label={`Positions on Rack ${rack.letter}`}
                           value={draft}
                           onChange={(e) => setEdits((d) => ({ ...d, [rack.letter]: e.target.value }))}
                           className="w-20 rounded-lg border border-border bg-surface px-2 py-1 text-sm font-semibold text-text focus:border-primary focus:outline-none"
                         />
                         <span className="text-xs text-muted">positions</span>
-                        {changed && (
+                        {changed && allowed.edit && (
                           <button
                             type="button"
                             disabled={busy}
@@ -155,6 +163,7 @@ export default function ManageRacksModal({ racks, productCounts, initialLetter =
                         )}
                       </div>
                     </div>
+                    {allowed.delete && (
                     <button
                       type="button"
                       disabled={busy}
@@ -163,6 +172,7 @@ export default function ManageRacksModal({ racks, productCounts, initialLetter =
                     >
                       Delete
                     </button>
+                    )}
                   </li>
                 );
               })}

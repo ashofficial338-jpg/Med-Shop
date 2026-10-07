@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
-import { getProduct, getProductBatches, deactivateProduct } from "../api/products";
+import { getProduct, getProductBatches, deactivateProduct, deleteBatch } from "../api/products";
 import { stockDisplay } from "../utils/stock";
 import { resolveAssetUrl } from "../api/client";
 import { useCart } from "../context/CartContext";
 import ProductFormModal from "./ProductFormModal";
+import BatchEditModal from "./BatchEditModal";
 import Icon from "./Icon";
 
 function batchStatus(expiryDate) {
@@ -27,7 +28,21 @@ function availability(product) {
 // small screens it becomes a full-screen overlay instead since there's no
 // spare width to share. Switching the product being viewed just changes
 // `productId` and this re-fetches in place - the drawer itself never unmounts.
-export default function ProductDetailPanel({ productId, isAdmin, onClose, onChanged, onDeleted }) {
+// canEdit / canDelete (product) and canEditStock / canDeleteStock (its batches)
+// follow the user's permissions, so staff an Admin trusted can change them too.
+// Batches show to admins and to anyone allowed to edit or delete stock.
+export default function ProductDetailPanel({
+  productId,
+  isAdmin,
+  canEdit = isAdmin,
+  canDelete = isAdmin,
+  canEditStock = isAdmin,
+  canDeleteStock = isAdmin,
+  onClose,
+  onChanged,
+  onDeleted,
+}) {
+  const showBatches = isAdmin || canEditStock || canDeleteStock;
   const { addToCart } = useCart();
   const [product, setProduct] = useState(null);
   const [batches, setBatches] = useState([]);
@@ -36,6 +51,8 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
   const [deleting, setDeleting] = useState(false);
   const [packQty, setPackQty] = useState(1);
   const [looseQty, setLooseQty] = useState(1);
+  const [editingBatch, setEditingBatch] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0); // bumped after a stock entry changes
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +64,7 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
       setPackQty(1);
       setLooseQty(1);
     });
-    if (isAdmin) {
+    if (showBatches) {
       getProductBatches(productId).then((data) => {
         if (!cancelled) setBatches(data);
       });
@@ -55,7 +72,25 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
     return () => {
       cancelled = true;
     };
-  }, [productId, isAdmin]);
+  }, [productId, showBatches, reloadKey]);
+
+  const stockChanged = () => {
+    setEditingBatch(null);
+    setReloadKey((k) => k + 1);
+    onChanged?.();
+  };
+
+  const handleDeleteBatch = async (b) => {
+    const left = b.qtyRemaining ? ` Its remaining ${b.qtyRemaining} will be written off.` : "";
+    if (!window.confirm(`Delete stock entry ${b.batchNo}?${left}`)) return;
+    try {
+      await deleteBatch(product._id, b._id);
+      toast.success(`Stock entry ${b.batchNo} deleted.`);
+      stockChanged();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
+    }
+  };
 
   const handleSaved = (updated) => {
     setProduct(updated);
@@ -125,24 +160,28 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
                 <p className="font-mono text-xs text-muted">{product.productCode}</p>
                 <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">
                   <Icon name="rack" size={13} />
-                  {product.rack ? `Rack ID: ${product.rack}` : "No Rack ID assigned"}
+                  {product.rack ? `Rack ID: ${product.rack}` : "No Rack"}
                 </p>
               </div>
-              {isAdmin && (
+              {(canEdit || canDelete) && (
                 <div className="flex shrink-0 gap-2">
-                  <button
-                    onClick={() => setShowEdit(true)}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-primary hover:bg-bg"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
-                  >
-                    {deleting ? "Deleting…" : "Delete"}
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => setShowEdit(true)}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-primary hover:bg-bg"
+                    >
+                      Edit
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      onClick={handleDelete}
+                      disabled={deleting}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
+                    >
+                      {deleting ? "Deleting…" : "Delete"}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -185,9 +224,9 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
               </div>
             </dl>
 
-            {isAdmin && (
+            {showBatches && (
               <div>
-                <p className="mb-1.5 text-xs font-semibold text-muted">Batches on Hand</p>
+                <p className="mb-1.5 text-xs font-semibold text-muted">Stock (batches on hand)</p>
                 {batches.length === 0 && <p className="text-xs text-muted">No batches recorded yet.</p>}
                 {batches.length > 0 && (
                   <div className="space-y-1.5">
@@ -207,6 +246,23 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
                               {new Date(b.receivedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                             </span>
                             <span>Qty {b.qtyRemaining}</span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <span className="text-muted">{b.rack ? `Rack ID: ${b.rack}` : "No Rack"}</span>
+                            {(canEditStock || canDeleteStock) && (
+                              <span className="flex gap-1">
+                                {canEditStock && (
+                                  <button onClick={() => setEditingBatch(b)} className="rounded-md px-2 py-0.5 font-semibold text-primary hover:bg-primary-soft">
+                                    Edit
+                                  </button>
+                                )}
+                                {canDeleteStock && (
+                                  <button onClick={() => handleDeleteBatch(b)} className="rounded-md px-2 py-0.5 font-semibold text-danger hover:bg-danger/10">
+                                    Delete
+                                  </button>
+                                )}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -258,6 +314,9 @@ export default function ProductDetailPanel({ productId, isAdmin, onClose, onChan
       </aside>
 
       {showEdit && product && <ProductFormModal product={product} onClose={() => setShowEdit(false)} onSaved={handleSaved} />}
+      {editingBatch && product && (
+        <BatchEditModal product={product} batch={editingBatch} isAdmin={isAdmin} onClose={() => setEditingBatch(null)} onSaved={stockChanged} />
+      )}
     </>
   );
 }

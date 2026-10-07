@@ -15,6 +15,7 @@ export async function upsertBatch({ product, batchNo, expiryDate, costPrice, add
     batch.receivedAt = receivedAt || new Date();
     if (purchase) batch.purchase = purchase;
     if (rack) batch.rack = rack;
+    batch.isDeleted = false; // a re-delivery of a deleted lot brings it back
     await batch.save();
   } else {
     batch = await Batch.create({

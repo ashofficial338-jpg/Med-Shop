@@ -13,6 +13,15 @@ export function getProductBatches(id) {
   return api.get(`/products/${id}/batches`).then((r) => r.data);
 }
 
+// Edit or delete one stock entry (batch) of a product.
+export function updateBatch(productId, batchId, data) {
+  return api.patch(`/products/${productId}/batches/${batchId}`, data).then((r) => r.data);
+}
+
+export function deleteBatch(productId, batchId) {
+  return api.delete(`/products/${productId}/batches/${batchId}`).then((r) => r.data);
+}
+
 export function createProduct(formData) {
   return api.post("/products", formData, {
     headers: { "Content-Type": "multipart/form-data" },

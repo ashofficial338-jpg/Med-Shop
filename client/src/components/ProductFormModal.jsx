@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { createProduct, updateProduct, listCategories, enableLooseSelling } from "../api/products";
 import { resolveAssetUrl } from "../api/client";
 import { listVendors } from "../api/vendors";
+import { useAuth } from "../context/AuthContext";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
-import { RACK_REQUIRED_MESSAGE, validPosition } from "../utils/rack";
+import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
 
 const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
@@ -32,12 +33,14 @@ const emptyForm = {
   rack: "",
 };
 
-// defaultRack presets the rack position when adding from a rack view (e.g. "C-004").
+// defaultRack presets the rack choice when adding from a rack view (e.g. "C-004" or No Rack).
 export default function ProductFormModal({ product, onClose, onSaved, defaultRack = "" }) {
   const isEdit = Boolean(product);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [categories, setCategories] = useState([]);
   const [vendors, setVendors] = useState([]);
-  const [form, setForm] = useState({ ...emptyForm, rack: validPosition(defaultRack) });
+  const [form, setForm] = useState({ ...emptyForm, rack: isRackChoice(defaultRack) ? defaultRack : "" });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(product?.image || "");
   const [error, setError] = useState("");
@@ -52,8 +55,9 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
 
   useEffect(() => {
     listCategories().then(setCategories);
-    listVendors().then(setVendors);
-  }, []);
+    // Suppliers are admin-only, so staff granted "Add/Edit products" skip this field.
+    if (isAdmin) listVendors().then(setVendors);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (product) {
@@ -121,7 +125,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
-    if (addsStock && !validPosition(form.rack)) {
+    if (addsStock && !isRackChoice(form.rack)) {
       setRackMissing(true);
       setError(RACK_REQUIRED_MESSAGE);
       return;
@@ -208,7 +212,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
             value={form.rack}
             onChange={(v) => setForm((f) => ({ ...f, rack: v }))}
             required={addsStock}
-            invalid={rackMissing && addsStock && !validPosition(form.rack)}
+            invalid={rackMissing && addsStock && !isRackChoice(form.rack)}
             label={addsStock ? "Rack (where this stock is shelved)" : "Rack"}
           />
 
@@ -232,15 +236,17 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
             </datalist>
           </div>
 
-          <div className="col-span-2">
-            <label className={labelCls}>Primary Vendor</label>
-            <select value={form.vendor} onChange={set("vendor")} className={inputCls}>
-              <option value="">—</option>
-              {vendors.map((v) => (
-                <option key={v._id} value={v._id}>{v.name}</option>
-              ))}
-            </select>
-          </div>
+          {isAdmin && (
+            <div className="col-span-2">
+              <label className={labelCls}>Primary Vendor</label>
+              <select value={form.vendor} onChange={set("vendor")} className={inputCls}>
+                <option value="">—</option>
+                {vendors.map((v) => (
+                  <option key={v._id} value={v._id}>{v.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className={labelCls}>Strength Value</label>

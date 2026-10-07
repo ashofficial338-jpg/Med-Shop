@@ -3,7 +3,7 @@ import { listProducts, getProductBatches } from "../api/products";
 import { adjustStock } from "../api/stock";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
-import { RACK_REQUIRED_MESSAGE, validPosition } from "../utils/rack";
+import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
 
 const NEW_BATCH = "__new__";
 
@@ -49,7 +49,7 @@ export default function AdjustStockModal({ onClose, onSaved }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
-    if (adjustmentType === "add" && !validPosition(rack)) {
+    if (adjustmentType === "add" && !isRackChoice(rack)) {
       setRackMissing(true);
       setError(RACK_REQUIRED_MESSAGE);
       return;
@@ -162,7 +162,7 @@ export default function AdjustStockModal({ onClose, onSaved }) {
             id="adjust-rack"
             value={rack}
             onChange={setRack}
-            invalid={rackMissing && !validPosition(rack)}
+            invalid={rackMissing && !isRackChoice(rack)}
             label="Rack (where this stock is shelved)"
             labelClassName={labelCls}
           />

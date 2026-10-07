@@ -10,11 +10,18 @@ import FloatingCartBar from "../components/FloatingCartBar";
 import { listProducts, listCategories } from "../api/products";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import { can } from "../utils/permissions";
 
 export default function Products() {
   const { user } = useAuth();
   const { cartCount } = useCart();
   const isAdmin = user.role === "admin";
+  // Add / edit / delete are admin by default, or granted per user on Roles & Permissions.
+  const canAdd = can(user, "products.add");
+  const canEdit = can(user, "products.edit");
+  const canDelete = can(user, "products.delete");
+  const canEditStock = can(user, "stock.edit");
+  const canDeleteStock = can(user, "stock.delete");
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -77,26 +84,32 @@ export default function Products() {
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Products</h1>
-        {isAdmin && (
+        {(isAdmin || canAdd) && (
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowCategories(true)}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
-            >
-              Categories
-            </button>
-            <button
-              onClick={() => setShowImport(true)}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
-            >
-              Import Excel
-            </button>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
-            >
-              Add Product
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setShowCategories(true)}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
+              >
+                Categories
+              </button>
+            )}
+            {canAdd && (
+              <>
+                <button
+                  onClick={() => setShowImport(true)}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
+                >
+                  Import Excel
+                </button>
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+                >
+                  Add Product
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -152,7 +165,7 @@ export default function Products() {
             <ProductTile
               key={p._id}
               product={p}
-              isAdmin={isAdmin}
+              canEdit={canEdit}
               onEdit={setEditingProduct}
               onOpen={setSelectedProductId}
             />
@@ -163,6 +176,10 @@ export default function Products() {
           <ProductDetailPanel
             productId={selectedProductId}
             isAdmin={isAdmin}
+            canEdit={canEdit}
+            canDelete={canDelete}
+            canEditStock={canEditStock}
+            canDeleteStock={canDeleteStock}
             onClose={() => setSelectedProductId(null)}
             onChanged={load}
             onDeleted={() => {

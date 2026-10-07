@@ -1,7 +1,8 @@
 import { Router } from "express";
 import Rack from "../models/Rack.js";
 import Product from "../models/Product.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth } from "../middleware/auth.js";
+import { requirePermission } from "../utils/permissions.js";
 import { positionCode } from "../utils/rack.js";
 
 const router = Router();
@@ -23,7 +24,7 @@ router.get("/", requireAuth, async (req, res) => {
   res.json(racks);
 });
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requirePermission("racks.add"), async (req, res) => {
   const letter = String(req.body.letter || "").trim().toUpperCase();
   if (!/^[A-Z]$/.test(letter)) return res.status(400).json({ message: "Please choose a rack letter from A to Z." });
   const positions = parsePositions(req.body.positions);
@@ -36,7 +37,7 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
 
 // Changing the position count. Shrinking is blocked while stock still sits
 // on a position that would disappear.
-router.patch("/:letter", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:letter", requireAuth, requirePermission("racks.edit"), async (req, res) => {
   const rack = await Rack.findOne({ letter: String(req.params.letter).toUpperCase() });
   if (!rack) return res.status(404).json({ message: "No records found." });
   const positions = parsePositions(req.body.positions);
@@ -53,15 +54,17 @@ router.patch("/:letter", requireAuth, requireRole("admin"), async (req, res) => 
   res.json(rack);
 });
 
-router.delete("/:letter", requireAuth, requireRole("admin"), async (req, res) => {
+// Always allowed, even for the last rack: products still on it fall back to
+// No Rack (rack ""), so nothing points at a rack that no longer exists.
+router.delete("/:letter", requireAuth, requirePermission("racks.delete"), async (req, res) => {
   const rack = await Rack.findOne({ letter: String(req.params.letter).toUpperCase() });
   if (!rack) return res.status(404).json({ message: "No records found." });
-  const inUse = await Product.countDocuments({ isActive: true, rack: new RegExp(`^${rack.letter}-`) });
-  if (inUse > 0) {
-    return res.status(400).json({ message: `Rack ${rack.letter} still has ${inUse} product${inUse === 1 ? "" : "s"} on it. Move them before deleting the rack.` });
-  }
+  const { modifiedCount } = await Product.updateMany({ rack: new RegExp(`^${rack.letter}-`) }, { $set: { rack: "" } });
   await rack.deleteOne();
-  res.json({ message: `Rack ${rack.letter} deleted.` });
+  res.json({
+    message: `Rack ${rack.letter} deleted.${modifiedCount ? ` ${modifiedCount} product${modifiedCount === 1 ? "" : "s"} moved to No Rack.` : ""}`,
+    movedToNoRack: modifiedCount,
+  });
 });
 
 export default router;

@@ -5,6 +5,7 @@ import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
 import StockLedger from "../models/StockLedger.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requirePermission, requireAnyPermission } from "../utils/permissions.js";
 import { uploadProductImage, uploadedImageUrl } from "../middleware/upload.js";
 import { generateProductCode, resolveCategory, computeLooseRate, deriveSoldAs } from "../utils/productHelpers.js";
 import { computeInternalQty as computeQty } from "../utils/stockUnits.js";
@@ -262,13 +263,111 @@ router.get("/:id", requireAuth, async (req, res) => {
 
 // Full batch breakdown for a product - Batch No / Expiry / Qty Remaining /
 // Received Date / Cost - used by the Product Detail panel, Stock Management,
-// and the batch pickers in Adjust Stock. Admin-only: cost price is in here.
-router.get("/:id/batches", requireAuth, requireRole("admin"), async (req, res) => {
-  const batches = await Batch.find({ product: req.params.id, qtyReceived: { $gt: 0 } }).sort({ expiryDate: 1 });
-  res.json(batches);
+// and the batch pickers in Adjust Stock. Admins, plus anyone allowed to edit
+// or delete stock; cost price is only sent to admins.
+router.get("/:id/batches", requireAuth, requireAnyPermission("stock.edit", "stock.delete"), async (req, res) => {
+  const batches = await Batch.find({
+    product: req.params.id,
+    qtyReceived: { $gt: 0 },
+    // A deleted batch disappears, unless stock has since come back into it (e.g. a voided sale).
+    $or: [{ isDeleted: { $ne: true } }, { qtyRemaining: { $gt: 0 } }],
+  }).sort({ expiryDate: 1 });
+  res.json(batches.map((b) => stripCostPriceIfStaff(b, req.user.role)));
 });
 
-router.post("/", requireAuth, requireRole("admin"), (req, res) => {
+async function findStockEntry(req, res) {
+  const product = await Product.findById(req.params.id);
+  const batch = product && (await Batch.findOne({ _id: req.params.batchId, product: product._id }));
+  if (!product || !batch) {
+    res.status(404).json({ message: "No records found." });
+    return {};
+  }
+  return { product, batch };
+}
+
+// Edit one stock entry (batch). A quantity change moves Product.qty by the
+// same amount and is recorded in the stock ledger like a manual adjustment.
+router.patch("/:id/batches/:batchId", requireAuth, requirePermission("stock.edit"), async (req, res) => {
+  const { product, batch } = await findStockEntry(req, res);
+  if (!batch) return;
+  const b = req.body;
+
+  if (b.batchNo !== undefined) {
+    const batchNo = String(b.batchNo).trim();
+    if (!batchNo || batchNo.length > 30) return res.status(400).json({ message: "Batch No is required (up to 30 characters)." });
+    if (batchNo !== batch.batchNo && (await Batch.exists({ product: product._id, batchNo, _id: { $ne: batch._id } }))) {
+      return res.status(409).json({ message: "This product already has a batch with that number." });
+    }
+    batch.batchNo = batchNo;
+  }
+  if (b.expiryDate !== undefined) {
+    const expiry = new Date(b.expiryDate);
+    if (Number.isNaN(expiry.getTime())) return res.status(400).json({ message: "Please enter a valid date." });
+    batch.expiryDate = expiry;
+  }
+  if (b.costPrice !== undefined && req.user.role === "admin") {
+    const cost = Number(b.costPrice);
+    if (!(cost >= 0)) return res.status(400).json({ message: "Please enter a valid number." });
+    batch.costPrice = cost;
+  }
+  let delta = 0;
+  if (b.qtyRemaining !== undefined) {
+    const qty = Number(b.qtyRemaining);
+    if (!Number.isInteger(qty) || qty < 0) return res.status(400).json({ message: "Please enter a valid number." });
+    delta = qty - batch.qtyRemaining;
+    batch.qtyRemaining = qty;
+    if (qty > batch.qtyReceived) batch.qtyReceived = qty;
+  }
+  if (b.rack !== undefined) {
+    const rackError = await rackPositionError(b.rack, { required: false });
+    if (rackError) return res.status(400).json({ message: rackError });
+    batch.rack = cleanRack(b.rack);
+    product.rack = batch.rack; // the product is found where its stock was just moved to
+  }
+
+  await batch.save();
+  if (delta) {
+    product.qty = Math.max(0, product.qty + delta);
+    await StockLedger.create({
+      product: product._id,
+      batch: batch._id,
+      type: delta > 0 ? "manual-add" : "manual-reduce",
+      qtyChange: delta,
+      reason: `Stock entry ${batch.batchNo} edited`,
+      performedBy: req.user._id,
+    });
+  }
+  await product.save();
+  res.json(stripCostPriceIfStaff(batch, req.user.role));
+});
+
+// Delete one stock entry: whatever is left in it is written off (ledger
+// entry + Product.qty), and the batch is hidden. The record itself stays,
+// since past sales and purchases point at it.
+router.delete("/:id/batches/:batchId", requireAuth, requirePermission("stock.delete"), async (req, res) => {
+  const { product, batch } = await findStockEntry(req, res);
+  if (!batch) return;
+  const removed = batch.qtyRemaining;
+
+  batch.qtyRemaining = 0;
+  batch.isDeleted = true;
+  await batch.save();
+  if (removed > 0) {
+    product.qty = Math.max(0, product.qty - removed);
+    await product.save();
+    await StockLedger.create({
+      product: product._id,
+      batch: batch._id,
+      type: "manual-reduce",
+      qtyChange: -removed,
+      reason: `Stock entry ${batch.batchNo} deleted`,
+      performedBy: req.user._id,
+    });
+  }
+  res.json({ message: `Stock entry ${batch.batchNo} deleted.`, qtyRemoved: removed });
+});
+
+router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
   uploadProductImage(req, res, async (err) => {
     if (err) return res.status(400).json({ message: err.message });
 
@@ -290,7 +389,7 @@ router.post("/", requireAuth, requireRole("admin"), (req, res) => {
 
       const qty = computeQty({ ...b, soldAs });
       const rack = cleanRack(b.rack);
-      const rackError = await rackPositionError(rack, { required: qty > 0 });
+      const rackError = await rackPositionError(b.rack, { required: qty > 0 });
       if (rackError) return res.status(400).json({ message: rackError });
       const productCode = await generateProductCode(b.name || "");
       const looseRate = computeLooseRate({ soldAs, packRate: b.packRate, unitsPerPack: b.unitsPerPack });
@@ -334,7 +433,7 @@ router.post("/", requireAuth, requireRole("admin"), (req, res) => {
       }
 
       const populated = await product.populate(["category", "vendor"].map((path) => ({ path, select: "name" })));
-      res.status(201).json(stripCostPriceIfStaff(populated, "admin"));
+      res.status(201).json(stripCostPriceIfStaff(populated, req.user.role));
     } catch (e) {
       if (e.name === "ValidationError") {
         return res.status(400).json({ message: Object.values(e.errors)[0].message });
@@ -344,7 +443,7 @@ router.post("/", requireAuth, requireRole("admin"), (req, res) => {
   });
 });
 
-router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
+router.patch("/:id", requireAuth, requirePermission("products.edit"), (req, res) => {
   uploadProductImage(req, res, async (err) => {
     if (err) return res.status(400).json({ message: err.message });
 
@@ -364,7 +463,7 @@ router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
       // Handled apart from the field loop below so a rack can be cleared to "".
       if (b.rack !== undefined) {
         const rack = cleanRack(b.rack);
-        const rackError = await rackPositionError(rack, { required: false });
+        const rackError = await rackPositionError(b.rack, { required: false });
         if (rackError) return res.status(400).json({ message: rackError });
         product.rack = rack;
       }
@@ -393,7 +492,7 @@ router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
 
       await product.save();
       const populated = await product.populate(["category", "vendor"].map((path) => ({ path, select: "name" })));
-      res.json(stripCostPriceIfStaff(populated, "admin"));
+      res.json(stripCostPriceIfStaff(populated, req.user.role));
     } catch (e) {
       if (e.name === "ValidationError") {
         return res.status(400).json({ message: Object.values(e.errors)[0].message });
@@ -411,7 +510,7 @@ router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
 // on hand is rescaled by the same unitsPerPack factor to keep representing
 // the same physical stock - see the PATCH "/:id" comment above for why this
 // can't just be another editable field.
-router.patch("/:id/enable-loose", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id/enable-loose", requireAuth, requirePermission("products.edit"), async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ message: "No records found." });
   if (product.soldAs === "pack-and-loose") {
@@ -439,7 +538,7 @@ router.patch("/:id/enable-loose", requireAuth, requireRole("admin"), async (req,
     await product.save();
 
     const populated = await product.populate(["category", "vendor"].map((path) => ({ path, select: "name" })));
-    res.json(stripCostPriceIfStaff(populated, "admin"));
+    res.json(stripCostPriceIfStaff(populated, req.user.role));
   } catch (e) {
     if (e.name === "ValidationError") {
       return res.status(400).json({ message: Object.values(e.errors)[0].message });
@@ -451,7 +550,7 @@ router.patch("/:id/enable-loose", requireAuth, requireRole("admin"), async (req,
 // Soft delete: past bills, purchases and the stock ledger still reference the
 // product. Blocked while stock remains, since hiding it would silently drop
 // that stock from every report instead of recording it as a loss.
-router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requirePermission("products.delete"), async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product || !product.isActive) return res.status(404).json({ message: "No records found." });
   if (product.qty > 0) {
@@ -464,7 +563,7 @@ router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   res.json({ message: "Product deleted." });
 });
 
-router.get("/import/template", requireAuth, requireRole("admin"), async (req, res) => {
+router.get("/import/template", requireAuth, requirePermission("products.add"), async (req, res) => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Products");
   sheet.columns = [
@@ -513,7 +612,7 @@ router.get("/import/template", requireAuth, requireRole("admin"), async (req, re
   res.end();
 });
 
-router.post("/import", requireAuth, requireRole("admin"), importUpload.single("file"), async (req, res) => {
+router.post("/import", requireAuth, requirePermission("products.add"), importUpload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: "This field is required." });
 
   const workbook = new ExcelJS.Workbook();
@@ -564,8 +663,9 @@ router.post("/import", requireAuth, requireRole("admin"), importUpload.single("f
       if (!data.batchNo) throw new Error("Batch No is required.");
       if (!data.expiryDate) throw new Error("Expiry Date is required.");
       if (!data.packRate || Number(data.packRate) <= 0) throw new Error("Pack Rate must be greater than 0.");
+      // A blank Rack cell falls back to No Rack rather than failing the row.
       const rack = cleanRack(data.rack);
-      const rackError = await rackPositionError(rack);
+      const rackError = await rackPositionError(data.rack, { required: false });
       if (rackError) throw new Error(rackError);
 
       const category = await resolveCategory(String(data.category));
@@ -593,7 +693,7 @@ router.post("/import", requireAuth, requireRole("admin"), importUpload.single("f
           rack,
         });
         existing.qty += addQty;
-        existing.rack = rack;
+        if (rack) existing.rack = rack; // a blank cell keeps its current rack
         // Restocking a deleted product brings it back rather than adding
         // stock to a product no list shows.
         existing.isActive = true;

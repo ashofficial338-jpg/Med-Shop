@@ -9,7 +9,7 @@ function availability(product) {
   return { label: "Available", className: "bg-success/10 text-success ring-1 ring-success/15", dot: "bg-success" };
 }
 
-export default function ProductTile({ product, isAdmin, onEdit, onOpen }) {
+export default function ProductTile({ product, canEdit, onEdit, onOpen }) {
   const { addToCart } = useCart();
   const avail = availability(product);
   const isOut = product.qty <= 0;
@@ -75,7 +75,7 @@ export default function ProductTile({ product, isAdmin, onEdit, onOpen }) {
             <p className="truncate font-display font-semibold leading-tight text-text transition-colors group-hover:text-primary">{product.name}</p>
             <p className="font-mono text-xs text-muted">{product.productCode}</p>
           </div>
-          {isAdmin && (
+          {canEdit && (
             <button
               onClick={handleEdit}
               aria-label="Edit product"

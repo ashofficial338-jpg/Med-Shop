@@ -10,7 +10,8 @@ import { listProducts, updateProduct, deactivateProduct } from "../api/products"
 import { listRacks } from "../api/racks";
 import { useAuth } from "../context/AuthContext";
 import { stockDisplay } from "../utils/stock";
-import { RACK_LETTERS, POSITION_PATTERN, positionsOf, rackLetter } from "../utils/rack";
+import { RACK_LETTERS, POSITION_PATTERN, NO_RACK, positionsOf, rackLetter } from "../utils/rack";
+import { can } from "../utils/permissions";
 
 // An older backend without the rack field accepts the save but silently
 // drops it - check the echoed product so that never looks like success.
@@ -68,26 +69,31 @@ function RackBadge({ rack, size = "md", onEdit }) {
           onEdit ? "hover:bg-primary-soft" : "cursor-default"
         }`}
       >
-        {assigned ? `Rack ID: ${rack}` : onEdit ? "+ Set position" : "No position"}
+        {assigned ? `Rack ID: ${rack}` : onEdit ? "No Rack · Set" : "No Rack"}
       </button>
     </div>
   );
 }
 
+// Either button is left out when its handler is null (no permission).
 function RowActions({ product, onEdit, onDelete }) {
   return (
     <div className="flex shrink-0 items-center gap-0.5">
-      <button onClick={() => onEdit(product)} className="rounded-lg p-2 text-muted transition hover:bg-bg hover:text-primary" aria-label={`Edit ${product.name}`} title="Edit">
-        <Icon name="edit" size={16} />
-      </button>
-      <button
-        onClick={() => onDelete(product)}
-        className="rounded-lg p-2 text-muted transition hover:bg-danger/10 hover:text-danger"
-        aria-label={`Delete ${product.name}`}
-        title="Delete"
-      >
-        <Icon name="trash" size={16} />
-      </button>
+      {onEdit && (
+        <button onClick={() => onEdit(product)} className="rounded-lg p-2 text-muted transition hover:bg-bg hover:text-primary" aria-label={`Edit ${product.name}`} title="Edit">
+          <Icon name="edit" size={16} />
+        </button>
+      )}
+      {onDelete && (
+        <button
+          onClick={() => onDelete(product)}
+          className="rounded-lg p-2 text-muted transition hover:bg-danger/10 hover:text-danger"
+          aria-label={`Delete ${product.name}`}
+          title="Delete"
+        >
+          <Icon name="trash" size={16} />
+        </button>
+      )}
     </div>
   );
 }
@@ -125,7 +131,7 @@ function BestMatch({ product, actions, onEditRack }) {
               Go to <span className="font-bold text-primary">Rack {rackLetter(product.rack)} → {product.rack}</span>
             </>
           ) : (
-            <span className="text-muted">No rack position assigned yet</span>
+            <span className="text-muted">No Rack — not assigned to any rack yet</span>
           )}
         </p>
         <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
@@ -204,7 +210,7 @@ function SetRackModal({ product, onClose, onSaved }) {
 }
 
 // Every position on one rack, in order, with whatever stock sits on each.
-function RackPositions({ rack, products, isAdmin, onAddAt, rowProps }) {
+function RackPositions({ rack, products, canAdd, canEdit, onAddAt, rowProps }) {
   const byPosition = new Map(positionsOf(rack).map((code) => [code, []]));
   const elsewhere = [];
   for (const p of products) (byPosition.get(p.rack) || elsewhere).push(p);
@@ -231,7 +237,7 @@ function RackPositions({ rack, products, isAdmin, onAddAt, rowProps }) {
             {list.length === 0 ? (
               <div className="flex flex-1 items-center justify-between gap-2">
                 <span className="text-sm text-muted">Empty</span>
-                {isAdmin && (
+                {canAdd && (
                   <button onClick={() => onAddAt(code)} className="rounded-lg px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-soft">
                     + Add product here
                   </button>
@@ -248,7 +254,7 @@ function RackPositions({ rack, products, isAdmin, onAddAt, rowProps }) {
                       </p>
                     </div>
                     {rowProps(p).actions}
-                    {isAdmin && (
+                    {canEdit && (
                       <button onClick={rowProps(p).onEditRack} className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-primary hover:bg-primary-soft">
                         Move
                       </button>
@@ -274,9 +280,43 @@ function RackPositions({ rack, products, isAdmin, onAddAt, rowProps }) {
   );
 }
 
+function NoRackList({ products, canAdd, onAdd, rowProps }) {
+  return (
+    <section className="mt-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="font-display text-lg font-bold tracking-tight text-text">No Rack</h2>
+          <p className="text-sm text-muted">
+            {products.length} product{products.length === 1 ? "" : "s"} not on any rack
+          </p>
+        </div>
+        {canAdd && (
+          <button onClick={onAdd} className="rounded-lg px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-soft">
+            + Add product here
+          </button>
+        )}
+      </div>
+      {products.length === 0 ? (
+        <p className="card mt-3 px-4 py-5 text-sm text-muted">Every product is on a rack.</p>
+      ) : (
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {products.map((p) => (
+            <ProductRow key={p._id} product={p} {...rowProps(p)} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function RackFinder() {
   const { user } = useAuth();
-  const isAdmin = user.role === "admin";
+  // Managing racks is admin-only unless an Admin granted it on Roles & Permissions.
+  const allowed = { add: can(user, "racks.add"), edit: can(user, "racks.edit"), delete: can(user, "racks.delete") };
+  const canManageRacks = allowed.add || allowed.edit || allowed.delete;
+  const canAdd = can(user, "products.add");
+  const canEdit = can(user, "products.edit");
+  const canDelete = can(user, "products.delete");
   const searchRef = useRef(null);
 
   const [products, setProducts] = useState([]);
@@ -284,9 +324,9 @@ export default function RackFinder() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(null); // a rack letter, or null for all racks
+  const [selected, setSelected] = useState(null); // a rack letter, NO_RACK, or null for all racks
 
-  const [addAt, setAddAt] = useState(null); // position code to pre-fill, "" for none, null = closed
+  const [addAt, setAddAt] = useState(null); // position code or NO_RACK to pre-fill, "" for none, null = closed
   const [editing, setEditing] = useState(null);
   const [settingRack, setSettingRack] = useState(null);
   const [managing, setManaging] = useState(null); // letter to preselect, "" for none, null = closed
@@ -328,13 +368,19 @@ export default function RackFinder() {
   }, []);
 
   // Products on each rack letter, ordered by position then name.
+  // Products on each rack letter, ordered by position then name. Anything
+  // not on an existing rack falls back to NO_RACK, which always exists.
   const byLetter = useMemo(() => {
-    const map = new Map(RACK_LETTERS.map((l) => [l, []]));
-    for (const p of products) map.get(rackLetter(p.rack))?.push(p);
+    const existing = new Set(racks.map((r) => r.letter));
+    const map = new Map([...RACK_LETTERS, NO_RACK].map((l) => [l, []]));
+    for (const p of products) {
+      const letter = rackLetter(p.rack);
+      map.get(existing.has(letter) ? letter : NO_RACK).push(p);
+    }
     const order = (a, b) => (a.rack || "").localeCompare(b.rack || "", undefined, { numeric: true }) || a.name.localeCompare(b.name);
     for (const list of map.values()) list.sort(order);
     return map;
-  }, [products]);
+  }, [products, racks]);
 
   const rackByLetter = useMemo(() => new Map(racks.map((r) => [r.letter, r])), [racks]);
   const productCounts = Object.fromEntries(racks.map((r) => [r.letter, byLetter.get(r.letter).length]));
@@ -370,12 +416,16 @@ export default function RackFinder() {
     load();
   };
 
-  const rowProps = (p) =>
-    isAdmin
-      ? { actions: <RowActions product={p} onEdit={setEditing} onDelete={handleDelete} />, onEditRack: () => setSettingRack(p) }
-      : { actions: null, onEditRack: undefined };
+  const rowProps = (p) => ({
+    actions:
+      canEdit || canDelete ? (
+        <RowActions product={p} onEdit={canEdit ? setEditing : null} onDelete={canDelete ? handleDelete : null} />
+      ) : null,
+    onEditRack: canEdit ? () => setSettingRack(p) : undefined,
+  });
 
-  const selectedRack = selected ? rackByLetter.get(selected) : null;
+  const selectedRack = selected && selected !== NO_RACK ? rackByLetter.get(selected) : null;
+  const noRackList = byLetter.get(NO_RACK);
 
   return (
     <Layout>
@@ -384,22 +434,26 @@ export default function RackFinder() {
           <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Rack Finder</h1>
           <p className="mt-0.5 text-sm text-muted">Type a product name, serial number or rack position to find it.</p>
         </div>
-        {isAdmin && (
+        {(canManageRacks || canAdd) && (
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setManaging("")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
-            >
-              <Icon name="rack" size={16} />
-              Manage Racks
-            </button>
-            <button
-              onClick={() => setAddAt("")}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
-            >
-              <Icon name="plus" size={16} strokeWidth={2} />
-              Add Product
-            </button>
+            {canManageRacks && (
+              <button
+                onClick={() => setManaging("")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
+              >
+                <Icon name="rack" size={16} />
+                Manage Racks
+              </button>
+            )}
+            {canAdd && (
+              <button
+                onClick={() => setAddAt("")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+              >
+                <Icon name="plus" size={16} strokeWidth={2} />
+                Add Product
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -506,14 +560,14 @@ export default function RackFinder() {
                   return (
                     <button
                       key={l}
-                      onClick={isAdmin ? () => setManaging(l) : undefined}
-                      disabled={!isAdmin}
-                      title={isAdmin ? `Add Rack ${l}` : `Rack ${l} has not been set up`}
-                      aria-label={isAdmin ? `Add Rack ${l}` : `Rack ${l}, not set up`}
+                      onClick={allowed.add ? () => setManaging(l) : undefined}
+                      disabled={!allowed.add}
+                      title={allowed.add ? `Add Rack ${l}` : `Rack ${l} has not been set up`}
+                      aria-label={allowed.add ? `Add Rack ${l}` : `Rack ${l}, not set up`}
                       className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-2 text-muted/60 transition enabled:hover:border-primary/50 enabled:hover:text-primary"
                     >
                       <span className="font-display text-xl font-extrabold leading-none">{l}</span>
-                      <span className="mt-1 text-[11px] font-semibold">{isAdmin ? "+ Add" : "—"}</span>
+                      <span className="mt-1 text-[11px] font-semibold">{allowed.add ? "+ Add" : "—"}</span>
                     </button>
                   );
                 }
@@ -535,26 +589,42 @@ export default function RackFinder() {
                 );
               })}
             </div>
-            {selected && (
+            <div className="mt-2 flex flex-wrap gap-2">
               <button
-                onClick={() => setSelected(null)}
-                className="mt-2 rounded-xl bg-surface px-4 py-2 text-sm font-semibold text-text ring-1 ring-border hover:ring-primary/40"
+                onClick={() => setSelected(selected === NO_RACK ? null : NO_RACK)}
+                aria-pressed={selected === NO_RACK}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold ring-1 transition ${
+                  selected === NO_RACK
+                    ? "bg-primary text-white ring-2 ring-primary ring-offset-2 ring-offset-bg"
+                    : "bg-surface text-text ring-border hover:ring-primary/40"
+                }`}
               >
-                Show all racks
+                No Rack
+                <span className={`rounded-lg px-2 py-0.5 text-xs tnum ${selected === NO_RACK ? "bg-white/20" : "bg-bg text-muted"}`}>{noRackList.length}</span>
               </button>
-            )}
+              {selected && (
+                <button
+                  onClick={() => setSelected(null)}
+                  className="rounded-xl bg-surface px-4 py-2 text-sm font-semibold text-text ring-1 ring-border hover:ring-primary/40"
+                >
+                  Show all racks
+                </button>
+              )}
+            </div>
           </section>
 
-          {racks.length === 0 && !loadError && (
+          {racks.length === 0 && !loadError && !selected && (
             <div className="card mt-6 flex flex-col items-center gap-2 py-14 text-center">
               <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
                 <Icon name="rack" size={22} />
               </span>
               <p className="font-display font-semibold text-text">No racks set up yet</p>
               <p className="text-sm text-muted">
-                {isAdmin ? "Add your racks (A to Z) and their positions to start assigning stock." : "Ask an admin to set up the racks."}
+                {allowed.add
+                  ? "Add your racks (A to Z) and their positions. Until then, stock can be saved under No Rack."
+                  : "Stock is kept under No Rack until racks are set up."}
               </p>
-              {isAdmin && (
+              {allowed.add && (
                 <button onClick={() => setManaging("")} className="mt-1 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark">
                   Add Rack
                 </button>
@@ -562,8 +632,10 @@ export default function RackFinder() {
             </div>
           )}
 
-          {selectedRack ? (
-            <RackPositions rack={selectedRack} products={byLetter.get(selected)} isAdmin={isAdmin} onAddAt={setAddAt} rowProps={rowProps} />
+          {selected === NO_RACK ? (
+            <NoRackList products={noRackList} canAdd={canAdd} onAdd={() => setAddAt(NO_RACK)} rowProps={rowProps} />
+          ) : selectedRack ? (
+            <RackPositions rack={selectedRack} products={byLetter.get(selected)} canAdd={canAdd} canEdit={canEdit} onAddAt={setAddAt} rowProps={rowProps} />
           ) : (
             <section className="mt-6 space-y-6">
               {racks.map((rack) => {
@@ -589,6 +661,22 @@ export default function RackFinder() {
                   </div>
                 );
               })}
+              {noRackList.length > 0 && (
+                <div>
+                  <button onClick={() => setSelected(NO_RACK)} className="group flex items-center gap-2 font-display text-base font-bold text-text">
+                    <span className="rounded-lg bg-bg px-2.5 py-0.5 text-text ring-1 ring-border">No Rack</span>
+                    <span className="text-sm font-medium text-muted">
+                      {noRackList.length} product{noRackList.length === 1 ? "" : "s"}
+                    </span>
+                    <Icon name="arrowRight" size={14} className="text-muted transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                  </button>
+                  <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                    {noRackList.map((p) => (
+                      <ProductRow key={p._id} product={p} {...rowProps(p)} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
           )}
         </>
@@ -609,7 +697,7 @@ export default function RackFinder() {
       {settingRack && <SetRackModal product={settingRack} onClose={() => setSettingRack(null)} onSaved={handleSaved} />}
 
       {managing !== null && (
-        <ManageRacksModal racks={racks} productCounts={productCounts} initialLetter={managing} onClose={() => setManaging(null)} onChanged={load} />
+        <ManageRacksModal racks={racks} productCounts={productCounts} initialLetter={managing} allowed={allowed} onClose={() => setManaging(null)} onChanged={load} />
       )}
     </Layout>
   );

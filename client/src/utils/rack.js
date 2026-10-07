@@ -1,5 +1,8 @@
 // Mirrors server/src/utils/rack.js.
-export const RACK_REQUIRED_MESSAGE = "Please select a rack and rack position before saving the stock.";
+export const RACK_REQUIRED_MESSAGE = "Please select a rack and rack position (or No Rack) before saving the stock.";
+
+// The stock forms' value for the "No Rack" choice; the server stores it as "".
+export const NO_RACK = "NONE";
 
 // Every possible rack letter. Only racks added under Manage Racks can hold stock.
 export const RACK_LETTERS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
@@ -26,4 +29,9 @@ export function rackLetter(code) {
 // pre-filling forms so an old free-text rack never counts as chosen.
 export function validPosition(code) {
   return POSITION_PATTERN.test(code || "") ? code : "";
+}
+
+// Whether a stock form's rack value is a complete choice: a position or No Rack.
+export function isRackChoice(value) {
+  return value === NO_RACK || Boolean(validPosition(value));
 }

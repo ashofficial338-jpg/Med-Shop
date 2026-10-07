@@ -135,7 +135,7 @@ router.post("/", async (req, res) => {
       if (!item.batchNo) return res.status(400).json({ message: "This field is required." });
       if (!item.expiryDate) return res.status(400).json({ message: "Please enter a valid date." });
       const rack = cleanRack(item.rack);
-      const rackError = await rackPositionError(rack);
+      const rackError = await rackPositionError(item.rack);
       if (rackError) return res.status(400).json({ message: rackError });
 
       const lineAmount = Number((qtyPacks * costPrice).toFixed(2));

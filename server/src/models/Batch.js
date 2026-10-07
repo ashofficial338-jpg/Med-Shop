@@ -55,6 +55,12 @@ const batchSchema = new mongoose.Schema(
       ref: "Purchase",
       default: null,
     },
+    // Set when someone deletes this stock entry (its remaining qty is written
+    // off). Kept rather than removed: past sales and purchases reference it.
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

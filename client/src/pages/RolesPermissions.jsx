@@ -4,7 +4,14 @@ import Layout from "../components/Layout";
 import Icon from "../components/Icon";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { PERMISSIONS } from "../utils/permissions";
+import { DASHBOARD_PERMISSIONS, PRODUCT_PERMISSIONS, STOCK_PERMISSIONS, RACK_PERMISSIONS } from "../utils/permissions";
+
+// Create / edit / delete options an Admin can hand out, each with its own tick box.
+const GRANT_GROUPS = [
+  { title: "Products", list: PRODUCT_PERMISSIONS },
+  { title: "Stock", list: STOCK_PERMISSIONS },
+  { title: "Racks", list: RACK_PERMISSIONS },
+];
 
 const ADMIN_CAN = [
   "Everything in the app, including Users and Roles & Permissions",
@@ -14,6 +21,7 @@ const ADMIN_CAN = [
 const STAFF_CAN = [
   "Products, orders/checkout and their own bills",
   "A view-only dashboard, if granted below - only the sections ticked",
+  "Viewing products, stock and racks; adding, editing or deleting them only if granted below",
   "No click-through, filters, date ranges, reports or downloads on the dashboard",
 ];
 
@@ -78,20 +86,26 @@ export default function RolesPermissions() {
   const togglePermission = (u, key) => {
     const current = u.permissions || [];
     let next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-    // Without "View dashboard" the section permissions mean nothing - clear them too.
-    if (key === "dashboard.view" && !next.includes("dashboard.view")) next = [];
+    // Without "View dashboard" the section permissions mean nothing - clear them too
+    // (rack permissions are separate and stay as they are).
+    if (key === "dashboard.view" && !next.includes("dashboard.view")) next = next.filter((k) => !k.startsWith("dashboard."));
     save(u, { permissions: next }, "Permissions updated.");
   };
 
+  // Grants or removes one whole group (dashboard or racks), leaving the other untouched.
+  const setGroup = (u, group, all, message) => {
+    const others = (u.permissions || []).filter((k) => !group.some((p) => p.key === k));
+    save(u, { permissions: all ? [...others, ...group.map((p) => p.key)] : others }, message);
+  };
   const grantAll = (u, all) =>
-    save(u, { permissions: all ? PERMISSIONS.map((p) => p.key) : [] }, all ? "Full view-only dashboard granted." : "Dashboard access removed.");
+    setGroup(u, DASHBOARD_PERMISSIONS, all, all ? "Full view-only dashboard granted." : "Dashboard access removed.");
 
   return (
     <Layout>
       <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Roles &amp; Permissions</h1>
       <p className="mt-1 text-sm text-muted">
-        Choose each user's role and what non-admin users can see on the dashboard. Changes save immediately and apply on the
-        user's next page load.
+        Choose each user's role, what non-admin users can see on the dashboard, and which add / edit / delete options they get. Changes
+        save immediately and apply on the user's next page load.
       </p>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -152,7 +166,7 @@ export default function RolesPermissions() {
                         Grant all
                       </button>
                       <button
-                        disabled={busy || perms.length === 0}
+                        disabled={busy || !perms.some((k) => k.startsWith("dashboard."))}
                         onClick={() => grantAll(u, false)}
                         className="rounded-lg px-2 py-1 text-xs font-semibold text-muted hover:bg-bg disabled:opacity-40"
                       >
@@ -161,7 +175,7 @@ export default function RolesPermissions() {
                     </div>
                   </div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {PERMISSIONS.map((p) => {
+                    {DASHBOARD_PERMISSIONS.map((p) => {
                       const isMaster = p.key === "dashboard.view";
                       const disabled = busy || (!isMaster && !canView);
                       return (
@@ -189,6 +203,46 @@ export default function RolesPermissions() {
                       );
                     })}
                   </div>
+
+                  {GRANT_GROUPS.map((g) => (
+                    <div key={g.title}>
+                      <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">{g.title} (add / edit / delete)</p>
+                        <div className="flex gap-1">
+                          <button
+                            disabled={busy}
+                            onClick={() => setGroup(u, g.list, true, `All ${g.title.toLowerCase()} options granted.`)}
+                            className="rounded-lg px-2 py-1 text-xs font-semibold text-primary hover:bg-primary-soft"
+                          >
+                            Grant all
+                          </button>
+                          <button
+                            disabled={busy || !g.list.some((p) => perms.includes(p.key))}
+                            onClick={() => setGroup(u, g.list, false, `${g.title} options removed.`)}
+                            className="rounded-lg px-2 py-1 text-xs font-semibold text-muted hover:bg-bg disabled:opacity-40"
+                          >
+                            Remove all
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {g.list.map((p) => (
+                          <label
+                            key={p.key}
+                            className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 text-sm transition hover:border-primary/30 ${
+                              perms.includes(p.key) ? "border-primary/40 bg-primary-soft/50" : "border-border"
+                            }`}
+                          >
+                            <input type="checkbox" className="mt-0.5" checked={perms.includes(p.key)} disabled={busy} onChange={() => togglePermission(u, p.key)} />
+                            <span>
+                              <span className="block font-medium text-text">{p.label}</span>
+                              <span className="block text-xs text-muted">{p.description}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
