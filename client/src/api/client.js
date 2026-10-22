@@ -15,6 +15,24 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
+// Render restarts the backend on every deploy and sleeps it when idle, which
+// drops in-flight requests (ECONNRESET / 502-504). Reads are safe to repeat,
+// so retry GETs a few times with backoff before surfacing an error.
+const RETRY_DELAYS = [1000, 3000, 6000];
+
+api.interceptors.response.use(undefined, async (error) => {
+  const config = error.config;
+  const status = error.response?.status;
+  const transient = !error.response || [502, 503, 504].includes(status);
+  if (!config || config.method !== "get" || !transient) throw error;
+
+  const attempt = config.__retryCount || 0;
+  if (attempt >= RETRY_DELAYS.length) throw error;
+  config.__retryCount = attempt + 1;
+  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+  return api(config);
+});
+
 export function setAuthToken(token) {
   if (token) {
     api.defaults.headers.common.Authorization = `Bearer ${token}`;

@@ -1,6 +1,8 @@
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, loadEnv } from 'vite'
+import http from 'node:http'
+import https from 'node:https'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -12,7 +14,27 @@ export default defineConfig(({ mode }) => {
   const backend = env.VITE_API_URL
     ? env.VITE_API_URL.replace(/\/api\/?$/, '')
     : 'http://localhost:5000'
-  const proxyOptions = { target: backend, changeOrigin: true, secure: true }
+  const proxyOptions = {
+    target: backend,
+    changeOrigin: true,
+    secure: true,
+    // Node 19+ reuses connections by default, but Render's load balancer closes
+    // idle ones - reusing a closed socket fails with ECONNRESET. Open a fresh
+    // connection per request instead.
+    agent: backend.startsWith('https')
+      ? new https.Agent({ keepAlive: false })
+      : new http.Agent({ keepAlive: false }),
+    // When the backend drops the connection (e.g. Render restarting after a
+    // deploy), answer 502 with a readable message instead of an empty 500, so
+    // the client knows it's transient and retries.
+    configure: (proxy) => {
+      proxy.on('error', (err, req, res) => {
+        if (!res || !('writeHead' in res) || res.headersSent || res.writableEnded) return
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ message: 'Server is restarting. Please try again in a moment.' }))
+      })
+    },
+  }
 
   return {
     plugins: [react(), tailwindcss()],
