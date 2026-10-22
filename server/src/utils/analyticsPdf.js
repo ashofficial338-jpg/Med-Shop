@@ -53,7 +53,7 @@ function ticks(min, max, count = 4) {
 
 const TRANSACTION_PDF_LIMIT = 1000;
 
-export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine, analytics: a, transactions, sections }) {
+export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine, analytics: a, transactions, sections, consolidated: c }) {
   const doc = new PDFDocument({ size: "A4", margin: 40, bufferPages: true, info: { Title: title, Author: shopName } });
   doc.pipe(res);
 
@@ -106,6 +106,14 @@ export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine,
     if (note) doc.font("Helvetica").fontSize(8.5).fillColor(MUTED).text(note, L + 10, doc.y + 1, { width: W - 10 });
     doc.x = L;
     doc.moveDown(0.5);
+  }
+
+  // Small heading over a table; keeps room for the first rows so it never
+  // sits alone at the foot of a page.
+  function subheading(text) {
+    ensure(70);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text(text, L);
+    doc.moveDown(0.2);
   }
 
   function para(text) {
@@ -315,6 +323,132 @@ export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine,
   const has = (key) => sections.includes(key);
 
   // ── Sections ──
+  if (has("consolidated") && c) {
+    const m = c.metrics;
+    const prev = c.comparisons.previous;
+    const vs = (key, opts = {}) => {
+      if (!prev) return null;
+      const cur = m[key];
+      const before = prev[key];
+      if (opts.points) {
+        const d = Number(((cur ?? 0) - (before ?? 0)).toFixed(1));
+        return { text: `${d >= 0 ? "+" : ""}${d} pts vs previous`, tone: d === 0 ? MUTED : (d > 0) !== Boolean(opts.costLike) ? SUCCESS : DANGER };
+      }
+      if (!before) return { text: cur ? "New vs previous (was 0)" : "No change vs previous", tone: MUTED };
+      const d = Number((((cur - before) / Math.abs(before)) * 100).toFixed(1));
+      return { text: `${d >= 0 ? "+" : ""}${d}% vs previous`, tone: d === 0 ? MUTED : (d > 0) !== Boolean(opts.costLike) ? SUCCESS : DANGER };
+    };
+    heading("Financial Health Summary", `Period figures for the report period. Balances as of ${date(c.asOf)}; expiry as of ${date(c.expiryAsOf)}. Cash balances are shop-wide.`);
+    cards([
+      { label: "Total Sales (incl. GST)", value: rs(m.totalSales), accent: C_REVENUE, delta: vs("totalSales") },
+      { label: "Total Revenue (excl. GST)", value: rs(m.revenue), accent: C_REVENUE, delta: vs("revenue") },
+      { label: "Total Purchases", value: rs(m.purchases), accent: "#64717D", delta: vs("purchases", { costLike: true }) },
+      { label: "Operating Expenses", value: rs(m.operatingExpenses), accent: C_EXPENSE, delta: vs("operatingExpenses", { costLike: true }) },
+      { label: "Gross Profit", value: rs(m.grossProfit), accent: C_PROFIT, delta: vs("grossProfit") },
+      { label: m.netProfit < 0 ? "Net Loss" : "Net Profit", value: rs(m.netProfit), accent: C_PROFIT, tone: m.netProfit < 0 ? DANGER : SUCCESS, delta: vs("netProfit") },
+      { label: "Profit Margin (net)", value: pct(m.profitMarginPct), delta: vs("profitMarginPct", { points: true }) },
+      { label: "GST Payable (net)", value: rs(m.gstPayable), delta: vs("gstPayable", { costLike: true }) },
+      { label: "Cash Balance (cash + UPI)", value: rs(m.cashBalance), delta: { text: `Cash ${rs(m.cashInHand)} · UPI ${rs(m.upiBalance)}`, tone: MUTED } },
+      { label: "Accounts Receivable", value: rs(m.receivables), tone: m.receivables > 0 ? "#B86E0E" : INK },
+      { label: "Supplier Payables", value: rs(m.payables), tone: m.payables > 0 ? DANGER : INK },
+      { label: "Inventory Value (cost)", value: rs(m.inventoryValue) },
+      { label: "Net Cash Flow", value: rs(m.netCashFlow), tone: m.netCashFlow < 0 ? DANGER : SUCCESS, delta: { text: `In ${rs(m.cashInflow)} · Out ${rs(m.cashOutflow)}`, tone: MUTED } },
+      { label: "Working Capital", value: rs(m.workingCapital), tone: m.workingCapital < 0 ? DANGER : INK, delta: { text: "Cash + receivables + stock - payables", tone: MUTED } },
+      { label: "Near-expiry (90 days)", value: `${num(m.nearExpiry.batches)} batches`, tone: m.nearExpiry.batches ? "#B86E0E" : INK, delta: { text: `${rs(m.nearExpiry.value)} at cost`, tone: MUTED } },
+      { label: "Expired, still on hand", value: `${num(m.expired.batches)} batches`, tone: m.expired.batches ? DANGER : INK, delta: { text: `${rs(m.expired.value)} at cost`, tone: MUTED } },
+    ]);
+    if (!c.hasData) para("No sales, purchases or expenses were recorded in this period.");
+
+    const ly = c.comparisons.lastYear;
+    const chg = (cur, before) => (before ? `${(((cur - before) / Math.abs(before)) * 100).toFixed(1)}%` : "-");
+    const compareRow = (label, key, fmt = rs) => ({
+      label,
+      current: fmt(m[key]),
+      previous: prev ? fmt(prev[key]) : "-",
+      prevChange: prev ? chg(m[key], prev[key]) : "-",
+      lastYear: fmt(ly[key]),
+      lyChange: chg(m[key], ly[key]),
+    });
+    subheading("Period Comparison");
+    doc.font("Helvetica").fontSize(8.5).fillColor(MUTED).text(
+      `Previous period: ${prev ? `${date(c.previousPeriod.from)} - ${date(c.previousPeriod.to)}` : "-"} · Same period last year: ${date(c.lastYearPeriod.from)} - ${date(c.lastYearPeriod.to)}`,
+      L
+    );
+    doc.moveDown(0.3);
+    table(
+      [
+        { header: "Metric", key: "label", flex: 1.6 },
+        { header: "This Period", key: "current", align: "right" },
+        { header: "Previous", key: "previous", align: "right" },
+        { header: "Change", key: "prevChange", align: "right", flex: 0.7 },
+        { header: "Last Year", key: "lastYear", align: "right" },
+        { header: "Change", key: "lyChange", align: "right", flex: 0.7 },
+      ],
+      [
+        compareRow("Total sales (incl. GST)", "totalSales"),
+        compareRow("Revenue (excl. GST)", "revenue"),
+        compareRow("Purchases", "purchases"),
+        compareRow("Operating expenses", "operatingExpenses"),
+        compareRow("Gross profit", "grossProfit"),
+        compareRow("Net profit", "netProfit"),
+        { ...compareRow("Profit margin", "profitMarginPct", pct), prevChange: "-", lyChange: "-" },
+        compareRow("GST payable", "gstPayable"),
+        compareRow("Bills", "bills", num),
+      ]
+    );
+
+    const months = c.monthly;
+    groupedBars("Monthly Sales vs Costs (last 12 months)", months.map((r) => r.label), [
+      { name: "Total sales", color: C_REVENUE, values: months.map((r) => r.sales) },
+      { name: "Cost of goods + expenses", color: C_EXPENSE, values: months.map((r) => r.cogs + r.expenses + r.writeOff) },
+    ]);
+    lineChart("Monthly Net Profit", months.map((r) => r.label), [{ name: "Net profit", color: C_PROFIT, values: months.map((r) => r.profit) }]);
+    const trendCols = (label) => [
+      { header: label, key: "label", flex: 1.1 },
+      { header: "Sales", key: "sales", ...money },
+      { header: "Revenue", key: "revenue", ...money },
+      { header: "Purchases", key: "purchases", ...money },
+      { header: "Expenses", key: "expenses", ...money },
+      { header: "Net Profit", key: "profit", ...signed },
+      { header: "Margin", key: "marginPct", ...percent },
+      { header: "Sales chg", key: "salesChangePct", ...percent, tone: (v) => (v < 0 ? DANGER : v > 0 ? SUCCESS : null) },
+    ];
+    const trendTotals = (rows) => ({ sales: sum(rows, "sales"), revenue: sum(rows, "revenue"), purchases: sum(rows, "purchases"), expenses: sum(rows, "expenses"), profit: sum(rows, "profit") });
+    subheading("Month-on-Month");
+    table(trendCols("Month"), months, { totals: trendTotals(months) });
+    subheading("Year-on-Year (Indian financial year, April - March)");
+    table(trendCols("Financial Year"), c.yearly, { totals: trendTotals(c.yearly) });
+
+    subheading(`Balance Position as of ${date(c.asOf)}`);
+    table(
+      [
+        { header: "Item", key: "label", flex: 2 },
+        { header: "Amount", key: "amount", ...signed },
+      ],
+      [
+        { label: "Cash in hand", amount: m.cashInHand },
+        { label: "UPI balance", amount: m.upiBalance },
+        { label: "Accounts receivable (customers)", amount: m.receivables },
+        { label: "Inventory at cost", amount: m.inventoryValue },
+        { label: "Less: supplier payables", amount: -m.payables },
+      ],
+      { totals: { amount: m.workingCapital } }
+    );
+
+    const expiryCols = [
+      { header: "Medicine", key: "name", flex: 2.2 },
+      { header: "Batch", key: "batchNo" },
+      { header: "Expiry", key: "expiryDate", format: date },
+      { header: "Days", key: "daysLeft", ...count, tone: (v) => (v < 0 ? DANGER : v <= 30 ? "#B86E0E" : null) },
+      { header: "Qty", key: "qtyRemaining", ...count },
+      { header: "Value (cost)", key: "valueCost", ...money },
+    ];
+    subheading(`Expired Medicines Still on Hand (${c.expiry.expired.length})`);
+    table(expiryCols, c.expiry.expired, { totals: { valueCost: m.expired.value, qtyRemaining: m.expired.qty }, empty: "No expired stock on hand." });
+    subheading(`Near-expiry Medicines, next 90 days (${c.expiry.nearExpiry.length})`);
+    table(expiryCols, c.expiry.nearExpiry, { totals: { valueCost: m.nearExpiry.value, qtyRemaining: m.nearExpiry.qty }, empty: "No batches expire in the next 90 days." });
+  }
+
   if (has("summary")) {
     heading("Summary", a.previous ? `Compared with the previous period, ${date(a.previousPeriod.from)} - ${date(a.previousPeriod.to)}.` : null);
     cards([
@@ -461,14 +595,11 @@ export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine,
       { header: "Alert Below", key: "lowStockThreshold", ...count },
       { header: "Supplier", key: "supplier", flex: 1.3 },
     ];
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text("Low Stock", L);
-    doc.moveDown(0.2);
+    subheading("Low Stock");
     table(stockCols, inv.lowStock, { empty: "No products are running low." });
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text("Out of Stock", L);
-    doc.moveDown(0.2);
+    subheading("Out of Stock");
     table(stockCols, inv.outOfStock, { empty: "No products are out of stock." });
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text("Expiring Batches (next 90 days)", L);
-    doc.moveDown(0.2);
+    subheading("Expiring Batches (next 90 days)");
     table(
       [
         { header: "Product", key: "name", flex: 2.2 },

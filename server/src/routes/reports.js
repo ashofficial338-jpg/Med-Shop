@@ -8,6 +8,7 @@ import { describeFilters, resolveFilters, resolveRange } from "../utils/summaryH
 import { GRANULARITIES, TRANSACTION_TYPES, buildAnalytics, buildCatalog, buildTransactions } from "../utils/analyticsHelpers.js";
 import { streamAnalyticsPdf } from "../utils/analyticsPdf.js";
 import { EXCEL_SHEETS, buildAnalyticsWorkbook } from "../utils/analyticsExcel.js";
+import { buildConsolidated } from "../utils/consolidatedHelpers.js";
 import { todayStamp } from "../utils/reportExport.js";
 import { SHOP } from "../utils/saleHelpers.js";
 
@@ -19,6 +20,7 @@ router.use(requireAuth, requirePermission("reports.view"));
 
 const SECTIONS = Object.keys(EXCEL_SHEETS);
 const TEMPLATE_TITLES = {
+  consolidated: "Consolidated Financial Report",
   complete: "Complete Business Report",
   daily: "Daily Report",
   weekly: "Weekly Report",
@@ -99,6 +101,15 @@ router.get("/analytics", async (req, res) => {
   res.json(analytics);
 });
 
+// Consolidated Financial Report: headline health metrics, balances as of
+// the end date, expiry, and monthly / financial-year comparisons.
+router.get("/consolidated", async (req, res) => {
+  const range = rangeOr400(req, res);
+  if (!range) return;
+  const { analytics, ...report } = await buildConsolidated(range.start, range.end, resolveFilters(req), { granularity: req.query.granularity });
+  res.json(report);
+});
+
 router.get("/transactions", async (req, res) => {
   const range = rangeOr400(req, res);
   if (!range) return;
@@ -132,8 +143,12 @@ router.get("/export", requirePermission("reports.export"), async (req, res) => {
 
   const needsDetail = sections.some((s) => ["transactions", "sales", "expenses", "purchases"].includes(s));
   const needsCatalog = sections.some((s) => ["products", "inventory"].includes(s));
+  // The consolidated section needs its own comparisons; its analytics then
+  // serve every other section too.
+  const consolidated = sections.includes("consolidated") ? await buildConsolidated(range.start, range.end, filters, { granularity: req.query.granularity }) : null;
   const [analytics, transactions, catalog, filterLine] = await Promise.all([
-    buildAnalytics(range.start, range.end, filters, { granularity: req.query.granularity, compare: req.query.compare !== "false" }),
+    consolidated?.analytics ||
+      buildAnalytics(range.start, range.end, filters, { granularity: req.query.granularity, compare: req.query.compare !== "false" }),
     needsDetail ? buildTransactions(range.start, range.end, filters) : null,
     needsCatalog && format === "excel" ? buildCatalog(filters) : null,
     describeFilters(filters),
@@ -149,7 +164,7 @@ router.get("/export", requirePermission("reports.export"), async (req, res) => {
 
   if (format === "pdf") {
     res.setHeader("Content-Type", "application/pdf");
-    return streamAnalyticsPdf(res, { shopName: SHOP.name, title, subtitle, filterLine, analytics, transactions, sections });
+    return streamAnalyticsPdf(res, { shopName: SHOP.name, title, subtitle, filterLine, analytics, transactions, sections, consolidated });
   }
 
   const buffer = await buildAnalyticsWorkbook({
@@ -159,6 +174,7 @@ router.get("/export", requirePermission("reports.export"), async (req, res) => {
     analytics,
     transactions,
     sections,
+    consolidated,
   });
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Length", buffer.length);

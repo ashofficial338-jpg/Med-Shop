@@ -9,11 +9,13 @@ import { count, fullDate, money2, percent } from "../components/dashboard/format
 import { COLORS, KpiCard, ProfitTrendChart, RankBars, RevenueCostChart, changeOf } from "../components/reports/ReportCharts";
 import { CatalogPanel, DataTable, TransactionsPanel } from "../components/reports/ReportTables";
 import ExportDialog from "../components/reports/ExportDialog";
+import ConsolidatedReport from "../components/reports/ConsolidatedReport";
 import { getAnalytics, getReportOptions } from "../api/reports";
 import { useAuth } from "../context/AuthContext";
 import { can } from "../utils/permissions";
 
 const TABS = [
+  { key: "consolidated", label: "Consolidated", icon: "shield" },
   { key: "overview", label: "Overview", icon: "dashboard" },
   { key: "sales", label: "Sales & Products", icon: "receipt" },
   { key: "inventory", label: "Inventory", icon: "boxes" },
@@ -42,12 +44,12 @@ function useReportParams() {
     to: params.get("to") || fallback.to,
     granularity: params.get("granularity") || "",
     compare: params.get("compare") !== "0",
-    tab: TABS.some((t) => t.key === params.get("tab")) ? params.get("tab") : "overview",
+    tab: TABS.some((t) => t.key === params.get("tab")) ? params.get("tab") : "consolidated",
     ...Object.fromEntries(FILTER_KEYS.map((k) => [k, params.get(k) || ""])),
   };
   const update = (patch) => {
     const next = { ...state, ...patch };
-    const entries = Object.entries({ ...next, compare: next.compare ? "" : "0", tab: next.tab === "overview" ? "" : next.tab });
+    const entries = Object.entries({ ...next, compare: next.compare ? "" : "0", tab: next.tab === "consolidated" ? "" : next.tab });
     setParams(Object.fromEntries(entries.filter(([, v]) => v)), { replace: true });
   };
   return [state, update];
@@ -711,7 +713,8 @@ export default function Reports() {
 
       {a && (
         <div className={`mt-6 space-y-6 transition-opacity ${loading ? "opacity-60" : ""}`}>
-          {!a.hasData && ["overview", "sales", "finance"].includes(state.tab) && <NoDataNotice hasProducts={(options?.products?.length ?? 1) > 0} />}
+          {!a.hasData && ["consolidated", "overview", "sales", "finance"].includes(state.tab) && <NoDataNotice hasProducts={(options?.products?.length ?? 1) > 0} />}
+          {state.tab === "consolidated" && <ConsolidatedReport params={query} refreshKey={refreshKey} goTab={(tab) => update({ tab })} />}
           {state.tab === "overview" && <Overview a={a} update={update} goTab={(tab) => update({ tab })} />}
           {state.tab === "sales" && <SalesTab a={a} update={update} />}
           {state.tab === "inventory" && <InventoryTab a={a} />}

@@ -14,6 +14,10 @@ export function getAnalytics(params) {
   return api.get("/reports/analytics", { params: compactParams(params) }).then((r) => r.data);
 }
 
+export function getConsolidated(params) {
+  return api.get("/reports/consolidated", { params: compactParams(params) }).then((r) => r.data);
+}
+
 export function getTransactions(params) {
   return api.get("/reports/transactions", { params: compactParams(params) }).then((r) => r.data);
 }

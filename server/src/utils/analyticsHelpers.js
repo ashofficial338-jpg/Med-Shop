@@ -18,7 +18,8 @@ import { customerOutstandingMap, vendorOutstandingMap } from "./ledgerHelpers.js
 // customer and supplier - using the same per-line rules, so every breakdown
 // adds back up to the headline totals on screen, in the PDF and in Excel.
 
-export const GRANULARITIES = ["day", "week", "month", "quarter", "year"];
+// "fy" is the Indian financial year, April to March.
+export const GRANULARITIES = ["day", "week", "month", "quarter", "year", "fy"];
 export const TRANSACTION_TYPES = ["sale", "purchase", "expense", "receipt", "payment"];
 const GST_SLABS = [0, 5, 12, 18, 28];
 const DAY = 24 * 60 * 60 * 1000;
@@ -31,7 +32,7 @@ const LINE_PRODUCT_FIELDS = "name productCode category brand vendor gstPercent s
 const r2 = (n) => Number((n || 0).toFixed(2));
 const pctOf = (part, whole) => (whole > 0 ? Number(((part / whole) * 100).toFixed(1)) : null);
 // Server-local calendar day, the same day boundary resolveRange uses.
-const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // A sensible chart resolution for the range when none is asked for.
 export function autoGranularity(start, end) {
@@ -48,6 +49,7 @@ function bucketKey(date, granularity) {
   if (granularity === "month") return isoDay(date).slice(0, 7);
   if (granularity === "quarter") return `${date.getFullYear()}-Q${Math.floor(date.getMonth() / 3) + 1}`;
   if (granularity === "year") return String(date.getFullYear());
+  if (granularity === "fy") return `FY${date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1}`;
   return isoDay(date);
 }
 
@@ -57,6 +59,7 @@ function bucketLabel(key, granularity) {
   if (granularity === "month") return `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
   if (granularity === "quarter") return `${key.slice(5)} ${key.slice(0, 4)}`;
   if (granularity === "year") return key;
+  if (granularity === "fy") return `FY ${key.slice(2)}-${String((Number(key.slice(2)) + 1) % 100).padStart(2, "0")}`;
   return `${dm(key)} ${key.slice(0, 4)}`;
 }
 
@@ -274,6 +277,7 @@ export async function buildAnalytics(start, end, filters = {}, { granularity, co
         marginPct: pctOf(profit, b.revenue),
         purchases: r2(b.purchases),
         outputGst: r2(b.outputGst),
+        sales: r2(b.revenue + b.outputGst), // billed to customers, incl. GST after discounts
         bills: b.bills,
         growthPct,
       };

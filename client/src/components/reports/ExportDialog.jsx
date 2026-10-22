@@ -5,6 +5,7 @@ import { errorMessage } from "../ReportDownloadButtons";
 import { fetchReport, saveBlob } from "../../api/reports";
 
 export const SECTIONS = [
+  { key: "consolidated", label: "Consolidated Report", hint: "Financial health, balances, expiry, month/year comparisons" },
   { key: "summary", label: "Dashboard Summary", hint: "KPIs, comparison, trend charts" },
   { key: "sales", label: "Revenue and Sales", hint: "Payment modes, categories, bills" },
   { key: "expenses", label: "Expenses", hint: "By category and every entry" },
@@ -21,6 +22,7 @@ const ALL = SECTIONS.map((s) => s.key);
 // Built-in templates. Period templates also set the date range and chart
 // resolution, so the export matches a "daily / weekly / ..." report.
 export const TEMPLATES = [
+  { key: "consolidated", title: "Consolidated financial report", sections: ["consolidated", "summary", "sales", "expenses", "purchases", "inventory", "parties", "gst", "pnl"] },
   { key: "complete", title: "Complete business report", sections: ALL },
   { key: "daily", title: "Daily report", preset: "Today", granularity: "day", sections: ["summary", "sales", "expenses", "purchases", "pnl", "transactions"] },
   { key: "weekly", title: "Weekly report", preset: "This week", granularity: "day", sections: ["summary", "sales", "expenses", "purchases", "pnl", "gst"] },
@@ -75,8 +77,8 @@ function Progress({ progress }) {
 // PDF / Excel or preview the PDF here first. `params` are the page's
 // filters; `onApplyPeriod` lets a period template change the page's range.
 export default function ExportDialog({ params, periodLabel, onApplyPeriod, onClose }) {
-  const [template, setTemplate] = useState("complete");
-  const [sections, setSections] = useState(ALL);
+  const [template, setTemplate] = useState("consolidated");
+  const [sections, setSections] = useState(TEMPLATES[0].sections);
   const [saved, setSaved] = useState(loadSaved);
   const [progress, setProgress] = useState(null);
   const [preview, setPreview] = useState(null); // { url, blob }

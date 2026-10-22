@@ -10,6 +10,7 @@ import { addChartsToWorkbook } from "./excelCharts.js";
 // highlighted with conditional formatting; charts are native Excel charts.
 
 export const EXCEL_SHEETS = {
+  consolidated: "Consolidated Report",
   summary: "Dashboard Summary",
   sales: "Revenue and Sales",
   expenses: "Expenses",
@@ -116,13 +117,16 @@ function block(s, heading, columns, rows, { filter = false, negative = [], dataB
   rows.forEach((r, idx) => {
     const n = first + idx;
     const refs = Object.fromEntries(columns.map((c) => [c.key, `${letter[c.key]}${n}`]));
+    // The row above, for period-on-period change formulas (null on the first row).
+    const prevRefs = idx > 0 ? Object.fromEntries(columns.map((c) => [c.key, `${letter[c.key]}${n - 1}`])) : null;
     const row = ws.getRow(n);
     columns.forEach((c, i) => {
       const cell = row.getCell(i + 1);
       let value = r[c.key];
       if (c.type === "pct") value = frac(value);
       if (c.type === "date") value = excelDate(value);
-      cell.value = c.formula ? { formula: c.formula(refs), result: value ?? undefined } : value ?? null;
+      const formula = c.formula ? c.formula(refs, prevRefs) : null;
+      cell.value = formula ? { formula, result: value ?? undefined } : value ?? null;
       if (c.type) cell.numFmt = FMT[c.type];
     });
   });
@@ -184,7 +188,7 @@ function block(s, heading, columns, rows, { filter = false, negative = [], dataB
   return { headerRow, first, last, totalRow, letter };
 }
 
-export async function buildAnalyticsWorkbook({ shopName, title, meta, analytics: a, transactions, sections }) {
+export async function buildAnalyticsWorkbook({ shopName, title, meta, analytics: a, transactions, sections, consolidated }) {
   const wb = new ExcelJS.Workbook();
   wb.creator = shopName;
   wb.created = new Date();
@@ -206,6 +210,173 @@ export async function buildAnalyticsWorkbook({ shopName, title, meta, analytics:
     formula: (r) => `IF(${r.revenue}=0,"",${r[num]}/${r.revenue})`,
     total: (r) => `IF(${r.revenue}=0,"",${r[num]}/${r.revenue})`,
   });
+
+  if (has("consolidated") && consolidated) {
+    const c = consolidated;
+    const m = c.metrics;
+    const s = makeSheet(wb, EXCEL_SHEETS.consolidated, ctx);
+    const { ws } = s;
+    note(s, `Period figures for the report period. Balances as of ${c.asOf}; expiry as of ${c.expiryAsOf}. Cash balances are shop-wide.`);
+    s.row += 1;
+
+    // Key metrics vs previous period and the same period last year. Derived
+    // rows (gross/net profit, margin, change columns) are formulas.
+    const prev = c.comparisons.previous;
+    const ly = c.comparisons.lastYear;
+    const head = ws.getRow(s.row);
+    ["Key Metric", "This Period", "Previous Period", "Change", "Same Period Last Year", "Change"].forEach((h, i) => {
+      const cell = head.getCell(i + 1);
+      cell.value = h;
+      cell.font = { bold: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ARGB(HEADER_FILL) } };
+      cell.border = { bottom: { style: "thin", color: { argb: ARGB(BRAND) } } };
+    });
+    s.row += 1;
+    const keyRows = [
+      { id: "sales", label: "Total Sales (incl. GST)", key: "totalSales" },
+      { id: "rev", label: "Total Revenue (excl. GST)", key: "revenue" },
+      { id: "pur", label: "Total Purchases", key: "purchases" },
+      { id: "opex", label: "Operating Expenses", key: "operatingExpenses" },
+      { id: "gp", label: "Gross Profit", key: "grossProfit" },
+      { id: "np", label: "Net Profit", key: "netProfit" },
+      { id: "nm", label: "Profit Margin (net)", key: "profitMarginPct", pct: true, f: (col) => `IF(${col}{rev}=0,"",${col}{np}/${col}{rev})` },
+      { id: "gst", label: "GST Payable (output − input)", key: "gstPayable" },
+      { id: "bills", label: "Bills", key: "bills", fmt: FMT.int },
+    ];
+    const rowOf = Object.fromEntries(keyRows.map((r, i) => [r.id, s.row + i]));
+    keyRows.forEach((r) => {
+      const n = rowOf[r.id];
+      const row = ws.getRow(n);
+      row.getCell(1).value = r.label;
+      const put = (col, letter, src) => {
+        const v = src ? (r.pct ? frac(src[r.key]) : src[r.key]) : null;
+        const cell = row.getCell(col);
+        cell.value = r.f && src ? { formula: r.f(letter).replace(/\{(\w+)\}/g, (_, id) => rowOf[id]), result: v ?? undefined } : v;
+        cell.numFmt = r.pct ? FMT.pct : r.fmt || FMT.money;
+      };
+      put(2, "B", m);
+      put(3, "C", prev);
+      put(5, "E", ly);
+      const changeCell = (col, other) => {
+        const cell = row.getCell(col);
+        cell.value = r.pct ? { formula: `IF(OR(B${n}="",${other}${n}=""),"",B${n}-${other}${n})` } : { formula: `IF(N(${other}${n})=0,"",(B${n}-${other}${n})/ABS(${other}${n}))` };
+        cell.numFmt = FMT.pct;
+      };
+      if (prev) changeCell(4, "C");
+      changeCell(6, "E");
+      if (r.id === "np") [1, 2].forEach((col) => (row.getCell(col).font = { bold: true }));
+    });
+    const keyEnd = s.row + keyRows.length - 1;
+    ws.addConditionalFormatting({
+      ref: `D${s.row}:D${keyEnd} F${s.row}:F${keyEnd}`,
+      rules: [
+        { type: "cellIs", operator: "lessThan", formulae: [0], style: { font: { color: { argb: ARGB(DANGER) } } } },
+        { type: "cellIs", operator: "greaterThan", formulae: [0], style: { font: { color: { argb: "FF178A55" } } } },
+      ],
+    });
+    ws.getColumn(1).width = 34;
+    s.row = keyEnd + 1;
+    note(s, `Previous period: ${prev ? `${c.previousPeriod.from} to ${c.previousPeriod.to}` : "-"}. Same period last year: ${c.lastYearPeriod.from} to ${c.lastYearPeriod.to}. Margin changes are in percentage points.`);
+    s.row += 1;
+
+    block(
+      s,
+      `Balance Position as of ${c.asOf}`,
+      [
+        { header: "Item", key: "label", type: "text", width: 34 },
+        { header: "Amount", key: "amount", type: "money", total: "sum" },
+      ],
+      [
+        { label: "Cash in hand", amount: m.cashInHand },
+        { label: "UPI balance", amount: m.upiBalance },
+        { label: "Accounts receivable (customers)", amount: m.receivables },
+        { label: "Inventory at cost", amount: m.inventoryValue },
+        { label: "Less: supplier payables", amount: -m.payables },
+      ],
+      { negative: ["amount"], totalLabel: "Working capital" }
+    );
+    const cfb = block(
+      s,
+      "Cash Flow, GST and Expiry",
+      [
+        { header: "Item", key: "label", type: "text" },
+        { header: "Amount", key: "amount", type: "money" },
+        { header: "Detail", key: "detail", type: "text", width: 30 },
+      ],
+      [
+        { label: "Money in", amount: m.cashInflow, detail: "Counter sales + collections" },
+        { label: "Money out", amount: m.cashOutflow, detail: "Expenses + purchases paid + supplier payments" },
+        { label: "Net cash flow", amount: m.netCashFlow, detail: "Money in − money out" },
+        { label: "Output GST", amount: m.outputGst, detail: "Collected on sales" },
+        { label: "Input GST", amount: m.inputGst, detail: "Paid on purchases" },
+        { label: "Net GST payable", amount: m.gstPayable, detail: "Output − input" },
+        { label: "Expired stock on hand (cost)", amount: m.expired.value, detail: `${m.expired.batches} batches, ${m.expired.products} medicines` },
+        { label: "Near-expiry, next 90 days (cost)", amount: m.nearExpiry.value, detail: `${m.nearExpiry.batches} batches, ${m.nearExpiry.products} medicines` },
+      ],
+      { negative: ["amount"] }
+    );
+    // Net cash flow and net GST as formulas over the rows above them.
+    const cf = cfb.first;
+    ws.getCell(`B${cf + 2}`).value = { formula: `B${cf}-B${cf + 1}`, result: m.netCashFlow };
+    ws.getCell(`B${cf + 5}`).value = { formula: `B${cf + 3}-B${cf + 4}`, result: m.gstPayable };
+
+    const trendColumns = (label) => [
+      { header: label, key: "label", type: "text", width: 16 },
+      { header: "Total Sales", key: "sales", type: "money", total: "sum" },
+      { header: "Revenue", key: "revenue", type: "money", total: "sum" },
+      { header: "Purchases", key: "purchases", type: "money", total: "sum" },
+      { header: "COGS", key: "cogs", type: "money", total: "sum" },
+      { header: "Expenses", key: "expenses", type: "money", total: "sum" },
+      { header: "Write-off", key: "writeOff", type: "money", total: "sum" },
+      { header: "Total Costs", key: "costs", type: "money", formula: (r) => `${r.cogs}+${r.expenses}+${r.writeOff}`, total: "sum" },
+      { header: "Net Profit", key: "profit", type: "money", formula: (r) => `${r.revenue}-${r.costs}`, total: "sum" },
+      { header: "Margin", key: "marginPct", type: "pct", formula: (r) => `IF(${r.revenue}=0,"",${r.profit}/${r.revenue})`, total: (r) => `IF(${r.revenue}=0,"",${r.profit}/${r.revenue})` },
+      { header: "Sales Change", key: "salesChangePct", type: "pct", formula: (r, p) => p && `IF(${p.sales}=0,"",(${r.sales}-${p.sales})/ABS(${p.sales}))` },
+      { header: "Profit Change", key: "profitChangePct", type: "pct", formula: (r, p) => p && `IF(${p.profit}=0,"",(${r.profit}-${p.profit})/ABS(${p.profit}))` },
+    ];
+    const withCosts = (rows) => rows.map((r) => ({ ...r, costs: Number((r.cogs + r.expenses + r.writeOff).toFixed(2)) }));
+    const trendChart = (t, rows, title, anchorRow) => {
+      if (!t) return;
+      const cats = { col: "A", from: t.first, to: t.last, values: rows.map((r) => r.label) };
+      charts.push({
+        sheet: EXCEL_SHEETS.consolidated,
+        type: "column",
+        title,
+        anchor: { col: 13, row: anchorRow, cols: 8, rows: 15 },
+        categories: cats,
+        series: [
+          { name: "Total Sales", col: t.letter.sales, from: t.first, to: t.last, values: rows.map((r) => r.sales), color: C_REVENUE },
+          { name: "Total Costs", col: t.letter.costs, from: t.first, to: t.last, values: rows.map((r) => r.costs), color: C_EXPENSE },
+          { name: "Net Profit", col: t.letter.profit, from: t.first, to: t.last, values: rows.map((r) => r.profit), color: C_PROFIT },
+        ],
+      });
+    };
+    const months = withCosts(c.monthly);
+    const monthsTop = s.row;
+    const mt = block(s, "Month-on-Month (last 12 months)", trendColumns("Month"), months, { negative: ["profit", "marginPct", "salesChangePct", "profitChangePct"] });
+    trendChart(mt, months, "Monthly Sales, Costs and Profit", monthsTop - 1);
+    const years = withCosts(c.yearly);
+    const yearsTop = s.row;
+    const yt = block(s, "Year-on-Year (Indian financial year, April–March)", trendColumns("Financial Year"), years, { negative: ["profit", "marginPct", "salesChangePct", "profitChangePct"] });
+    trendChart(yt, years, "Financial Year Comparison", Math.max(yearsTop - 1, monthsTop + 16));
+
+    block(
+      s,
+      "Expired and Near-expiry Medicines",
+      [
+        { header: "Medicine", key: "name", type: "text", width: 30 },
+        { header: "SKU", key: "code", type: "text", width: 12 },
+        { header: "Batch", key: "batchNo", type: "text", width: 14 },
+        { header: "Expiry", key: "expiryDate", type: "date", width: 13 },
+        { header: "Days Left", key: "daysLeft", type: "int", width: 10 },
+        { header: "Qty Left", key: "qtyRemaining", type: "int", total: "sum" },
+        { header: "Value at Cost", key: "valueCost", type: "money", total: "sum" },
+        { header: "Status", key: "status", type: "text", width: 15 },
+      ],
+      [...c.expiry.expired, ...c.expiry.nearExpiry],
+      { filter: true, status: [{ key: "status", text: "Expired", fill: DANGER_FILL, font: DANGER }, { key: "status", text: "30 days", fill: WARNING_FILL }], empty: "No expired or near-expiry stock on hand." }
+    );
+  }
 
   if (has("summary")) {
     const s = makeSheet(wb, EXCEL_SHEETS.summary, ctx);
