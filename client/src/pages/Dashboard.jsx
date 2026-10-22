@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import Layout, { STORE_NAME } from "../components/Layout";
 import Icon from "../components/Icon";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
@@ -127,7 +128,16 @@ export default function Dashboard() {
           </p>
         </div>
         {interactive ? (
-          <ReportDownloadButtons onExport={(format) => downloadDashboardReport(filters, format)} />
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to={withQuery("/reports", { from, to, category, paymentMode })}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-dark"
+            >
+              <Icon name="chart" size={16} />
+              Full reports &amp; analytics
+            </Link>
+            <ReportDownloadButtons onExport={(format) => downloadDashboardReport(filters, format)} />
+          </div>
         ) : (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-bg px-3 py-1.5 text-xs font-semibold text-muted">
             <Icon name="user" size={14} />

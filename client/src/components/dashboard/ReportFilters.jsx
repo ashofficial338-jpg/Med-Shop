@@ -22,13 +22,46 @@ const PRESETS = [
   { label: "Last 30 days", range: () => lastDays(30) },
   { label: "Last 90 days", range: () => lastDays(90) },
   {
+    label: "This week",
+    range: () => {
+      const now = new Date();
+      return { from: localIso(new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))), to: localIso(now) };
+    },
+  },
+  {
     label: "This month",
     range: () => {
       const now = new Date();
       return { from: localIso(new Date(now.getFullYear(), now.getMonth(), 1)), to: localIso(now) };
     },
   },
+  {
+    label: "Last month",
+    range: () => {
+      const now = new Date();
+      return { from: localIso(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: localIso(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    },
+  },
+  {
+    label: "This quarter",
+    range: () => {
+      const now = new Date();
+      return { from: localIso(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)), to: localIso(now) };
+    },
+  },
+  {
+    label: "This year",
+    range: () => {
+      const now = new Date();
+      return { from: localIso(new Date(now.getFullYear(), 0, 1)), to: localIso(now) };
+    },
+  },
 ];
+
+// Preset ranges by label, for report templates ("Monthly report" -> This month).
+export function presetRange(label) {
+  return PRESETS.find((p) => p.label === label)?.range();
+}
 
 export function presetFor(range) {
   return PRESETS.find((p) => {

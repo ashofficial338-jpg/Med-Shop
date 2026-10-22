@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -22,6 +23,10 @@ import DayBook from "./pages/DayBook";
 import StockManagement from "./pages/StockManagement";
 import ProductProfitabilityReport from "./pages/ProductProfitabilityReport";
 import RolesPermissions from "./pages/RolesPermissions";
+
+// Reports & Analytics is large (charts, tables, export dialog) and only some
+// users open it, so it loads on first visit instead of with the app.
+const Reports = lazy(() => import("./pages/Reports"));
 
 function Home() {
   const { user } = useAuth();
@@ -184,6 +189,16 @@ export default function App() {
           element={
             <ProtectedRoute roles={["admin"]}>
               <RolesPermissions />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reports"
+          element={
+            <ProtectedRoute permission="reports.view">
+              <Suspense fallback={<div className="p-8 text-sm text-muted">Loading reports…</div>}>
+                <Reports />
+              </Suspense>
             </ProtectedRoute>
           }
         />

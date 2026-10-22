@@ -4,10 +4,11 @@ import Layout from "../components/Layout";
 import Icon from "../components/Icon";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { DASHBOARD_PERMISSIONS, PRODUCT_PERMISSIONS, STOCK_PERMISSIONS, RACK_PERMISSIONS } from "../utils/permissions";
+import { DASHBOARD_PERMISSIONS, REPORT_PERMISSIONS, PRODUCT_PERMISSIONS, STOCK_PERMISSIONS, RACK_PERMISSIONS } from "../utils/permissions";
 
-// Create / edit / delete options an Admin can hand out, each with its own tick box.
+// Options an Admin can hand out, each with its own tick box.
 const GRANT_GROUPS = [
+  { title: "Reports & Analytics", suffix: "view / export", list: REPORT_PERMISSIONS },
   { title: "Products", list: PRODUCT_PERMISSIONS },
   { title: "Stock", list: STOCK_PERMISSIONS },
   { title: "Racks", list: RACK_PERMISSIONS },
@@ -207,7 +208,7 @@ export default function RolesPermissions() {
                   {GRANT_GROUPS.map((g) => (
                     <div key={g.title}>
                       <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">{g.title} (add / edit / delete)</p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">{g.title} ({g.suffix || "add / edit / delete"})</p>
                         <div className="flex gap-1">
                           <button
                             disabled={busy}

@@ -5,7 +5,7 @@ const LABELS = { excel: "Excel", pdf: "PDF" };
 
 // Export requests use responseType "blob", so an error response body arrives
 // as a Blob too and has to be read back as JSON to get the server's message.
-async function errorMessage(err) {
+export async function errorMessage(err) {
   const data = err.response?.data;
   if (data instanceof Blob) {
     try {

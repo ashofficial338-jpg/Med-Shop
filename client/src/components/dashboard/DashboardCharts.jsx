@@ -40,7 +40,7 @@ export function ChartCard({ title, subtitle, action, children, className = "" })
   );
 }
 
-function LegendItem({ color, label }) {
+export function LegendItem({ color, label }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted">
       <span className="h-2 w-2 rounded-full" style={{ background: color }} />
@@ -63,7 +63,7 @@ export function EmptyChart({ message = "No records found for this period.", heig
   );
 }
 
-function TooltipCard({ active, payload, label, labelFormatter }) {
+export function TooltipCard({ active, payload, label, labelFormatter }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="min-w-[10rem] rounded-xl border border-border bg-surface/95 px-3 py-2.5 text-xs shadow-[var(--shadow-lift)] backdrop-blur">

@@ -15,13 +15,14 @@ function stockDisplay(product) {
 // cost-per-internal-unit - same math already used in products.js's
 // stock-clearance route) and at MRP (qty on hand × the effective selling
 // rate). Returns totals across the filtered set for a report header/dashboard tile.
-export async function buildStockReport({ category, availability } = {}) {
-  const filter = { isActive: true };
+// `scope` is an extra Product filter (see summaryHelpers.productScope).
+export async function buildStockReport({ category, availability, scope = {} } = {}) {
+  const filter = { isActive: true, ...scope };
   if (category) filter.category = category;
   if (availability === "available") filter.qty = { $gt: 0 };
   if (availability === "out") filter.qty = { $lte: 0 };
 
-  let products = await Product.find(filter).populate("category", "name").sort({ name: 1 });
+  let products = await Product.find(filter).populate("category", "name").populate("vendor", "name").sort({ name: 1 });
   if (availability === "low") {
     products = products.filter((p) => p.qty > 0 && p.qty <= p.lowStockThreshold);
   }
@@ -47,6 +48,8 @@ export async function buildStockReport({ category, availability } = {}) {
     const valueMrp = Number((product.qty * effectiveRate).toFixed(2));
 
     const nearestExpiry = productBatches.reduce((min, b) => (!min || b.expiryDate < min ? b.expiryDate : min), null);
+    // Purchase price per pack: the cost of the most recently received lot still on hand.
+    const latestBatch = productBatches.reduce((last, b) => (!last || b.receivedAt > last.receivedAt ? b : last), null);
 
     totalValueCost += valueCost;
     totalValueMrp += valueMrp;
@@ -56,6 +59,13 @@ export async function buildStockReport({ category, availability } = {}) {
       name: product.name,
       productCode: product.productCode,
       category: product.category?.name || "Uncategorized",
+      brand: product.brand || "",
+      supplier: product.vendor?.name || "",
+      packRate: product.packRate,
+      gstPercent: product.gstPercent,
+      purchasePrice: latestBatch ? latestBatch.costPrice : null,
+      qty: product.qty,
+      lowStockThreshold: product.lowStockThreshold,
       qtyDisplay: stockDisplay(product),
       isLowStock: product.qty > 0 && product.qty <= product.lowStockThreshold,
       isOut: product.qty <= 0,
@@ -79,10 +89,11 @@ export async function buildStockReport({ category, availability } = {}) {
 // current qtyRemaining with every stock movement from `at` onwards undone.
 // Every StockLedger write carries its batch, so this rebuilds the history
 // exactly. Same scope and cost-per-unit math as buildStockReport, so the
-// value at "now" matches the Stock Value tile.
-export async function inventoryValueAt(at, category = null) {
+// value at "now" matches the Stock Value tile. `matches` optionally narrows it
+// to products passing a test (see summaryHelpers.productMatcher).
+export async function inventoryValueAt(at, matches = null) {
   const [batches, later] = await Promise.all([
-    Batch.find({}).populate("product", "soldAs unitsPerPack isActive category"),
+    Batch.find({}).populate("product", "soldAs unitsPerPack isActive category brand vendor"),
     StockLedger.aggregate([
       { $match: { createdAt: { $gte: at }, batch: { $ne: null } } },
       { $group: { _id: "$batch", change: { $sum: "$qtyChange" } } },
@@ -93,7 +104,7 @@ export async function inventoryValueAt(at, category = null) {
   let value = 0;
   for (const b of batches) {
     if (!b.product?.isActive) continue;
-    if (category && String(b.product.category) !== String(category)) continue;
+    if (matches && !matches(b.product)) continue;
     const qty = Math.max(b.qtyRemaining - (changeByBatch.get(String(b._id)) || 0), 0);
     const costPerUnit = b.product.soldAs === "pack-and-loose" ? b.costPrice / b.product.unitsPerPack : b.costPrice;
     value += qty * costPerUnit;

@@ -24,6 +24,7 @@ import salesRoutes from "./routes/sales.js";
 import expensesRoutes from "./routes/expenses.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import daybookRoutes from "./routes/daybook.js";
+import reportsRoutes from "./routes/reports.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -74,6 +75,7 @@ app.use("/api/sales", salesRoutes);
 app.use("/api/expenses", expensesRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/day-book", daybookRoutes);
+app.use("/api/reports", reportsRoutes);
 
 // In a single combined deploy this same process also serves the built React
 // app, under the same origin as the API, so no CORS setup or separate

@@ -10,7 +10,7 @@ import { can } from "../utils/permissions";
 export const STORE_NAME = "GHM Medical Shop";
 
 // "Orders" is the live order being built (the cart/checkout); completed orders
-// are bills, which live under Sales. "Reports" is the Day Book.
+// are bills, which live under Sales.
 const ADMIN_NAV = [
   {
     section: "Overview",
@@ -37,7 +37,8 @@ const ADMIN_NAV = [
   {
     section: "Finance",
     items: [
-      { to: "/day-book", label: "Reports", icon: "chart" },
+      { to: "/reports", label: "Reports & Analytics", icon: "chart" },
+      { to: "/day-book", label: "Day Book", icon: "book" },
       { to: "/reports/profitability", label: "Profitability", icon: "trendUp" },
       { to: "/expenses", label: "Expenses", icon: "wallet" },
     ],
@@ -57,7 +58,10 @@ const STAFF_NAV = [
   {
     section: "Overview",
     // Only shown when an Admin has granted the view-only dashboard.
-    items: [{ to: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "dashboard.view" }],
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "dashboard.view" },
+      { to: "/reports", label: "Reports & Analytics", icon: "chart", permission: "reports.view" },
+    ],
   },
   {
     section: "Pharmacy",

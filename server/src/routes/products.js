@@ -62,7 +62,7 @@ router.get("/", requireAuth, async (req, res) => {
 
   if (q) {
     const pattern = new RegExp(escapeRegex(q), "i");
-    filter.$or = [{ name: pattern }, { productCode: pattern }, { rack: String(q).trim().toUpperCase() }];
+    filter.$or = [{ name: pattern }, { productCode: pattern }, { brand: pattern }, { rack: String(q).trim().toUpperCase() }];
   }
   if (category) filter.category = category;
   if (rack !== undefined) filter.rack = String(rack).trim().toUpperCase();
@@ -396,6 +396,7 @@ router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
 
       const product = await Product.create({
         name: b.name,
+        brand: b.brand || "",
         productCode,
         category: category._id,
         image: uploadedImageUrl(req.file) || "",
@@ -460,6 +461,8 @@ router.patch("/:id", requireAuth, requirePermission("products.edit"), (req, res)
       if (b.vendor !== undefined) {
         product.vendor = b.vendor || null;
       }
+      // Outside the field loop below so a brand can be cleared to "".
+      if (b.brand !== undefined) product.brand = b.brand;
       // Handled apart from the field loop below so a rack can be cleared to "".
       if (b.rack !== undefined) {
         const rack = cleanRack(b.rack);
@@ -568,6 +571,7 @@ router.get("/import/template", requireAuth, requirePermission("products.add"), a
   const sheet = workbook.addWorksheet("Products");
   sheet.columns = [
     { header: "Name", key: "name", width: 24 },
+    { header: "Brand", key: "brand", width: 18 },
     { header: "Category", key: "category", width: 18 },
     { header: "Strength Value", key: "strengthValue", width: 14 },
     { header: "Strength Unit (mg/mcg/ml/g)", key: "strengthUnit", width: 18 },
@@ -586,6 +590,7 @@ router.get("/import/template", requireAuth, requirePermission("products.add"), a
   ];
   sheet.addRow({
     name: "Dolo 650",
+    brand: "Micro Labs",
     category: "Tablet",
     strengthValue: 650,
     strengthUnit: "mg",
@@ -622,6 +627,7 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
   const headerRow = sheet.getRow(1).values; // 1-indexed, index 0 empty
   const keyMap = {
     Name: "name",
+    Brand: "brand",
     Category: "category",
     "Strength Value": "strengthValue",
     "Strength Unit (mg/mcg/ml/g)": "strengthUnit",
@@ -694,6 +700,7 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
         });
         existing.qty += addQty;
         if (rack) existing.rack = rack; // a blank cell keeps its current rack
+        if (data.brand) existing.brand = String(data.brand).trim(); // likewise for brand
         // Restocking a deleted product brings it back rather than adding
         // stock to a product no list shows.
         existing.isActive = true;
@@ -704,6 +711,7 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
         const looseRate = computeLooseRate({ soldAs, packRate: data.packRate, unitsPerPack: data.unitsPerPack });
         const created = await Product.create({
           name: data.name,
+          brand: data.brand ? String(data.brand).trim() : "",
           productCode,
           category: category._id,
           strengthValue: data.strengthValue || undefined,

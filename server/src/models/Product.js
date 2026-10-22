@@ -8,6 +8,14 @@ const productSchema = new mongoose.Schema(
       trim: true,
       maxlength: 150,
     },
+    // Manufacturer / marketing brand (e.g. "Cipla", "Sun Pharma"). Optional -
+    // used for brand-wise sales reports; blank reads as "Unbranded".
+    brand: {
+      type: String,
+      trim: true,
+      maxlength: 80,
+      default: "",
+    },
     productCode: {
       type: String,
       required: true,
@@ -120,5 +128,6 @@ const productSchema = new mongoose.Schema(
 
 productSchema.index({ name: "text", productCode: "text" });
 productSchema.index({ rack: 1 });
+productSchema.index({ brand: 1 });
 
 export default mongoose.model("Product", productSchema);

@@ -8,6 +8,9 @@ export const PERMISSIONS = [
   { key: "dashboard.cash", label: "Cash position", description: "Today's cash, UPI and credit balances and cash flow.", group: "dashboard" },
   { key: "dashboard.stock", label: "Stock", description: "Stock value, inventory turnover, low stock and expiring batches.", group: "dashboard" },
   { key: "dashboard.receivables", label: "Receivables & payables", description: "Money owed to and by the shop.", group: "dashboard" },
+  // Reports & Analytics: full financial figures for any period and filter.
+  { key: "reports.view", label: "View reports & analytics", description: "Open Reports & Analytics: P&L, trends, GST, inventory and transaction history, any period.", group: "reports" },
+  { key: "reports.export", label: "Export reports", description: "Download Reports & Analytics as PDF or Excel. Needs “View reports & analytics”.", group: "reports" },
   // Products. Everyone can view products; these unlock changing them.
   { key: "products.add", label: "Add products", description: "Add new products (with opening stock) and import them from Excel.", group: "products" },
   { key: "products.edit", label: "Edit products", description: "Edit product details and move products to another rack position.", group: "products" },
@@ -22,7 +25,8 @@ export const PERMISSIONS = [
 ];
 
 export const DASHBOARD_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "dashboard");
-export const PRODUCT_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "products");
+export const REPORT_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "reports");
+export const PRODUCT_PERMISSIONS =PERMISSIONS.filter((p) => p.group === "products");
 export const STOCK_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "stock");
 export const RACK_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "racks");
 

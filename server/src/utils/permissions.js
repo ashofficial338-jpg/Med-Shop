@@ -11,6 +11,9 @@ export const PERMISSIONS = [
   { key: "dashboard.cash", label: "Cash position", description: "Today's cash, UPI and credit balances and cash flow." },
   { key: "dashboard.stock", label: "Stock", description: "Stock value, inventory turnover, low stock and expiring batches." },
   { key: "dashboard.receivables", label: "Receivables & payables", description: "Money owed to and by the shop." },
+  // Reports & Analytics: full financial figures for any period and filter.
+  { key: "reports.view", label: "View reports & analytics", description: "Open Reports & Analytics: P&L, trends, GST, inventory and transaction history, any period." },
+  { key: "reports.export", label: "Export reports", description: "Download Reports & Analytics as PDF or Excel. Needs “View reports & analytics”." },
   // Products. Everyone can view products; these unlock changing them.
   { key: "products.add", label: "Add products", description: "Add new products (with opening stock) and import them from Excel." },
   { key: "products.edit", label: "Edit products", description: "Edit product details and move products to another rack position." },

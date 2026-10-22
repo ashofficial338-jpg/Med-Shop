@@ -14,6 +14,7 @@ const STRENGTH_UNITS = ["mg", "mcg", "ml", "g"];
 
 const emptyForm = {
   name: "",
+  brand: "",
   category: "",
   vendor: "",
   strengthValue: "",
@@ -63,6 +64,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
     if (product) {
       setForm({
         name: product.name || "",
+        brand: product.brand || "",
         category: product.category?._id || "",
         vendor: product.vendor?._id || "",
         strengthValue: product.strengthValue || "",
@@ -136,7 +138,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
     const fd = new FormData();
     Object.entries(form).forEach(([k, v]) => {
       if (isEdit && (k === "unitsPerPack" || k === "looseUnitName")) return; // locked after creation
-      if (k === "rack") return fd.append(k, v.trim()); // sent even when blank, so clearing it sticks
+      if (k === "rack" || k === "brand") return fd.append(k, v.trim()); // sent even when blank, so clearing it sticks
       if (v !== "" && v !== undefined && v !== null) fd.append(k, v);
     });
     if (imageFile) fd.append("image", imageFile);
@@ -203,6 +205,18 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
           <div className="col-span-2">
             <label className={labelCls}>Product Name<RequiredMark /></label>
             <input type="text" maxLength={150} value={form.name} onChange={set("name")} className={inputCls} />
+          </div>
+
+          <div className="col-span-2">
+            <label className={labelCls}>Brand / Manufacturer</label>
+            <input
+              type="text"
+              maxLength={80}
+              placeholder="e.g. Cipla"
+              value={form.brand}
+              onChange={set("brand")}
+              className={inputCls}
+            />
           </div>
 
           <RackInput
