@@ -1,6 +1,7 @@
 import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
 import StockLedger from "../models/StockLedger.js";
+import { cached } from "./readCache.js";
 
 function stockDisplay(product) {
   if (product.soldAs === "pack-and-loose" && product.unitsPerPack) {
@@ -16,7 +17,11 @@ function stockDisplay(product) {
 // stock-clearance route) and at MRP (qty on hand × the effective selling
 // rate). Returns totals across the filtered set for a report header/dashboard tile.
 // `scope` is an extra Product filter (see summaryHelpers.productScope).
-export async function buildStockReport({ category, availability, scope = {} } = {}) {
+export function buildStockReport(options = {}) {
+  return cached(`stockReport:${JSON.stringify(options)}`, () => stockReportFor(options));
+}
+
+async function stockReportFor({ category, availability, scope = {} }) {
   const filter = { isActive: true, ...scope };
   if (category) filter.category = category;
   if (availability === "available") filter.qty = { $gt: 0 };
@@ -93,11 +98,15 @@ export async function buildStockReport({ category, availability, scope = {} } = 
 // to products passing a test (see summaryHelpers.productMatcher).
 export async function inventoryValueAt(at, matches = null) {
   const [batches, later] = await Promise.all([
-    Batch.find({}).populate("product", "soldAs unitsPerPack isActive category brand vendor"),
-    StockLedger.aggregate([
-      { $match: { createdAt: { $gte: at }, batch: { $ne: null } } },
-      { $group: { _id: "$batch", change: { $sum: "$qtyChange" } } },
-    ]),
+    // Every valuation starts from the same batches; only the movements to
+    // undo depend on `at`.
+    cached("inventory:batches", () => Batch.find({}).populate("product", "soldAs unitsPerPack isActive category brand vendor")),
+    cached(`inventory:movedSince:${at.getTime()}`, () =>
+      StockLedger.aggregate([
+        { $match: { createdAt: { $gte: at }, batch: { $ne: null } } },
+        { $group: { _id: "$batch", change: { $sum: "$qtyChange" } } },
+      ])
+    ),
   ]);
   const changeByBatch = new Map(later.map((r) => [String(r._id), r.change]));
 

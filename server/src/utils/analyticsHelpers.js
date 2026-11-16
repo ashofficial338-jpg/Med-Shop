@@ -8,9 +8,10 @@ import Customer from "../models/Customer.js";
 import Vendor from "../models/Vendor.js";
 import CustomerPayment from "../models/CustomerPayment.js";
 import SupplierPayment from "../models/SupplierPayment.js";
-import { computeSummary, productMatcher, productScope } from "./summaryHelpers.js";
+import { computeSummary, periodClearances, periodPurchases, periodSales, productMatcher, productScope } from "./summaryHelpers.js";
 import { buildStockReport } from "./stockReportHelpers.js";
 import { customerOutstandingMap, vendorOutstandingMap } from "./ledgerHelpers.js";
+import { withReadCache } from "./readCache.js";
 
 // Reports & Analytics. The headline P&L figures always come from
 // computeSummary (the dashboard's engine); everything here breaks those same
@@ -24,10 +25,6 @@ export const TRANSACTION_TYPES = ["sale", "purchase", "expense", "receipt", "pay
 const GST_SLABS = [0, 5, 12, 18, 28];
 const DAY = 24 * 60 * 60 * 1000;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-// Populated on sale/purchase lines: the filter fields plus what the
-// breakdowns need (GST slab, pack size for "packs sold").
-const LINE_PRODUCT_FIELDS = "name productCode category brand vendor gstPercent soldAs unitsPerPack";
 
 const r2 = (n) => Number((n || 0).toFixed(2));
 const pctOf = (part, whole) => (whole > 0 ? Number(((part / whole) * 100).toFixed(1)) : null);
@@ -102,7 +99,11 @@ function kpisOf(summary) {
   };
 }
 
-export async function buildAnalytics(start, end, filters = {}, { granularity, compare = true } = {}) {
+export function buildAnalytics(start, end, filters = {}, options = {}) {
+  return withReadCache(() => analyticsFor(start, end, filters, options));
+}
+
+async function analyticsFor(start, end, filters, { granularity, compare = true }) {
   const { paymentMode = null, supplier = null, category = null, brand = null, product = null } = filters;
   const g = GRANULARITIES.includes(granularity) ? granularity : autoGranularity(start, end);
   const lineMatches = productMatcher(filters);
@@ -114,10 +115,10 @@ export async function buildAnalytics(start, end, filters = {}, { granularity, co
   const [summary, prevSummary, sales, purchases, expenses, clearances, stock, customerDue, vendorDue, cashFlow] = await Promise.all([
     computeSummary(start, end, filters),
     compare ? computeSummary(prev.start, prev.end, filters) : null,
-    Sale.find({ paymentStatus: "completed", createdAt: range }).populate("items.product", LINE_PRODUCT_FIELDS),
-    Purchase.find({ date: range }).populate("items.product", LINE_PRODUCT_FIELDS),
+    periodSales(start, end),
+    periodPurchases(start, end),
     Expense.find({ date: range }).sort({ date: 1 }),
-    StockLedger.find({ type: "stock-clearance", createdAt: range }).populate("product", LINE_PRODUCT_FIELDS),
+    periodClearances(start, end),
     buildStockReport({ scope: productScope(filters) }),
     customerOutstandingMap(),
     vendorOutstandingMap(),

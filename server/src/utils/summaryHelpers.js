@@ -9,6 +9,7 @@ import Category from "../models/Category.js";
 import Vendor from "../models/Vendor.js";
 import { buildStockReport, inventoryValueAt } from "./stockReportHelpers.js";
 import { vendorOutstandingMap } from "./ledgerHelpers.js";
+import { cached, withReadCache } from "./readCache.js";
 
 // The one P&L engine behind the dashboard, the Reports & Analytics page and
 // every PDF/Excel export built from them - so a figure never differs between
@@ -65,7 +66,33 @@ export function productMatcher({ category, brand, product, supplier } = {}, { ig
 
 export const PRODUCT_FILTER_FIELDS = "category brand vendor";
 
-export async function computeSummary(start, end, filters = {}) {
+// Populated on sale/purchase lines: the filter fields plus what the report
+// breakdowns need (GST slab, pack size for "packs sold").
+export const LINE_PRODUCT_FIELDS = "name productCode category brand vendor gstPercent soldAs unitsPerPack";
+
+// A period's sales, purchases and expired-stock clearances. The summary and
+// the analytics breakdowns of the same period share one read of each.
+const rangeKey = (start, end) => `${start.getTime()}-${end.getTime()}`;
+export const periodSales = (start, end) =>
+  cached(`sales:${rangeKey(start, end)}`, () =>
+    Sale.find({ paymentStatus: "completed", createdAt: { $gte: start, $lte: end } }).populate("items.product", LINE_PRODUCT_FIELDS)
+  );
+export const periodPurchases = (start, end) =>
+  cached(`purchases:${rangeKey(start, end)}`, () =>
+    Purchase.find({ date: { $gte: start, $lte: end } }).populate("items.product", LINE_PRODUCT_FIELDS)
+  );
+export const periodClearances = (start, end) =>
+  cached(`clearances:${rangeKey(start, end)}`, () =>
+    StockLedger.find({ type: "stock-clearance", createdAt: { $gte: start, $lte: end } }).populate("product", LINE_PRODUCT_FIELDS)
+  );
+
+export function computeSummary(start, end, filters = {}) {
+  return withReadCache(() =>
+    cached(`summary:${rangeKey(start, end)}:${JSON.stringify(filters)}`, () => buildSummary(start, end, filters))
+  );
+}
+
+async function buildSummary(start, end, filters) {
   const { category = null, paymentMode = null, brand = null, product = null, supplier = null } = filters;
   const productFiltered = Boolean(category || brand || product || supplier);
   const filtered = Boolean(productFiltered || paymentMode);
@@ -74,6 +101,7 @@ export async function computeSummary(start, end, filters = {}) {
 
   const scope = productScope(filters);
   const activeScope = { isActive: true, ...scope };
+  const scopeKey = JSON.stringify(scope);
   const now = new Date();
   const soonCutoff = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
@@ -92,24 +120,23 @@ export async function computeSummary(start, end, filters = {}) {
     openingInventory,
     closingInventory,
   ] = await Promise.all([
-    Sale.find({
-      paymentStatus: "completed",
-      createdAt: { $gte: start, $lte: end },
-    }).populate("items.product", PRODUCT_FILTER_FIELDS),
-    Purchase.find({ date: { $gte: start, $lte: end } }).populate("items.product", PRODUCT_FILTER_FIELDS),
+    periodSales(start, end),
+    periodPurchases(start, end),
     Expense.find({ date: { $gte: start, $lte: end } }),
-    StockLedger.find({
-      type: "stock-clearance",
-      createdAt: { $gte: start, $lte: end },
-    }).populate("product", PRODUCT_FILTER_FIELDS),
-    Product.find({ ...activeScope, qty: { $gt: 0 } }).then((all) =>
-      all.filter((p) => p.qty <= p.lowStockThreshold).sort((a, b) => a.qty - b.qty).slice(0, 5)
+    periodClearances(start, end),
+    // Low stock and expiring-soon are about stock right now, whatever the period.
+    cached(`lowStock:${scopeKey}`, () =>
+      Product.find({ ...activeScope, qty: { $gt: 0 } }).then((all) =>
+        all.filter((p) => p.qty <= p.lowStockThreshold).sort((a, b) => a.qty - b.qty).slice(0, 5)
+      )
     ),
-    Batch.find({ qtyRemaining: { $gt: 0 }, expiryDate: { $lte: soonCutoff } })
-      .populate({ path: "product", select: "name productCode isActive", match: activeScope })
-      .sort({ expiryDate: 1 })
-      .limit(50)
-      .then((batches) => batches.filter((b) => b.product).slice(0, 5)),
+    cached(`expiringSoon:${scopeKey}`, () =>
+      Batch.find({ qtyRemaining: { $gt: 0 }, expiryDate: { $lte: soonCutoff } })
+        .populate({ path: "product", select: "name productCode isActive", match: activeScope })
+        .sort({ expiryDate: 1 })
+        .limit(50)
+        .then((batches) => batches.filter((b) => b.product).slice(0, 5))
+    ),
     // Stock value and payables are current-state figures (not bound to the
     // selected date range) - a snapshot of "right now", same as the Day Book.
     buildStockReport({ scope }),

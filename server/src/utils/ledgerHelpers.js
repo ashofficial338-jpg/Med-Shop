@@ -3,6 +3,7 @@ import Purchase from "../models/Purchase.js";
 import CustomerPayment from "../models/CustomerPayment.js";
 import SupplierPayment from "../models/SupplierPayment.js";
 import { nextSequence } from "../models/Counter.js";
+import { cached } from "./readCache.js";
 
 export async function generatePaymentNo(kind) {
   const seq = await nextSequence(kind === "customer" ? "customerPaymentNo" : "supplierPaymentNo");
@@ -85,7 +86,11 @@ export async function buildSupplierLedger(vendorId) {
 }
 
 // For list views - one aggregation instead of one query per row.
-export async function customerOutstandingMap() {
+export function customerOutstandingMap() {
+  return cached("customerOutstanding", loadCustomerOutstanding);
+}
+
+async function loadCustomerOutstanding() {
   const rows = await Sale.aggregate([
     { $match: { paymentMode: "Credit", paymentStatus: { $ne: "void" }, customer: { $ne: null } } },
     { $project: { customer: 1, balance: { $subtract: ["$total", { $ifNull: ["$amountPaid", "$total"] }] } } },
@@ -94,7 +99,11 @@ export async function customerOutstandingMap() {
   return new Map(rows.map((r) => [String(r._id), Number(r.outstanding.toFixed(2))]));
 }
 
-export async function vendorOutstandingMap() {
+export function vendorOutstandingMap() {
+  return cached("vendorOutstanding", loadVendorOutstanding);
+}
+
+async function loadVendorOutstanding() {
   const rows = await Purchase.aggregate([
     { $match: { paymentMode: "Credit" } },
     { $project: { vendor: 1, balance: { $subtract: ["$total", { $ifNull: ["$amountPaid", "$total"] }] } } },

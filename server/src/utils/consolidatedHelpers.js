@@ -6,6 +6,7 @@ import { computeSummary } from "./summaryHelpers.js";
 import { buildAnalytics, isoDay } from "./analyticsHelpers.js";
 import { balanceAsOf } from "./dayBookHelpers.js";
 import { customerOutstandingMap, vendorOutstandingMap } from "./ledgerHelpers.js";
+import { withReadCache } from "./readCache.js";
 
 // Medical Shop Consolidated Financial Report: one view of the shop's
 // financial health. Period figures (sales, profit, GST, cash flow) come from
@@ -72,7 +73,11 @@ function periodMetrics(s) {
   };
 }
 
-export async function buildConsolidated(start, end, filters = {}, { granularity } = {}) {
+export function buildConsolidated(start, end, filters = {}, options = {}) {
+  return withReadCache(() => consolidatedFor(start, end, filters, options));
+}
+
+async function consolidatedFor(start, end, filters, { granularity }) {
   const fyStartYear = end.getMonth() >= 3 ? end.getFullYear() : end.getFullYear() - 1;
   const monthsFrom = new Date(end.getFullYear(), end.getMonth() - 11, 1);
   const yearsFrom = new Date(fyStartYear - 2, 3, 1); // three Indian financial years, Apr-Mar
