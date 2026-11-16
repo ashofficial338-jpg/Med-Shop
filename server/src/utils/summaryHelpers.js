@@ -72,17 +72,52 @@ export async function computeSummary(start, end, filters = {}) {
   const inCategory = productMatcher(filters);
   const inPurchaseLine = productMatcher(filters, { ignoreSupplier: true });
 
-  const sales = await Sale.find({
-    paymentStatus: "completed",
-    createdAt: { $gte: start, $lte: end },
-  }).populate("items.product", PRODUCT_FILTER_FIELDS);
+  const scope = productScope(filters);
+  const activeScope = { isActive: true, ...scope };
+  const now = new Date();
+  const soonCutoff = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-  const purchases = await Purchase.find({ date: { $gte: start, $lte: end } }).populate("items.product", PRODUCT_FILTER_FIELDS);
-  const expenses = await Expense.find({ date: { $gte: start, $lte: end } });
-  const clearances = await StockLedger.find({
-    type: "stock-clearance",
-    createdAt: { $gte: start, $lte: end },
-  }).populate("product", PRODUCT_FILTER_FIELDS);
+  // Every read below is independent of the others, so they all go to the
+  // database at once - run one after another, the round trips alone took
+  // several seconds.
+  const [
+    sales,
+    purchases,
+    expenses,
+    clearances,
+    lowStock,
+    expiringSoon,
+    { totals: stockTotals },
+    outstandingMap,
+    openingInventory,
+    closingInventory,
+  ] = await Promise.all([
+    Sale.find({
+      paymentStatus: "completed",
+      createdAt: { $gte: start, $lte: end },
+    }).populate("items.product", PRODUCT_FILTER_FIELDS),
+    Purchase.find({ date: { $gte: start, $lte: end } }).populate("items.product", PRODUCT_FILTER_FIELDS),
+    Expense.find({ date: { $gte: start, $lte: end } }),
+    StockLedger.find({
+      type: "stock-clearance",
+      createdAt: { $gte: start, $lte: end },
+    }).populate("product", PRODUCT_FILTER_FIELDS),
+    Product.find({ ...activeScope, qty: { $gt: 0 } }).then((all) =>
+      all.filter((p) => p.qty <= p.lowStockThreshold).sort((a, b) => a.qty - b.qty).slice(0, 5)
+    ),
+    Batch.find({ qtyRemaining: { $gt: 0 }, expiryDate: { $lte: soonCutoff } })
+      .populate({ path: "product", select: "name productCode isActive", match: activeScope })
+      .sort({ expiryDate: 1 })
+      .limit(50)
+      .then((batches) => batches.filter((b) => b.product).slice(0, 5)),
+    // Stock value and payables are current-state figures (not bound to the
+    // selected date range) - a snapshot of "right now", same as the Day Book.
+    buildStockReport({ scope }),
+    vendorOutstandingMap(),
+    // Opening is stock value at the start of the range, closing at its end.
+    inventoryValueAt(start, inCategory),
+    inventoryValueAt(new Date(end.getTime() + 1), inCategory),
+  ]);
 
   let revenue = 0; // matches every active filter
   let allRevenue = 0; // whole shop, no filters - the base for sharing out expenses
@@ -262,31 +297,8 @@ export async function computeSummary(start, end, filters = {}) {
     total: Number(total.toFixed(2)),
   }));
 
-  const scope = productScope(filters);
-  const activeScope = { isActive: true, ...scope };
-  const lowStock = await Product.find({ ...activeScope, qty: { $gt: 0 } })
-    .then((all) => all.filter((p) => p.qty <= p.lowStockThreshold).sort((a, b) => a.qty - b.qty).slice(0, 5));
-
-  const now = new Date();
-  const soonCutoff = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const expiringSoon = await Batch.find({ qtyRemaining: { $gt: 0 }, expiryDate: { $lte: soonCutoff } })
-    .populate({ path: "product", select: "name productCode isActive", match: activeScope })
-    .sort({ expiryDate: 1 })
-    .limit(50)
-    .then((batches) => batches.filter((b) => b.product).slice(0, 5));
-
-  // Stock value and payables are current-state figures (not bound to the
-  // selected date range) - a snapshot of "right now", same as the Day Book.
-  const { totals: stockTotals } = await buildStockReport({ scope });
-  const outstandingMap = await vendorOutstandingMap();
-
   // Inventory Turnover Ratio = COGS / Average Inventory, where
   // Average Inventory = (Opening Inventory + Closing Inventory) / 2, all at cost.
-  // Opening is stock value at the start of the range, closing at its end.
-  const [openingInventory, closingInventory] = await Promise.all([
-    inventoryValueAt(start, inCategory),
-    inventoryValueAt(new Date(end.getTime() + 1), inCategory),
-  ]);
   const averageInventory = (openingInventory + closingInventory) / 2;
   const inventoryTurnover = averageInventory > 0 ? Number((cogs / averageInventory).toFixed(2)) : null;
   const totalPayables = supplier

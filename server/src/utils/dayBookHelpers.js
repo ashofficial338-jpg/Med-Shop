@@ -34,16 +34,21 @@ async function sumWhere(Model, match, field) {
 // as asked.
 async function computeFlow(type, dateRange) {
   if (type === "Credit") {
-    const inFlow = await sumWhere(Sale, { paymentMode: "Credit", paymentStatus: { $ne: "void" }, createdAt: dateRange }, "total");
-    const outFlow = await sumWhere(CustomerPayment, { date: dateRange }, "amount");
+    const [inFlow, outFlow] = await Promise.all([
+      sumWhere(Sale, { paymentMode: "Credit", paymentStatus: { $ne: "void" }, createdAt: dateRange }, "total"),
+      sumWhere(CustomerPayment, { date: dateRange }, "amount"),
+    ]);
     return { in: Number(inFlow.toFixed(2)), out: Number(outFlow.toFixed(2)) };
   }
 
-  const inSales = await sumWhere(Sale, { paymentMode: type, paymentStatus: { $ne: "void" }, createdAt: dateRange }, "total");
-  const inPayments = await sumWhere(CustomerPayment, { mode: type, date: dateRange }, "amount");
-  const outExpenses = await sumWhere(Expense, { paymentMode: type, date: dateRange }, "amount");
-  const outPurchases = await sumWhere(Purchase, { paymentMode: type, date: dateRange }, "total");
-  const outSupplier = await sumWhere(SupplierPayment, { mode: type, date: dateRange }, "amount");
+  // Independent sums, so they run together rather than one round trip at a time.
+  const [inSales, inPayments, outExpenses, outPurchases, outSupplier] = await Promise.all([
+    sumWhere(Sale, { paymentMode: type, paymentStatus: { $ne: "void" }, createdAt: dateRange }, "total"),
+    sumWhere(CustomerPayment, { mode: type, date: dateRange }, "amount"),
+    sumWhere(Expense, { paymentMode: type, date: dateRange }, "amount"),
+    sumWhere(Purchase, { paymentMode: type, date: dateRange }, "total"),
+    sumWhere(SupplierPayment, { mode: type, date: dateRange }, "amount"),
+  ]);
   return {
     in: Number((inSales + inPayments).toFixed(2)),
     out: Number((outExpenses + outPurchases + outSupplier).toFixed(2)),
@@ -70,12 +75,15 @@ export async function dayBookSummary(date) {
   const dayEnd = endOfDay(date);
   const prevDayEnd = new Date(day.getTime() - 1);
 
-  const result = {};
-  for (const type of ["Cash", "UPI", "Credit"]) {
-    const opening = await balanceAsOf(type, prevDayEnd);
-    const closing = await balanceAsOf(type, day);
-    const { in: inFlow, out: outFlow } = await computeFlow(type, { $gte: day, $lte: dayEnd });
-    result[type.toLowerCase()] = { opening, in: inFlow, out: outFlow, closing };
-  }
-  return result;
+  const entries = await Promise.all(
+    ["Cash", "UPI", "Credit"].map(async (type) => {
+      const [opening, closing, { in: inFlow, out: outFlow }] = await Promise.all([
+        balanceAsOf(type, prevDayEnd),
+        balanceAsOf(type, day),
+        computeFlow(type, { $gte: day, $lte: dayEnd }),
+      ]);
+      return [type.toLowerCase(), { opening, in: inFlow, out: outFlow, closing }];
+    })
+  );
+  return Object.fromEntries(entries);
 }

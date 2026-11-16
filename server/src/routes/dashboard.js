@@ -36,10 +36,13 @@ router.get("/summary", requirePermission("dashboard.view"), async (req, res) => 
   // View-only users always see the default period with no filters - those
   // controls (and anything they send) are admin-only.
   const { start, end } = interactive ? resolveRange(req) : resolveRange({ query: {} });
-  const summary = await computeSummary(start, end, interactive ? resolveFilters(req) : {});
+  // The P&L summary and today's cash position don't depend on each other.
+  const [summary, today] = await Promise.all([
+    computeSummary(start, end, interactive ? resolveFilters(req) : {}),
+    dayBookSummary(new Date()),
+  ]);
 
   // Today's cash position (the Day Book's figures) - "right now", not range-bound.
-  const today = await dayBookSummary(new Date());
   summary.cashToday = today;
   summary.receivables = today.credit.closing;
 

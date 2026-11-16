@@ -111,7 +111,7 @@ export async function buildAnalytics(start, end, filters = {}, { granularity, co
   const range = { $gte: start, $lte: end };
   const prev = previousRange(start, end);
 
-  const [summary, prevSummary, sales, purchases, expenses, clearances, stock, customerDue, vendorDue] = await Promise.all([
+  const [summary, prevSummary, sales, purchases, expenses, clearances, stock, customerDue, vendorDue, cashFlow] = await Promise.all([
     computeSummary(start, end, filters),
     compare ? computeSummary(prev.start, prev.end, filters) : null,
     Sale.find({ paymentStatus: "completed", createdAt: range }).populate("items.product", LINE_PRODUCT_FIELDS),
@@ -121,6 +121,7 @@ export async function buildAnalytics(start, end, filters = {}, { granularity, co
     buildStockReport({ scope: productScope(filters) }),
     customerOutstandingMap(),
     vendorOutstandingMap(),
+    buildCashFlow(start, end),
   ]);
 
   // Every bucket of the range exists, even with no activity, so charts show gaps as zero.
@@ -321,8 +322,6 @@ export async function buildAnalytics(start, end, filters = {}, { granularity, co
     .filter(([id, due]) => due > 0 && (!supplier || id === supplier))
     .map(([id, due]) => ({ vendorId: id, name: vendorById.get(id)?.name || "Unknown supplier", outstanding: due }))
     .sort((a, b) => b.outstanding - a.outstanding);
-
-  const cashFlow = await buildCashFlow(start, end);
 
   return {
     period: { from: isoDay(start), to: isoDay(end), granularity: g },
