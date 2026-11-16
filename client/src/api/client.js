@@ -15,23 +15,85 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
-// Render restarts the backend on every deploy and sleeps it when idle, which
-// drops in-flight requests (ECONNRESET / 502-504). Reads are safe to repeat,
-// so retry GETs a few times with backoff before surfacing an error.
-const RETRY_DELAYS = [1000, 3000, 6000];
+// Render restarts the backend on every deploy and sleeps it when idle; waking
+// it takes 30-60 seconds, during which requests fail (ECONNRESET / 502-504).
+// Reads are safe to repeat, so GETs keep retrying for about 90 seconds - long
+// enough to outlast a cold start - and the page that asked simply fills in
+// when the server answers, with no browser refresh needed.
+const RETRY_DELAYS = [1000, 2000, 3000, 4000, ...Array(16).fill(5000)];
 
-api.interceptors.response.use(undefined, async (error) => {
-  const config = error.config;
-  const status = error.response?.status;
-  const transient = !error.response || [502, 503, 504].includes(status);
-  if (!config || config.method !== "get" || !transient) throw error;
+// Connection status for the banner in components/ConnectionStatus.jsx:
+//   "ok"     - requests are getting through
+//   "waking" - a read is being retried while the server comes up
+//   "failed" - a read gave up, so the page on screen is missing data
+let connection = "ok";
+let retrying = 0;
+const listeners = new Set();
 
-  const attempt = config.__retryCount || 0;
-  if (attempt >= RETRY_DELAYS.length) throw error;
-  config.__retryCount = attempt + 1;
-  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
-  return api(config);
-});
+function setConnection(next) {
+  if (connection === next) return;
+  connection = next;
+  listeners.forEach((fn) => fn());
+}
+
+export const getConnection = () => connection;
+export function subscribeConnection(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+// Called when the page data is reloaded (by the user or by auto-recovery).
+export function resetConnection() {
+  setConnection("ok");
+}
+
+// A retried request is over (it succeeded or gave up).
+function settleRetry(config) {
+  if (!config?.__retrying) return;
+  config.__retrying = false;
+  retrying = Math.max(0, retrying - 1);
+}
+
+api.interceptors.response.use(
+  (response) => {
+    settleRetry(response.config);
+    // "failed" is cleared by reloading the page data, not by an unrelated
+    // request getting through - see ConnectionStatus.
+    if (connection === "waking" && retrying === 0) setConnection("ok");
+    return response;
+  },
+  async (error) => {
+    const config = error.config;
+    const status = error.response?.status;
+    // `silent` requests (health pings) never retry or touch the banner.
+    if (!config || config.method !== "get" || config.silent || axios.isCancel(error)) throw error;
+
+    const transient = !error.response || [502, 503, 504].includes(status);
+    const attempt = config.__retryCount || 0;
+    if (transient && attempt < RETRY_DELAYS.length) {
+      config.__retryCount = attempt + 1;
+      if (!config.__retrying) {
+        config.__retrying = true;
+        retrying += 1;
+      }
+      // One quick retry is invisible; after that, tell the user what's going on.
+      if (attempt >= 1 && connection === "ok") setConnection("waking");
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      return api(config);
+    }
+
+    settleRetry(config);
+    // Gave up, or the server itself errored: the page is left without its data.
+    if (transient || status >= 500) setConnection("failed");
+    else if (connection === "waking" && retrying === 0) setConnection("ok");
+    throw error;
+  }
+);
+
+// Cheap unauthenticated request. Used to wake the server early, keep it from
+// going back to sleep while the app is open, and detect when it's back.
+export function pingServer() {
+  return api.get("/health", { silent: true, timeout: 20_000 });
+}
 
 export function setAuthToken(token) {
   if (token) {

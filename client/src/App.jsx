@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
+import ConnectionStatus from "./components/ConnectionStatus";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -34,10 +35,16 @@ function Home() {
 }
 
 export default function App() {
+  // Bumping this key re-mounts the page on screen so it fetches its data
+  // again - how a failed load recovers without a browser refresh.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reloadPage = useCallback(() => setReloadKey((k) => k + 1), []);
+
   return (
     <>
       <SessionExpiredModal />
-      <Routes>
+      <ConnectionStatus onReload={reloadPage} />
+      <Routes key={reloadKey}>
         <Route path="/login" element={<Login />} />
 
         <Route
