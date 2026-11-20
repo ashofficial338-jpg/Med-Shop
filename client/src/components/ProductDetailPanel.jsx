@@ -132,7 +132,7 @@ export default function ProductDetailPanel({
 
   return (
     <>
-      <div className="fade-in fixed inset-0 z-40 bg-[#07181E]/45 backdrop-blur-sm md:hidden" onClick={onClose} />
+      <div className="fade-in fixed inset-0 z-40 bg-[#061229]/45 backdrop-blur-sm md:hidden" onClick={onClose} />
 
       <aside className="slide-in-right fixed inset-y-0 right-0 z-50 flex w-full flex-col overflow-y-auto bg-surface shadow-xl sm:w-[420px] md:sticky md:inset-auto md:top-6 md:z-auto md:w-[380px] md:max-h-[calc(100vh-3rem)] md:shrink-0 md:rounded-2xl md:border md:border-border md:shadow-[var(--shadow-lift)] lg:w-[420px]">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -146,11 +146,11 @@ export default function ProductDetailPanel({
 
         {!loading && product && (
           <div className="flex flex-1 flex-col gap-4 p-4">
-            <div className="flex h-40 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary-soft via-[#F1F7FA] to-info-soft">
+            <div className="flex h-40 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary-soft via-[#EEF6FB] to-info-soft">
               {product.image ? (
                 <img src={resolveAssetUrl(product.image)} alt={product.name} className="h-full w-full rounded-xl object-cover" />
               ) : (
-                <span className="flex h-20 w-20 items-center justify-center rounded-3xl bg-white/80 text-4xl shadow-[0_14px_30px_-14px_rgba(14,124,116,0.6)]">💊</span>
+                <span className="flex h-20 w-20 items-center justify-center rounded-3xl bg-white/80 text-4xl shadow-[0_14px_30px_-14px_rgba(11,74,143,0.6)]">💊</span>
               )}
             </div>
 

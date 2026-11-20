@@ -30,9 +30,9 @@ export function recordCustomerPayment(id, data) {
 }
 
 export function exportCustomerLedger(id, format, name) {
-  return downloadFile(`/customers/${id}/ledger/export`, { format }, reportFileName(`GHM_Ledger_${name || id}`, format));
+  return downloadFile(`/customers/${id}/ledger/export`, { format }, reportFileName(`GuganMedicals_Ledger_${name || id}`, format));
 }
 
 export function exportCustomers(format, params) {
-  return downloadFile("/customers/export", { ...params, format }, reportFileName("GHM_Customers_Report", format));
+  return downloadFile("/customers/export", { ...params, format }, reportFileName("GuganMedicals_Customers_Report", format));
 }

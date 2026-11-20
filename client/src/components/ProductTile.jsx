@@ -42,7 +42,7 @@ export default function ProductTile({ product, canEdit, onEdit, onOpen }) {
       }}
       className="card group flex h-full cursor-pointer flex-col overflow-hidden transition duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1 hover:border-primary/25 hover:shadow-[var(--shadow-lift)]"
     >
-      <div className="relative flex h-28 items-center justify-center overflow-hidden bg-gradient-to-br from-primary-soft via-[#F1F7FA] to-info-soft">
+      <div className="relative flex h-28 items-center justify-center overflow-hidden bg-gradient-to-br from-primary-soft via-[#EEF6FB] to-info-soft">
         {product.image ? (
           <img
             src={resolveAssetUrl(product.image)}
@@ -53,7 +53,7 @@ export default function ProductTile({ product, canEdit, onEdit, onOpen }) {
         ) : (
           <>
             <div className="absolute -right-6 -top-10 h-28 w-28 rounded-full bg-white/70 blur-2xl" />
-            <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-white/80 text-primary shadow-[0_10px_24px_-12px_rgba(14,124,116,0.6)] ring-1 ring-white transition duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-12 group-hover:scale-110">
+            <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-white/80 text-primary shadow-[0_10px_24px_-12px_rgba(11,74,143,0.6)] ring-1 ring-white transition duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-12 group-hover:scale-110">
               <Icon name="pill" size={26} strokeWidth={1.6} />
             </span>
           </>

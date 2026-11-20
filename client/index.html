@@ -3,18 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GHM Medical Shop</title>
-    <meta name="description" content="GHM Medical Shop - pharmacy billing, inventory and accounts." />
+    <title>Gugan Medicals | Trusted Pharmacy &amp; Healthcare Essentials</title>
+    <meta name="description" content="Gugan Medicals: your trusted neighbourhood pharmacy for genuine medicines, healthcare essentials and expert pharmacist advice." />
+    <meta name="keywords" content="Gugan Medicals, pharmacy, medical shop, medicines, healthcare, chemist" />
+    <meta name="application-name" content="Gugan Medicals" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Gugan Medicals" />
+    <meta property="og:title" content="Gugan Medicals | Trusted Pharmacy &amp; Healthcare Essentials" />
+    <meta property="og:description" content="Genuine medicines, healthcare essentials and expert pharmacist advice." />
+    <meta property="og:image" content="/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
     <!-- Brand tab icon: SVG for modern browsers, PNG/ICO fallbacks, Apple/Android home-screen icons. -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <meta name="theme-color" content="#0E7C74" />
+    <meta name="theme-color" content="#0B4A8F" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <style>
+      /* First-paint loader, replaced as soon as the app renders. */
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; background: linear-gradient(180deg, #F8FAFD, #F3F6FB); font-family: system-ui, sans-serif; }
+      #boot .ring { width: 56px; height: 56px; border-radius: 50%; border: 3px solid rgba(11,74,143,.12); border-top-color: #0B4A8F; border-right-color: #22B8CF; animation: bootspin .9s linear infinite; }
+      #boot p { margin: 14px 0 0; font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #0B4A8F; text-align: center; }
+      @keyframes bootspin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot"><div><div class="ring" style="margin:auto"></div><p>Gugan Medicals</p></div></div></div>
+    <noscript>Gugan Medicals needs JavaScript enabled to run.</noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

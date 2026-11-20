@@ -34,8 +34,8 @@ router.get("/export", async (req, res) => {
   const subtitle = `${q && q.trim() ? `Search: "${q.trim()}"` : "All active vendors"} · Total payable: Rs. ${total.toFixed(2)}`;
 
   if (format === "pdf") {
-    return streamPdfReport(res, "GHM_Vendors_Report.pdf", {
-      title: "GHM Medical Shop - Vendors & Payables",
+    return streamPdfReport(res, "GuganMedicals_Vendors_Report.pdf", {
+      title: "Gugan Medicals - Vendors & Payables",
       subtitle,
       columns: [
         { header: "Name", key: "name", flex: 1.6 },
@@ -47,7 +47,7 @@ router.get("/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, "GHM_Vendors_Report.xlsx", [
+  return streamExcelReport(res, "GuganMedicals_Vendors_Report.xlsx", [
     {
       name: "Vendors",
       columns: [
@@ -92,7 +92,7 @@ router.get("/:id/ledger/export", async (req, res) => {
   }));
 
   if (req.query.format === "pdf") {
-    return streamPdfReport(res, `GHM_Ledger_${vendor.name}.pdf`, {
+    return streamPdfReport(res, `GuganMedicals_Ledger_${vendor.name}.pdf`, {
       title: `${vendor.name} - Vendor Ledger`,
       subtitle: `${vendor.phone} · Outstanding Payable: Rs. ${outstandingBalance.toFixed(2)}`,
       columns: [
@@ -107,7 +107,7 @@ router.get("/:id/ledger/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, `GHM_Ledger_${vendor.name}.xlsx`, [
+  return streamExcelReport(res, `GuganMedicals_Ledger_${vendor.name}.xlsx`, [
     {
       name: "Ledger",
       columns: [
@@ -163,7 +163,7 @@ router.get("/:id/report/export", async (req, res) => {
   const report = await buildVendorReport(vendor._id, period);
 
   if (req.query.format === "pdf") {
-    return streamPdfReport(res, `GHM_VendorReport_${vendor.name}.pdf`, {
+    return streamPdfReport(res, `GuganMedicals_VendorReport_${vendor.name}.pdf`, {
       title: `${vendor.name} - Purchase Report (${period}-wise)`,
       subtitle: `${vendor.phone} · ${vendor.gstNumber}`,
       columns: [
@@ -177,7 +177,7 @@ router.get("/:id/report/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, `GHM_VendorReport_${vendor.name}.xlsx`, [
+  return streamExcelReport(res, `GuganMedicals_VendorReport_${vendor.name}.xlsx`, [
     {
       name: "Vendor Report",
       columns: [

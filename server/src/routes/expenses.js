@@ -33,8 +33,8 @@ router.get("/export", async (req, res) => {
   }));
 
   if (format === "pdf") {
-    return streamPdfReport(res, "GHM_Expenses_Report.pdf", {
-      title: "GHM Medical Shop - Expenses Report",
+    return streamPdfReport(res, "GuganMedicals_Expenses_Report.pdf", {
+      title: "Gugan Medicals - Expenses Report",
       subtitle: `${periodLabel(from, to)} · Total: Rs. ${rows.reduce((s, r) => s + r.amount, 0).toFixed(2)}`,
       columns: [
         { header: "Date", key: "date" },
@@ -47,7 +47,7 @@ router.get("/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, "GHM_Expenses_Report.xlsx", [
+  return streamExcelReport(res, "GuganMedicals_Expenses_Report.xlsx", [
     {
       name: "Expenses",
       columns: [

@@ -25,8 +25,8 @@ router.get("/export", async (req, res) => {
   ];
 
   if (req.query.format === "pdf") {
-    return streamPdfReport(res, `GHM_DayBook_${dateLabel}.pdf`, {
-      title: "GHM Medical Shop - Day Book",
+    return streamPdfReport(res, `GuganMedicals_DayBook_${dateLabel}.pdf`, {
+      title: "Gugan Medicals - Day Book",
       subtitle: dateLabel,
       columns: [
         { header: "Type", key: "type" },
@@ -39,7 +39,7 @@ router.get("/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, `GHM_DayBook_${dateLabel}.xlsx`, [
+  return streamExcelReport(res, `GuganMedicals_DayBook_${dateLabel}.xlsx`, [
     {
       name: "Day Book",
       columns: [

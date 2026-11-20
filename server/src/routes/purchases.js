@@ -61,8 +61,8 @@ router.get("/export", async (req, res) => {
   }));
 
   if (format === "pdf") {
-    return streamPdfReport(res, "GHM_Purchases_Report.pdf", {
-      title: "GHM Medical Shop - Purchases Report",
+    return streamPdfReport(res, "GuganMedicals_Purchases_Report.pdf", {
+      title: "Gugan Medicals - Purchases Report",
       subtitle: `${periodLabel(from, to)}${vendor ? ` · Vendor: ${purchases[0]?.vendor?.name || "selected vendor"}` : ""} · Total: Rs. ${rows.reduce((s, r) => s + r.total, 0).toFixed(2)}`,
       columns: [
         { header: "Invoice No", key: "invoiceNo" },
@@ -76,7 +76,7 @@ router.get("/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, "GHM_Purchases_Report.xlsx", [
+  return streamExcelReport(res, "GuganMedicals_Purchases_Report.xlsx", [
     {
       name: "Purchases",
       columns: [

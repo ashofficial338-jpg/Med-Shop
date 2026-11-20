@@ -18,9 +18,9 @@ export function markStockClearance(batchIds) {
 }
 
 export function exportStockLedger(format, params) {
-  return downloadFile("/stock-ledger/export", { ...params, format }, reportFileName("GHM_Stock_Ledger", format));
+  return downloadFile("/stock-ledger/export", { ...params, format }, reportFileName("GuganMedicals_Stock_Ledger", format));
 }
 
 export function exportExpiryTracker(format) {
-  return downloadFile("/products/expiry-tracker/export", { format }, reportFileName("GHM_Expiry_Tracker", format));
+  return downloadFile("/products/expiry-tracker/export", { format }, reportFileName("GuganMedicals_Expiry_Tracker", format));
 }

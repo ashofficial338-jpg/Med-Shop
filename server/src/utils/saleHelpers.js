@@ -12,7 +12,7 @@ export function saleLineInternalQty(product, unitType, qty) {
 
 export async function generateBillNo() {
   const seq = await nextSequence("billNo");
-  return `GHM-${String(seq).padStart(6, "0")}`;
+  return `GM-${String(seq).padStart(6, "0")}`;
 }
 
 // Splits a sale's stored totals into the printed bill's tax breakup: Gross
@@ -96,7 +96,7 @@ export function numberToWordsIndian(amount) {
 // TODO: replace with the real registered business name, address, phone,
 // GSTIN and Drug License number.
 export const SHOP = {
-  name: "GHM Medical Shop",
+  name: "Gugan Medicals",
   addressLine1: "",
   addressLine2: "", // e.g. "12 Main Street - Chennai 600001"
   phone: "",

@@ -57,7 +57,7 @@ export function deleteCategory(id) {
 }
 
 export function downloadImportTemplate() {
-  return downloadFile("/products/import/template", {}, "GHM_Product_Import_Template.xlsx");
+  return downloadFile("/products/import/template", {}, "GuganMedicals_Product_Import_Template.xlsx");
 }
 
 export function getStockReport(params) {
@@ -65,7 +65,7 @@ export function getStockReport(params) {
 }
 
 export function exportStockReport(format, params) {
-  return downloadFile("/products/stock-report", { ...params, format }, reportFileName("GHM_Stock_Report", format));
+  return downloadFile("/products/stock-report", { ...params, format }, reportFileName("GuganMedicals_Stock_Report", format));
 }
 
 export function importProducts(file) {

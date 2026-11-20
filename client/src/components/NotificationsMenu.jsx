@@ -84,7 +84,7 @@ export default function NotificationsMenu({ open, onOpenChange, onCountChange, i
         onClick={() => onOpenChange(!open)}
         aria-label={`Notifications${items.length ? ` (${items.length})` : ""}`}
         aria-expanded={open}
-        className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface text-muted shadow-[0_1px_2px_rgba(16,36,48,0.05)] transition hover:-translate-y-px hover:border-primary/30 hover:text-primary hover:shadow-[0_8px_18px_-10px_rgba(14,124,116,0.6)]"
+        className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface text-muted shadow-[0_1px_2px_rgba(16,36,48,0.05)] transition hover:-translate-y-px hover:border-primary/30 hover:text-primary hover:shadow-[0_8px_18px_-10px_rgba(11,74,143,0.6)]"
       >
         <Icon name="bell" />
         {items.length > 0 && (

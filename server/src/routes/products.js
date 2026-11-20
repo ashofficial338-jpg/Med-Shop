@@ -136,8 +136,8 @@ router.get("/expiry-tracker/export", requireAuth, requireRole("admin"), async (r
   const subtitle = `Expired: ${count("Expired")} · Expiring within ${EXPIRING_SOON_WINDOW_DAYS} days: ${count("Expiring Soon")} · OK: ${count("OK")}`;
 
   if (req.query.format === "pdf") {
-    return streamPdfReport(res, "GHM_Expiry_Tracker.pdf", {
-      title: "GHM Medical Shop - Expiry Tracker",
+    return streamPdfReport(res, "GuganMedicals_Expiry_Tracker.pdf", {
+      title: "Gugan Medicals - Expiry Tracker",
       subtitle,
       columns: [
         { header: "Status", key: "status" },
@@ -152,7 +152,7 @@ router.get("/expiry-tracker/export", requireAuth, requireRole("admin"), async (r
     });
   }
 
-  return streamExcelReport(res, "GHM_Expiry_Tracker.xlsx", [
+  return streamExcelReport(res, "GuganMedicals_Expiry_Tracker.xlsx", [
     {
       name: "Expiry Tracker",
       columns: [
@@ -177,8 +177,8 @@ router.get("/stock-report", requireAuth, requireRole("admin"), async (req, res) 
   const { rows, totals } = await buildStockReport({ category, availability });
 
   if (format === "pdf") {
-    return streamPdfReport(res, "GHM_Stock_Report.pdf", {
-      title: "GHM Medical Shop - Stock Report",
+    return streamPdfReport(res, "GuganMedicals_Stock_Report.pdf", {
+      title: "Gugan Medicals - Stock Report",
       subtitle: `${totals.skuCount} SKUs · Value at cost: Rs. ${totals.totalValueCost.toFixed(2)} · Value at MRP: Rs. ${totals.totalValueMrp.toFixed(2)}`,
       columns: [
         { header: "Product", key: "name" },
@@ -197,7 +197,7 @@ router.get("/stock-report", requireAuth, requireRole("admin"), async (req, res) 
   }
 
   if (format === "excel") {
-    return streamExcelReport(res, "GHM_Stock_Report.xlsx", [
+    return streamExcelReport(res, "GuganMedicals_Stock_Report.xlsx", [
       {
         name: "Stock Report",
         columns: [
@@ -612,7 +612,7 @@ router.get("/import/template", requireAuth, requirePermission("products.add"), a
     "Content-Type",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   );
-  res.setHeader("Content-Disposition", "attachment; filename=GHM_Product_Import_Template.xlsx");
+  res.setHeader("Content-Disposition", "attachment; filename=GuganMedicals_Product_Import_Template.xlsx");
   await workbook.xlsx.write(res);
   res.end();
 });

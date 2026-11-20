@@ -5,6 +5,7 @@ import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import SessionExpiredModal from "./components/SessionExpiredModal";
 import Login from "./pages/Login";
+import Loader from "./components/Loader";
 import Profile from "./pages/Profile";
 import Users from "./pages/Users";
 import Dashboard from "./pages/Dashboard";
@@ -28,10 +29,26 @@ import RolesPermissions from "./pages/RolesPermissions";
 // Reports & Analytics is large (charts, tables, export dialog) and only some
 // users open it, so it loads on first visit instead of with the app.
 const Reports = lazy(() => import("./pages/Reports"));
+// The public website is only for visitors, so staff never download it.
+const PublicHome = lazy(() => import("./pages/Home"));
 
-function Home() {
+const pageLoader = <Loader label="Gugan Medicals" className="min-h-screen" />;
+
+function WorkspaceHome() {
   const { user } = useAuth();
   return <Navigate to={user.role === "admin" ? "/dashboard" : "/products"} replace />;
+}
+
+// "/": visitors get the public Gugan Medicals website; signed-in staff go
+// straight to their workspace, exactly as before.
+function Root() {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) return <WorkspaceHome />;
+  return (
+    <Suspense fallback={pageLoader}>
+      <PublicHome />
+    </Suspense>
+  );
 }
 
 export default function App() {
@@ -47,12 +64,14 @@ export default function App() {
       <Routes key={reloadKey}>
         <Route path="/login" element={<Login />} />
 
+        <Route path="/" element={<Root />} />
+        {/* The public website, reachable even while signed in. */}
         <Route
-          path="/"
+          path="/site"
           element={
-            <ProtectedRoute>
-              <Home />
-            </ProtectedRoute>
+            <Suspense fallback={pageLoader}>
+              <PublicHome />
+            </Suspense>
           }
         />
         <Route
@@ -203,7 +222,7 @@ export default function App() {
           path="/reports"
           element={
             <ProtectedRoute permission="reports.view">
-              <Suspense fallback={<div className="p-8 text-sm text-muted">Loading reports…</div>}>
+              <Suspense fallback={<Loader label="Loading reports" className="min-h-screen" />}>
                 <Reports />
               </Suspense>
             </ProtectedRoute>

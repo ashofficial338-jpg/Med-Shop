@@ -73,8 +73,8 @@ router.get("/export", requireRole("admin"), async (req, res) => {
   const subtitle = `${q && q.trim() ? `Search: "${q.trim()}"` : "All active customers"} · Total outstanding: Rs. ${total.toFixed(2)}`;
 
   if (format === "pdf") {
-    return streamPdfReport(res, "GHM_Customers_Report.pdf", {
-      title: "GHM Medical Shop - Customers & Outstanding Balances",
+    return streamPdfReport(res, "GuganMedicals_Customers_Report.pdf", {
+      title: "Gugan Medicals - Customers & Outstanding Balances",
       subtitle,
       columns: [
         { header: "Name", key: "name", flex: 1.6 },
@@ -86,7 +86,7 @@ router.get("/export", requireRole("admin"), async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, "GHM_Customers_Report.xlsx", [
+  return streamExcelReport(res, "GuganMedicals_Customers_Report.xlsx", [
     {
       name: "Customers",
       columns: [
@@ -133,7 +133,7 @@ router.get("/:id/ledger/export", requireRole("admin"), async (req, res) => {
   }));
 
   if (req.query.format === "pdf") {
-    return streamPdfReport(res, `GHM_Ledger_${customer.name}.pdf`, {
+    return streamPdfReport(res, `GuganMedicals_Ledger_${customer.name}.pdf`, {
       title: `${customer.name} - Customer Ledger`,
       subtitle: `${customer.phone} · Outstanding: Rs. ${outstandingBalance.toFixed(2)}`,
       columns: [
@@ -148,7 +148,7 @@ router.get("/:id/ledger/export", requireRole("admin"), async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, `GHM_Ledger_${customer.name}.xlsx`, [
+  return streamExcelReport(res, `GuganMedicals_Ledger_${customer.name}.xlsx`, [
     {
       name: "Ledger",
       columns: [

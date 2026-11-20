@@ -117,7 +117,7 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary ring-1 ring-primary/10">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(14,124,116,0.9)]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(11,74,143,0.9)]" />
             {STORE_NAME}
           </p>
           <h1 className="text-gradient mt-3 font-display text-3xl font-extrabold tracking-tight sm:text-[34px]">Accounting Dashboard</h1>

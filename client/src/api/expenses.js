@@ -14,5 +14,5 @@ export function deleteExpense(id) {
 }
 
 export function exportExpenses(format, params) {
-  return downloadFile("/expenses/export", { ...params, format }, reportFileName("GHM_Expenses_Report", format));
+  return downloadFile("/expenses/export", { ...params, format }, reportFileName("GuganMedicals_Expenses_Report", format));
 }

@@ -31,7 +31,7 @@ export function SectionTitle({ icon, children, action }) {
   return (
     <div className="flex items-center justify-between gap-3 pt-2">
       <h2 className="flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-text">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#2FC1B0] to-primary text-white shadow-[0_8px_18px_-8px_rgba(14,124,116,0.8)]">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#22B8CF] to-primary text-white shadow-[0_8px_18px_-8px_rgba(11,74,143,0.8)]">
           <Icon name={icon} size={17} />
         </span>
         {children}

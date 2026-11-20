@@ -33,7 +33,7 @@ export default function AvatarMenu() {
         aria-expanded={open}
         className="flex items-center gap-2.5 rounded-xl border border-transparent py-1 pl-1 pr-2 transition hover:border-border hover:bg-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#2FC1B0] via-primary to-info font-semibold text-white shadow-[0_6px_16px_-6px_rgba(14,124,116,0.8)] ring-2 ring-white">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#22B8CF] via-primary to-info font-semibold text-white shadow-[0_6px_16px_-6px_rgba(11,74,143,0.8)] ring-2 ring-white">
           {initial}
         </span>
         <span className="hidden text-left leading-tight sm:block">
@@ -63,6 +63,14 @@ export default function AvatarMenu() {
               Users
             </Link>
           )}
+          <Link
+            to="/site"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text hover:bg-bg"
+          >
+            <Icon name="globe" size={16} className="text-muted" />
+            View website
+          </Link>
           <button
             onClick={handleLogout}
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger/5"

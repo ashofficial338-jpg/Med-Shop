@@ -19,7 +19,7 @@ import { money2, moneyCompact, shortDate } from "./format";
 const COLOR_REVENUE = "#2a78d6";
 const COLOR_EXPENSE = "#eb6834";
 const COLOR_PROFIT = "#1baf7a";
-const BRAND = "#0E7C74"; // sequential hue for single-series magnitude bars
+const BRAND = "#0B4A8F"; // sequential hue for single-series magnitude bars
 
 const GRID = "#edf0f3";
 const AXIS = { fontSize: 11, fill: "#7b8793" };
@@ -160,14 +160,14 @@ export function CategoryBars({ data, linkFor }) {
               <CartesianGrid stroke={GRID} horizontal={false} />
               <XAxis type="number" tickFormatter={moneyCompact} tick={AXIS} axisLine={false} tickLine={false} />
               <YAxis dataKey="category" type="category" tick={AXIS} axisLine={false} tickLine={false} width={96} />
-              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(14,124,116,0.06)" }} />
+              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(11,74,143,0.06)" }} />
               <Bar
                 dataKey="total"
                 name="Revenue"
                 fill={BRAND}
                 radius={[0, 4, 4, 0]}
                 maxBarSize={20}
-                activeBar={{ fill: "#0A5F59" }}
+                activeBar={{ fill: "#083A70" }}
                 cursor={linkFor ? "pointer" : undefined}
                 onClick={(entry) => linkFor && entry?.categoryId && navigate(linkFor(entry.categoryId))}
               />
@@ -211,7 +211,7 @@ export function CashFlowChart({ data, to }) {
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="type" tick={AXIS} axisLine={false} tickLine={false} dy={6} />
             <YAxis tickFormatter={moneyCompact} tick={AXIS} axisLine={false} tickLine={false} width={52} />
-            <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(14,124,116,0.05)" }} />
+            <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(11,74,143,0.05)" }} />
             <Bar dataKey="in" name="In" fill={COLOR_PROFIT} radius={[4, 4, 0, 0]} maxBarSize={36} />
             <Bar dataKey="out" name="Out" fill={COLOR_EXPENSE} radius={[4, 4, 0, 0]} maxBarSize={36} />
           </BarChart>

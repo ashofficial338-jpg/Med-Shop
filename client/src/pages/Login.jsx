@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Icon from "../components/Icon";
 import { STORE_NAME } from "../components/Layout";
+import BrandLogo from "../components/BrandLogo";
 import api from "../api/client";
 
 // Remembered sign-in name (email or username), prefilled when "Remember me"
 // was ticked last time. The session itself is kept by AuthContext.
+// Storage key kept from the old name so saved sign-ins survive the rebrand.
 const REMEMBER_KEY = "ghm_remember_login";
 const readRemembered = () => {
   try {
@@ -35,18 +37,6 @@ const FEATURES = [
   { icon: "boxes", title: "Live stock & expiry tracking", text: "Batches, low stock and expiry alerts in one place." },
   { icon: "chart", title: "Billing, GST & profit insights", text: "From the counter to the P&L, always up to date." },
 ];
-
-function BrandMark({ light }) {
-  return (
-    <span
-      className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
-        light ? "bg-white/15 text-white ring-1 ring-white/25" : "bg-primary text-white shadow-[0_6px_16px_-6px_rgba(14,124,116,0.6)]"
-      }`}
-    >
-      <Icon name="cross" size={22} strokeWidth={2} />
-    </span>
-  );
-}
 
 // Decorative heartbeat line for the brand panel.
 function PulseLine({ compact }) {
@@ -158,17 +148,17 @@ export default function Login() {
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* Brand panel (desktop / large tablet) */}
-      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-[#0A5F59] via-primary to-[#139186] p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
+      <aside className="hero-surface relative hidden overflow-hidden p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
         <div className="login-blob pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-2xl" />
         <div className="login-blob login-blob-delay pointer-events-none absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-[#2A78D6]/25 blur-3xl" />
         <div className="login-grid pointer-events-none absolute inset-0 opacity-[0.07]" />
 
-        <div className="relative flex items-center gap-3">
-          <BrandMark light />
-          <div>
-            <p className="font-display text-lg font-bold leading-tight">{STORE_NAME}</p>
-            <p className="text-xs text-white/70">Pharmacy management</p>
-          </div>
+        <div className="relative flex items-center justify-between gap-3">
+          <BrandLogo tone="light" size={46} subtitle="Pharmacy management" />
+          <Link to="/" className="glass-dark inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-white/90 hover:text-white">
+            <Icon name="arrowRight" size={13} className="rotate-180" />
+            Website
+          </Link>
         </div>
 
         <div className="relative max-w-lg">
@@ -177,7 +167,7 @@ export default function Login() {
             Care, counted precisely
           </p>
           <h2 className="fade-up mt-5 font-display text-4xl font-extrabold leading-[1.1] tracking-tight xl:text-[48px]">
-            Your pharmacy, running smoothly every day.
+            Your pharmacy, running <span className="text-gradient-brand">smoothly</span> every day.
           </h2>
           <p className="mt-4 text-base leading-relaxed text-white/75">
             Billing, inventory, suppliers and accounts — one secure workspace for your whole team.
@@ -188,7 +178,7 @@ export default function Login() {
           <ul className="stagger mt-6 space-y-4">
             {FEATURES.map((f) => (
               <li key={f.title} className="group flex gap-3.5">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur transition duration-500 group-hover:scale-110 group-hover:bg-white/20">
+                <span className="glass-dark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#9BE7F2] transition duration-500 group-hover:scale-110">
                   <Icon name={f.icon} size={18} />
                 </span>
                 <span>
@@ -208,18 +198,16 @@ export default function Login() {
       {/* Sign-in */}
       <main className="relative flex items-start justify-center overflow-hidden px-4 pb-10 pt-14 sm:px-8 sm:pt-20 lg:items-center lg:py-10">
         {/* Phones / tablets: brand band with the heartbeat line behind the card. */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-72 overflow-hidden bg-gradient-to-br from-[#0A5F59] via-primary to-[#139186] sm:h-80 lg:hidden">
+        <div className="hero-surface pointer-events-none absolute inset-x-0 top-0 h-72 overflow-hidden sm:h-80 lg:hidden">
           <div className="login-grid absolute inset-0 opacity-[0.07]" />
           <div className="login-blob absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
         </div>
 
         <div className="relative w-full max-w-[420px]">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <BrandMark light />
-            <div className="shrink-0">
-              <p className="font-display text-lg font-bold leading-tight text-white">{STORE_NAME}</p>
-              <p className="text-xs text-white/75">Pharmacy management</p>
-            </div>
+            <Link to="/" aria-label={`${STORE_NAME} home`} className="shrink-0">
+              <BrandLogo tone="light" size={42} subtitle="Pharmacy management" />
+            </Link>
             {/* Heartbeat fills the rest of the row, so it never runs into the text. */}
             <div className="hidden min-w-0 flex-1 opacity-70 min-[380px]:block">
               <PulseLine compact />
@@ -309,7 +297,7 @@ export default function Login() {
                     type="checkbox"
                     checked={remember}
                     onChange={(e) => setRemember(e.target.checked)}
-                    className="h-4 w-4 cursor-pointer rounded border-border accent-[#0E7C74]"
+                    className="h-4 w-4 cursor-pointer rounded border-border accent-[var(--color-primary)]"
                   />
                   Remember me
                 </label>
@@ -352,7 +340,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={!isValid || submitting}
-                className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-[#139186] py-3 text-[15px] font-semibold text-white shadow-[0_10px_24px_-12px_rgba(14,124,116,0.75)] transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25"
+                className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary via-[#1466B8] to-[#0E86B5] py-3 text-[15px] font-semibold text-white shadow-[0_10px_24px_-12px_rgba(11,74,143,0.75)] transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25"
               >
                 {submitting ? (
                   <>
@@ -375,7 +363,8 @@ export default function Login() {
           </div>
 
           <p className="mt-6 text-center text-xs text-muted lg:hidden">
-            © {year} {STORE_NAME} · For authorised staff only
+            <Link to="/" className="font-semibold text-primary hover:underline">← Back to website</Link>
+            <span className="mx-2">·</span>© {year} {STORE_NAME}
           </p>
         </div>
       </main>

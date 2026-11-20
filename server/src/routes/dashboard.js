@@ -79,8 +79,8 @@ router.get("/profitability/export", requireRole("admin"), async (req, res) => {
 
   if (req.query.format === "pdf") {
     const rs = (n) => `Rs. ${n.toFixed(2)}`;
-    return streamPdfReport(res, "GHM_Product_Profitability.pdf", {
-      title: "GHM Medical Shop - Product Profitability & ROI",
+    return streamPdfReport(res, "GuganMedicals_Product_Profitability.pdf", {
+      title: "Gugan Medicals - Product Profitability & ROI",
       subtitle: filterLine ? `${period} · ${filterLine}` : period,
       summaryLines: [
         `Investment ${rs(summary.investment)} · Revenue ${rs(summary.revenue)} · Gross Profit ${rs(summary.grossProfit)}`,
@@ -99,7 +99,7 @@ router.get("/profitability/export", requireRole("admin"), async (req, res) => {
     });
   }
 
-  await streamExcelReport(res, "GHM_Product_Profitability.xlsx", [
+  await streamExcelReport(res, "GuganMedicals_Product_Profitability.xlsx", [
     { name: "Product ROI", columns: PROFITABILITY_COLUMNS, rows },
   ]);
 });
@@ -139,8 +139,8 @@ router.get("/export", requireRole("admin"), async (req, res) => {
   ];
 
   if (req.query.format === "pdf") {
-    return streamPdfReport(res, "GHM_Report.pdf", {
-      title: "GHM Medical Shop - P&L Summary",
+    return streamPdfReport(res, "GuganMedicals_Report.pdf", {
+      title: "Gugan Medicals - P&L Summary",
       showCount: false,
       subtitle: `${start.toDateString()} - ${end.toDateString()}${filterLine ? ` · ${filterLine}` : ""}`,
       columns: [
@@ -164,7 +164,7 @@ router.get("/export", requireRole("admin"), async (req, res) => {
   const purchases = await Purchase.find(purchaseFilter).populate("vendor", "name");
   const expenses = await Expense.find({ date: { $gte: start, $lte: end } });
 
-  await streamExcelReport(res, "GHM_Report.xlsx", [
+  await streamExcelReport(res, "GuganMedicals_Report.xlsx", [
     {
       name: "Summary",
       columns: [{ header: "Metric", key: "k", width: 30 }, { header: "Value", key: "v", width: 20 }],

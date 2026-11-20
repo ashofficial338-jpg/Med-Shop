@@ -6,32 +6,41 @@
   --font-sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
 
-  /* Light clinical neutrals + charcoal ink, teal brand, soft-blue info. */
-  --color-bg: #F3F6F9;
+  /* Gugan Medicals palette: deep medical blue (brand), fresh healthcare
+     green (secondary / "go" actions), light cyan-teal accent highlights, on
+     clean white and soft grey surfaces with navy ink. */
+  --color-bg: #F3F6FB;
   --color-surface: #FFFFFF;
-  --color-text: #15232B;
-  --color-muted: #64717D;
-  --color-border: #E3E8ED;
+  --color-text: #0F1E33;
+  --color-muted: #5E6B7F;
+  --color-border: #E1E8F1;
 
-  --color-primary: #0E7C74;
-  --color-primary-dark: #0A5F59;
-  --color-primary-soft: #E6F3F1;
-  --color-info: #2A78D6;
-  --color-info-soft: #EAF2FC;
-  --color-accent: #E8734A;
-  --color-success: #178A55;
+  --color-primary: #0B4A8F;
+  --color-primary-dark: #083A70;
+  --color-primary-soft: #E9F1FB;
+  --color-secondary: #12A06A;
+  --color-secondary-dark: #0B8556;
+  --color-secondary-soft: #E7F7EF;
+  --color-cyan: #22B8CF;
+  --color-cyan-soft: #E6F8FB;
+  --color-info: #0E86B5;
+  --color-info-soft: #E7F5FB;
+  /* "accent" is the app's go/add action colour (Add to Cart, Complete Sale):
+     healthcare green. */
+  --color-accent: #12A06A;
+  --color-success: #128A52;
   --color-warning: #B86E0E;
-  --color-danger: #C43D36;
+  --color-danger: #C9372F;
 
   /* Layered, low-contrast shadows: a hairline ring, a contact shadow and a
      soft ambient one. Tailwind's shadow-sm/md/lg/xl are remapped onto the
      same scale so every page picks them up without class changes. */
-  --shadow-card: 0 0 0 1px rgba(16, 36, 48, 0.035), 0 1px 2px rgba(16, 36, 48, 0.04), 0 8px 24px -12px rgba(16, 36, 48, 0.12);
-  --shadow-lift: 0 0 0 1px rgba(16, 36, 48, 0.04), 0 4px 8px -2px rgba(16, 36, 48, 0.06), 0 22px 44px -18px rgba(16, 36, 48, 0.26);
-  --shadow-sm: 0 0 0 1px rgba(16, 36, 48, 0.035), 0 1px 2px rgba(16, 36, 48, 0.04), 0 8px 24px -12px rgba(16, 36, 48, 0.12);
-  --shadow-md: 0 0 0 1px rgba(16, 36, 48, 0.04), 0 4px 8px -2px rgba(16, 36, 48, 0.06), 0 22px 44px -18px rgba(16, 36, 48, 0.26);
-  --shadow-lg: 0 0 0 1px rgba(16, 36, 48, 0.04), 0 10px 20px -6px rgba(16, 36, 48, 0.1), 0 30px 60px -24px rgba(16, 36, 48, 0.3);
-  --shadow-xl: 0 0 0 1px rgba(16, 36, 48, 0.05), 0 16px 32px -8px rgba(16, 36, 48, 0.14), 0 44px 90px -30px rgba(10, 40, 46, 0.42);
+  --shadow-card: 0 0 0 1px rgba(15, 30, 60, 0.035), 0 1px 2px rgba(15, 30, 60, 0.04), 0 8px 24px -12px rgba(15, 30, 60, 0.12);
+  --shadow-lift: 0 0 0 1px rgba(15, 30, 60, 0.04), 0 4px 8px -2px rgba(15, 30, 60, 0.06), 0 22px 44px -18px rgba(15, 30, 60, 0.26);
+  --shadow-sm: 0 0 0 1px rgba(15, 30, 60, 0.035), 0 1px 2px rgba(15, 30, 60, 0.04), 0 8px 24px -12px rgba(15, 30, 60, 0.12);
+  --shadow-md: 0 0 0 1px rgba(15, 30, 60, 0.04), 0 4px 8px -2px rgba(15, 30, 60, 0.06), 0 22px 44px -18px rgba(15, 30, 60, 0.26);
+  --shadow-lg: 0 0 0 1px rgba(15, 30, 60, 0.04), 0 10px 20px -6px rgba(15, 30, 60, 0.1), 0 30px 60px -24px rgba(15, 30, 60, 0.3);
+  --shadow-xl: 0 0 0 1px rgba(15, 30, 60, 0.05), 0 16px 32px -8px rgba(15, 30, 60, 0.14), 0 44px 90px -30px rgba(8, 26, 60, 0.42);
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -55,7 +64,8 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* Ambient backdrop: two very soft brand glows behind every screen. */
+  /* Ambient backdrop: soft blue, cyan and green glows behind every screen,
+     which the frosted-glass surfaces pick up. */
   body::before {
     content: "";
     position: fixed;
@@ -63,9 +73,10 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(60rem 40rem at 105% -10%, rgba(42, 120, 214, 0.07), transparent 60%),
-      radial-gradient(50rem 36rem at -10% 110%, rgba(14, 124, 116, 0.08), transparent 60%),
-      linear-gradient(180deg, #F8FAFC 0%, var(--color-bg) 40%);
+      radial-gradient(56rem 38rem at 108% -12%, rgba(34, 184, 207, 0.13), transparent 60%),
+      radial-gradient(48rem 34rem at -12% 112%, rgba(18, 160, 106, 0.09), transparent 60%),
+      radial-gradient(40rem 30rem at 40% 40%, rgba(11, 74, 143, 0.04), transparent 70%),
+      linear-gradient(180deg, #F8FAFD 0%, var(--color-bg) 45%);
   }
 
   h1, h2, h3 {
@@ -74,12 +85,12 @@
   }
 
   ::selection {
-    background: rgba(14, 124, 116, 0.18);
+    background: rgba(11, 74, 143, 0.18);
     color: var(--color-text);
   }
 
   :focus-visible {
-    outline: 2px solid rgba(14, 124, 116, 0.55);
+    outline: 2px solid rgba(11, 74, 143, 0.55);
     outline-offset: 2px;
   }
 
@@ -111,8 +122,8 @@
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
   select:focus,
   textarea:focus {
-    border-color: rgba(14, 124, 116, 0.6);
-    box-shadow: 0 0 0 4px rgba(14, 124, 116, 0.12), 0 1px 2px rgba(16, 36, 48, 0.06);
+    border-color: rgba(11, 74, 143, 0.6);
+    box-shadow: 0 0 0 4px rgba(11, 74, 143, 0.12), 0 1px 2px rgba(15, 30, 60, 0.06);
   }
   select {
     cursor: pointer;
@@ -134,7 +145,7 @@
     transition: background-color 0.18s ease;
   }
   tbody tr:hover {
-    background-color: rgba(14, 124, 116, 0.035);
+    background-color: rgba(11, 74, 143, 0.035);
   }
 
   ::-webkit-scrollbar {
@@ -167,10 +178,12 @@
 .card {
   position: relative;
   isolation: isolate;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-card);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.82));
+  border: 1px solid rgba(225, 232, 241, 0.9);
+  border-radius: 1.125rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--shadow-card);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
 }
 .card::after {
   content: "";
@@ -181,7 +194,7 @@
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.35s ease;
-  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgba(14, 124, 116, 0.07), transparent 45%);
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgba(11, 74, 143, 0.07), transparent 45%);
 }
 .card:hover::after {
   opacity: 1;
@@ -191,20 +204,42 @@
 }
 .card-hover:hover {
   box-shadow: var(--shadow-lift);
-  border-color: rgba(14, 124, 116, 0.22);
+  border-color: rgba(11, 74, 143, 0.22);
   transform: translateY(-3px);
 }
 
 /* Glass surface for floating chrome. */
 .glass {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: saturate(180%) blur(16px);
-  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+}
+/* Frosted panel: for floating cards on gradients (landing page, login). */
+.glass-panel {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.52));
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 20px 50px -24px rgba(11, 40, 90, 0.35);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+}
+/* Dark glass: on the deep-blue hero and sidebar. */
+.glass-dark {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 24px 60px -28px rgba(3, 12, 30, 0.7);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
 }
 
 /* Gradient text for headline figures. */
+.text-gradient-brand {
+  background: linear-gradient(110deg, #9BE7F2 0%, #FFFFFF 45%, #7EE2B8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 .text-gradient {
-  background: linear-gradient(120deg, var(--color-text) 0%, var(--color-primary-dark) 55%, var(--color-primary) 100%);
+  background: linear-gradient(120deg, var(--color-text) 0%, var(--color-primary) 55%, #1478C8 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -218,21 +253,21 @@
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 2px rgba(10, 60, 56, 0.2), 0 8px 18px -8px var(--btn-glow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 2px rgba(8, 40, 90, 0.2), 0 8px 18px -8px var(--btn-glow);
 }
 :is(button, a).bg-primary.text-white {
-  --btn-glow: rgba(14, 124, 116, 0.65);
-  background-image: linear-gradient(135deg, #12988D 0%, var(--color-primary) 50%, var(--color-primary-dark) 100%);
+  --btn-glow: rgba(11, 74, 143, 0.65);
+  background-image: linear-gradient(135deg, #1A6FC4 0%, var(--color-primary) 55%, var(--color-primary-dark) 100%);
 }
 :is(button, a).bg-accent.text-white {
-  --btn-glow: rgba(232, 115, 74, 0.6);
-  background-image: linear-gradient(135deg, #F28E62 0%, var(--color-accent) 50%, #D25C35 100%);
+  --btn-glow: rgba(18, 160, 106, 0.6);
+  background-image: linear-gradient(135deg, #2CC285 0%, var(--color-accent) 50%, #0B8556 100%);
 }
 :is(button, a).bg-primary.text-white:not(:disabled):hover,
 :is(button, a).bg-accent.text-white:not(:disabled):hover {
   filter: brightness(1.06) saturate(1.05);
   transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 4px rgba(10, 60, 56, 0.18), 0 14px 26px -10px var(--btn-glow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 4px rgba(8, 40, 90, 0.18), 0 14px 26px -10px var(--btn-glow);
 }
 :is(button, a).bg-primary.text-white:not(:disabled):active,
 :is(button, a).bg-accent.text-white:not(:disabled):active {
@@ -263,8 +298,8 @@ button.border.border-border:not([class*="bg-"]) {
   background-color: var(--color-surface);
 }
 button.border.border-border:not(:disabled):hover {
-  border-color: rgba(14, 124, 116, 0.35);
-  box-shadow: 0 6px 16px -10px rgba(14, 124, 116, 0.45);
+  border-color: rgba(11, 74, 143, 0.35);
+  box-shadow: 0 6px 16px -10px rgba(11, 74, 143, 0.45);
 }
 
 /* Click ripple (spawned by utils/fx.js). */
@@ -285,7 +320,7 @@ button.border.border-border:not(:disabled):hover {
 
 /* Modal scrims: tinted ink + blur, with the dialog springing in. */
 .fixed.inset-0.bg-black\/40 {
-  background-color: rgba(7, 24, 30, 0.42);
+  background-color: rgba(6, 18, 41, 0.42);
   backdrop-filter: blur(6px) saturate(120%);
   -webkit-backdrop-filter: blur(6px) saturate(120%);
   animation: fxFade 0.25s ease backwards;
@@ -387,7 +422,7 @@ button.border.border-border:not(:disabled):hover {
   z-index: 60;
   height: 2px;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, var(--color-primary), #2FC1B0, var(--color-info));
+  background: linear-gradient(90deg, transparent, var(--color-primary), #22B8CF, var(--color-secondary));
   transform-origin: left;
   animation: fxProgress 0.9s var(--ease-out-expo) forwards;
 }
@@ -402,7 +437,7 @@ button.border.border-border:not(:disabled):hover {
   to { background-position: 600px 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #ECF0F3 0%, #F8FAFB 40%, #ECF0F3 80%);
+  background: linear-gradient(90deg, #E9EEF5 0%, #F7F9FC 40%, #E9EEF5 80%);
   background-size: 1200px 100%;
   animation: shimmer 1.6s ease-in-out infinite;
   border-radius: 0.5rem;
@@ -422,13 +457,13 @@ button.border.border-border:not(:disabled):hover {
 
 .sidebar-surface {
   background:
-    radial-gradient(28rem 20rem at 0% 0%, rgba(47, 193, 176, 0.16), transparent 60%),
-    radial-gradient(24rem 22rem at 100% 100%, rgba(42, 120, 214, 0.14), transparent 60%),
-    linear-gradient(180deg, #0C2A2F 0%, #08202A 55%, #071A22 100%);
+    radial-gradient(28rem 20rem at 0% 0%, rgba(34, 184, 207, 0.2), transparent 60%),
+    radial-gradient(24rem 22rem at 100% 100%, rgba(18, 160, 106, 0.16), transparent 60%),
+    linear-gradient(180deg, #0B2347 0%, #081B39 55%, #06142C 100%);
 }
 .nav-active {
-  background: linear-gradient(90deg, rgba(47, 193, 176, 0.2), rgba(47, 193, 176, 0.04));
-  box-shadow: inset 0 0 0 1px rgba(127, 230, 214, 0.14);
+  background: linear-gradient(90deg, rgba(34, 184, 207, 0.2), rgba(34, 184, 207, 0.04));
+  box-shadow: inset 0 0 0 1px rgba(155, 231, 242, 0.14);
 }
 .nav-active::before {
   content: "";
@@ -439,8 +474,8 @@ button.border.border-border:not(:disabled):hover {
   width: 4px;
   border-radius: 0 4px 4px 0;
   transform: translateY(-50%);
-  background: linear-gradient(180deg, #7FE6D6, #2FC1B0);
-  box-shadow: 0 0 14px rgba(47, 193, 176, 0.9);
+  background: linear-gradient(180deg, #9BE7F2, #22B8CF);
+  box-shadow: 0 0 14px rgba(34, 184, 207, 0.9);
   animation: fxNavBar 0.4s var(--ease-out-expo) backwards;
 }
 @keyframes fxNavBar {
@@ -452,10 +487,10 @@ button.border.border-border:not(:disabled):hover {
 
 :root {
   --toastify-font-family: var(--font-sans);
-  --toastify-color-success: #178A55;
-  --toastify-color-error: #C43D36;
+  --toastify-color-success: #128A52;
+  --toastify-color-error: #C9372F;
   --toastify-color-warning: #B86E0E;
-  --toastify-color-info: #2A78D6;
+  --toastify-color-info: #0B4A8F;
   --toastify-toast-bd-radius: 14px;
 }
 .Toastify__toast {
@@ -544,5 +579,156 @@ input:-webkit-autofill {
   }
   .login-ecg {
     stroke-dashoffset: 0;
+  }
+}
+
+/* ───────────────────────── Gugan Medicals: brand motion ───────────────────────── */
+
+/* Scroll-reveal: elements fade/rise in when they enter the viewport
+   (toggled by the useReveal hook). Delay via --d. An animation rather than a
+   transition, so it never fights hover transitions on the same element. */
+.reveal {
+  opacity: 0;
+}
+.reveal.is-visible {
+  opacity: 1;
+  animation: revealUp 0.85s var(--ease-out-expo) var(--d, 0ms) backwards;
+}
+.reveal-zoom.is-visible {
+  animation-name: revealZoom;
+}
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes revealZoom {
+  from { opacity: 0; transform: translateY(18px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Gentle floating for hero decorations and badges. */
+@keyframes floatY {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -12px, 0); }
+}
+@keyframes floatRot {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-8deg); }
+  50% { transform: translate3d(0, -16px, 0) rotate(4deg); }
+}
+.float-slow { animation: floatY 7s ease-in-out infinite; }
+.float-mid { animation: floatY 5.5s ease-in-out infinite; animation-delay: -2s; }
+.float-rot { animation: floatRot 9s ease-in-out infinite; }
+
+/* Slow drifting colour blobs. */
+@keyframes blobDrift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(30px, -24px, 0) scale(1.08); }
+  66% { transform: translate3d(-20px, 18px, 0) scale(0.96); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+.blob { animation: blobDrift 18s ease-in-out infinite; }
+.blob-b { animation-delay: -6s; animation-duration: 22s; }
+.blob-c { animation-delay: -12s; animation-duration: 26s; }
+
+/* Hero background: deep medical blue into teal, with a fine grid. */
+.hero-surface {
+  background:
+    radial-gradient(60rem 36rem at 85% 10%, rgba(34, 184, 207, 0.35), transparent 60%),
+    radial-gradient(44rem 30rem at 0% 100%, rgba(18, 160, 106, 0.28), transparent 60%),
+    linear-gradient(135deg, #062A5A 0%, #0B4A8F 52%, #0E6A9E 100%);
+}
+
+/* Product / category cards on the landing page: lift with a soft tilt. */
+.lift-card {
+  transition: transform 0.5s var(--ease-out-expo), box-shadow 0.5s var(--ease-out-expo), border-color 0.3s ease;
+}
+.lift-card:hover {
+  transform: translateY(-6px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 28px 56px -26px rgba(11, 60, 130, 0.42);
+  border-color: rgba(34, 184, 207, 0.45);
+}
+
+/* Animated gradient border for highlight cards. */
+.ring-gradient {
+  position: relative;
+}
+.ring-gradient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(34, 184, 207, 0.7), rgba(11, 74, 143, 0.15), rgba(18, 160, 106, 0.7));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Scrolling strip of trust points. */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track {
+  animation: marquee 38s linear infinite;
+}
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+/* Icon wiggle on hover inside a .group. */
+.group:hover .icon-pop {
+  transform: translateY(-2px) scale(1.08) rotate(-6deg);
+}
+.icon-pop {
+  transition: transform 0.45s var(--ease-spring);
+}
+
+/* Branded loader: pulsing cross inside an orbiting ring. */
+.gm-loader {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+.gm-loader::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 3px solid rgba(11, 74, 143, 0.12);
+  border-top-color: var(--color-primary);
+  border-right-color: var(--color-cyan);
+  animation: gmSpin 0.9s linear infinite;
+}
+.gm-loader > span {
+  position: absolute;
+  inset: 14px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #1A6FC4, var(--color-primary));
+  animation: gmPulse 1.4s ease-in-out infinite;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 2h6v7h7v6h-7v7H9v-7H2V9h7z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 2h6v7h7v6h-7v7H9v-7H2V9h7z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+@keyframes gmSpin { to { transform: rotate(360deg); } }
+@keyframes gmPulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.85; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+
+/* Anchor targets clear the sticky landing navbar. */
+[data-section] {
+  scroll-margin-top: 84px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+  }
+  .float-slow, .float-mid, .float-rot, .blob, .marquee-track {
+    animation: none !important;
+  }
+  .lift-card:hover {
+    transform: none;
   }
 }

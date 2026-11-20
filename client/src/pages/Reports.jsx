@@ -656,7 +656,7 @@ export default function Reports() {
           {canExport && (
             <button
               onClick={() => setExporting(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_-8px_rgba(14,124,116,0.8)] transition hover:bg-primary-dark"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_-8px_rgba(11,74,143,0.8)] transition hover:bg-primary-dark"
             >
               <Icon name="download" size={16} />
               Export PDF / Excel

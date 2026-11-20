@@ -6,7 +6,7 @@ import { money2, moneyCompact, percent } from "../dashboard/format";
 
 // Same validated palette slots as the dashboard: revenue blue, costs orange,
 // profit aqua; single-series magnitude bars use the brand teal.
-export const COLORS = { revenue: "#2a78d6", costs: "#eb6834", profit: "#1baf7a", brand: "#0E7C74" };
+export const COLORS = { revenue: "#2a78d6", costs: "#eb6834", profit: "#1baf7a", brand: "#0B4A8F" };
 const GRID = "#edf0f3";
 const AXIS = { fontSize: 11, fill: "#7b8793" };
 
@@ -80,7 +80,7 @@ export function RevenueCostChart({ trend, granularity }) {
               <CartesianGrid stroke={GRID} vertical={false} />
               <XAxis dataKey="label" tickFormatter={axisLabel} tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={14} dy={6} />
               <YAxis tickFormatter={moneyCompact} tick={AXIS} axisLine={false} tickLine={false} width={56} />
-              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(14,124,116,0.05)" }} />
+              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(11,74,143,0.05)" }} />
               <Bar dataKey="revenue" name="Revenue" fill={COLORS.revenue} radius={[4, 4, 0, 0]} maxBarSize={22} />
               <Bar dataKey="costs" name="Total costs" fill={COLORS.costs} radius={[4, 4, 0, 0]} maxBarSize={22} />
             </BarChart>
@@ -168,7 +168,7 @@ export function RankBars({ title, subtitle, rows, labelKey, valueKey = "revenue"
               <CartesianGrid stroke={GRID} horizontal={false} />
               <XAxis type="number" tickFormatter={moneyCompact} tick={AXIS} axisLine={false} tickLine={false} />
               <YAxis dataKey={labelKey} type="category" tick={AXIS} axisLine={false} tickLine={false} width={112} />
-              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(14,124,116,0.06)" }} />
+              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(11,74,143,0.06)" }} />
               <Bar
                 dataKey={valueKey}
                 name="Revenue"

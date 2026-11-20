@@ -54,8 +54,8 @@ router.get("/export", async (req, res) => {
   const subtitle = type ? `Type: ${type}` : "All movement types";
 
   if (format === "pdf") {
-    return streamPdfReport(res, "GHM_Stock_Ledger.pdf", {
-      title: "GHM Medical Shop - Stock Ledger",
+    return streamPdfReport(res, "GuganMedicals_Stock_Ledger.pdf", {
+      title: "Gugan Medicals - Stock Ledger",
       subtitle,
       columns: [
         { header: "Date", key: "date", flex: 1.2 },
@@ -71,7 +71,7 @@ router.get("/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, "GHM_Stock_Ledger.xlsx", [
+  return streamExcelReport(res, "GuganMedicals_Stock_Ledger.xlsx", [
     {
       name: "Stock Ledger",
       columns: [

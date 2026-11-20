@@ -51,7 +51,7 @@ function RackBadge({ rack, size = "md", onEdit }) {
       <div
         className={`flex flex-col items-center justify-center font-display font-extrabold leading-none tracking-tight ${sizes[size]} ${
           assigned
-            ? "bg-gradient-to-br from-[#2FC1B0] via-primary to-[#0A5F59] text-white shadow-[0_12px_28px_-12px_rgba(14,124,116,0.9)]"
+            ? "bg-gradient-to-br from-[#22B8CF] via-primary to-[#083A70] text-white shadow-[0_12px_28px_-12px_rgba(11,74,143,0.9)]"
             : "border-2 border-dashed border-border bg-bg text-muted"
         }`}
       >
@@ -579,7 +579,7 @@ export default function RackFinder() {
                     aria-label={`Rack ${l}, ${count} product${count === 1 ? "" : "s"}`}
                     className={`flex flex-col items-center justify-center rounded-xl py-2 ring-1 transition ${
                       active
-                        ? "bg-primary text-white shadow-[0_8px_20px_-10px_rgba(14,124,116,0.9)] ring-2 ring-primary ring-offset-2 ring-offset-bg"
+                        ? "bg-primary text-white shadow-[0_8px_20px_-10px_rgba(11,74,143,0.9)] ring-2 ring-primary ring-offset-2 ring-offset-bg"
                         : "bg-surface text-text ring-border hover:ring-primary/50"
                     }`}
                   >

@@ -134,7 +134,7 @@ export default function ExportDialog({ params, periodLabel, onApplyPeriod, onClo
       if (asPreview) {
         setPreview({ url: URL.createObjectURL(blob), blob });
       } else {
-        saveBlob(blob, `GHM_${title}`, format);
+        saveBlob(blob, `GuganMedicals_${title}`, format);
         toast.success(`${format === "pdf" ? "PDF" : "Excel"} report downloaded.`);
       }
     } catch (err) {
@@ -160,7 +160,7 @@ export default function ExportDialog({ params, periodLabel, onApplyPeriod, onClo
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  saveBlob(preview.blob, `GHM_${title}`, "pdf");
+                  saveBlob(preview.blob, `GuganMedicals_${title}`, "pdf");
                   toast.success("PDF report downloaded.");
                 }}
                 className={`${btn} bg-primary text-white hover:bg-primary-dark`}

@@ -9,13 +9,13 @@ export function getDashboardSummary(params) {
 }
 
 export function downloadDashboardReport(params, format = "excel") {
-  return downloadFile("/dashboard/export", { ...compactParams(params), format }, reportFileName("GHM_PnL_Report", format));
+  return downloadFile("/dashboard/export", { ...compactParams(params), format }, reportFileName("GuganMedicals_PnL_Report", format));
 }
 
 export function downloadProfitabilityReport(params, format = "excel") {
   return downloadFile(
     "/dashboard/profitability/export",
     { ...compactParams(params), format },
-    reportFileName("GHM_Product_Profitability", format)
+    reportFileName("GuganMedicals_Product_Profitability", format)
   );
 }

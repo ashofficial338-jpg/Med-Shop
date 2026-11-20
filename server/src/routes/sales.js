@@ -72,8 +72,8 @@ router.get("/export", async (req, res) => {
   }));
 
   if (format === "pdf") {
-    return streamPdfReport(res, "GHM_Sales_Report.pdf", {
-      title: "GHM Medical Shop - Sales Report",
+    return streamPdfReport(res, "GuganMedicals_Sales_Report.pdf", {
+      title: "Gugan Medicals - Sales Report",
       subtitle: `${rows.length} bill(s)`,
       columns: [
         { header: "Bill No", key: "billNo" },
@@ -88,7 +88,7 @@ router.get("/export", async (req, res) => {
     });
   }
 
-  return streamExcelReport(res, "GHM_Sales_Report.xlsx", [
+  return streamExcelReport(res, "GuganMedicals_Sales_Report.xlsx", [
     {
       name: "Sales",
       columns: [

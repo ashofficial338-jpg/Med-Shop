@@ -10,5 +10,5 @@ export function createPurchase(data) {
 }
 
 export function exportPurchases(format, params) {
-  return downloadFile("/purchases/export", { ...params, format }, reportFileName("GHM_Purchases_Report", format));
+  return downloadFile("/purchases/export", { ...params, format }, reportFileName("GuganMedicals_Purchases_Report", format));
 }

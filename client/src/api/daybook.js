@@ -11,5 +11,5 @@ export function recordDayBookAdjustment(data) {
 
 export function exportDayBook(date, format) {
   // The file is named after the day it covers, not the download date.
-  return downloadFile("/day-book/export", { date, format }, `GHM_DayBook_${date}.${format === "pdf" ? "pdf" : "xlsx"}`);
+  return downloadFile("/day-book/export", { date, format }, `GuganMedicals_DayBook_${date}.${format === "pdf" ? "pdf" : "xlsx"}`);
 }

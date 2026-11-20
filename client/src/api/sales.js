@@ -27,5 +27,5 @@ export async function openSalePdf(id) {
 
 export function exportSales(format, params) {
   const ext = format === "pdf" ? "pdf" : "xlsx";
-  return downloadFile("/sales/export", { ...params, format }, `GHM_Sales_Report.${ext}`);
+  return downloadFile("/sales/export", { ...params, format }, `GuganMedicals_Sales_Report.${ext}`);
 }

@@ -34,13 +34,13 @@ export function rateVendor(id, data) {
 }
 
 export function exportVendorLedger(id, format, name) {
-  return downloadFile(`/vendors/${id}/ledger/export`, { format }, reportFileName(`GHM_Ledger_${name || id}`, format));
+  return downloadFile(`/vendors/${id}/ledger/export`, { format }, reportFileName(`GuganMedicals_Ledger_${name || id}`, format));
 }
 
 export function exportVendors(format, params) {
-  return downloadFile("/vendors/export", { ...params, format }, reportFileName("GHM_Vendors_Report", format));
+  return downloadFile("/vendors/export", { ...params, format }, reportFileName("GuganMedicals_Vendors_Report", format));
 }
 
 export function exportVendorReport(id, period, format, name) {
-  return downloadFile(`/vendors/${id}/report/export`, { period, format }, reportFileName(`GHM_VendorReport_${name || id}`, format));
+  return downloadFile(`/vendors/${id}/report/export`, { period, format }, reportFileName(`GuganMedicals_VendorReport_${name || id}`, format));
 }

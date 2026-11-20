@@ -34,7 +34,7 @@ function ComparisonChart({ rows, title, subtitle }) {
               <XAxis dataKey="label" tickFormatter={axisLabel} tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={14} dy={6} />
               <YAxis tickFormatter={moneyCompact} tick={AXIS} axisLine={false} tickLine={false} width={56} />
               <ReferenceLine y={0} stroke="#c9d1d8" />
-              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(14,124,116,0.05)" }} />
+              <Tooltip content={<TooltipCard />} cursor={{ fill: "rgba(11,74,143,0.05)" }} />
               <Bar dataKey="sales" name="Total sales" fill={COLORS.revenue} radius={[4, 4, 0, 0]} maxBarSize={20} />
               <Bar dataKey="costs" name="Total costs" fill={COLORS.costs} radius={[4, 4, 0, 0]} maxBarSize={20} />
               <Bar dataKey="profit" name="Net profit" fill={COLORS.profit} radius={[4, 4, 0, 0]} maxBarSize={20} />
