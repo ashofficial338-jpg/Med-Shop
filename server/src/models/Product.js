@@ -62,7 +62,7 @@ const productSchema = new mongoose.Schema(
     packUnit: {
       type: String,
       enum: ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"],
-      required: true,
+      default: "Strip",
     },
     unitsPerPack: {
       type: Number,
@@ -86,8 +86,8 @@ const productSchema = new mongoose.Schema(
     },
     packRate: {
       type: Number,
-      required: true,
-      min: 0.01,
+      default: 0,
+      min: 0,
     },
     // Always server-computed as packRate / unitsPerPack (rounded to 2dp) - see
     // productHelpers.computeLooseRate. Never accepted as manual input: stock
@@ -102,7 +102,7 @@ const productSchema = new mongoose.Schema(
     gstPercent: {
       type: Number,
       enum: [0, 5, 12, 18, 28],
-      required: true,
+      default: 0,
     },
     hsnCode: {
       type: String,

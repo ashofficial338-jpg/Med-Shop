@@ -15,7 +15,7 @@ router.get("/", requireAuth, async (req, res) => {
 // back, so re-adding an old name never trips the unique index.
 router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
   const name = String(req.body.name || "").trim();
-  if (!name) return res.status(400).json({ message: "This field is required." });
+  if (!name) return res.status(400).json({ message: "Enter a name for the category." });
   if (name.length > 50) return res.status(400).json({ message: "Category name must be 50 characters or fewer." });
 
   const existing = await Category.findOne({ name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"), isActive: true });

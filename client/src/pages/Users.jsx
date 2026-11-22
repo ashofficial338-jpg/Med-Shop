@@ -41,8 +41,9 @@ export default function Users() {
     loadUsers(q);
   };
 
+  // Email is optional (sign-in then uses the username); username + password stay required.
   const isFormValid =
-    EMAIL_RE.test(email) &&
+    (!email || EMAIL_RE.test(email)) &&
     email.length <= 50 &&
     username.trim().length > 0 &&
     password.length >= 6 &&
@@ -109,10 +110,10 @@ export default function Users() {
   const [editError, setEditError] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const editValid =
-    editing && EMAIL_RE.test(editing.email) && editing.email.length <= 50 && editing.username.trim().length > 0;
+    editing && (!editing.email || EMAIL_RE.test(editing.email)) && (editing.email || "").length <= 50 && editing.username.trim().length > 0;
 
   const openEdit = (u) => {
-    setEditing({ _id: u._id, username: u.username, email: u.email, role: u.role });
+    setEditing({ _id: u._id, username: u.username, email: u.email || "", role: u.role });
     setEditError("");
   };
 

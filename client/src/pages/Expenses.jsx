@@ -144,7 +144,7 @@ export default function Expenses() {
             />
             <button
               type="submit"
-              disabled={!(Number(amount) > 0) || saving}
+              disabled={(amount !== "" && !(Number(amount) >= 0)) || saving}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-primary-dark"
             >
               {saving ? "Saving…" : "Save"}

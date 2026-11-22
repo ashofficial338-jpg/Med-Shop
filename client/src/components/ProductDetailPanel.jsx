@@ -10,6 +10,7 @@ import Icon from "./Icon";
 import ProductPurchaseHistory from "./ProductPurchaseHistory";
 
 function batchStatus(expiryDate) {
+  if (!expiryDate) return { label: "No expiry", className: "text-muted" };
   const now = new Date();
   const soonCutoff = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const d = new Date(expiryDate);
@@ -290,7 +291,7 @@ export default function ProductDetailPanel({
                           <div className="mt-0.5 flex items-center justify-between text-muted">
                             <span>
                               Expires{" "}
-                              {new Date(b.expiryDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                              {b.expiryDate ? new Date(b.expiryDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                               {" · Received "}
                               {new Date(b.receivedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                             </span>

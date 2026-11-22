@@ -32,6 +32,9 @@ export function purchasePartyName(p) {
   return p.supplierName ? `${p.supplierName} (unregistered)` : "No supplier";
 }
 
+// Blank -> 0 for optional money fields; NaN for anything that isn't a number.
+const optionalNumber = (v) => (v === undefined || v === null || v === "" ? 0 : Number(v));
+
 const escapeRegex = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Shared by the list and its export. `category` keeps purchases that include
@@ -46,6 +49,10 @@ async function buildPurchaseFilter(req) {
   else if (vendor && mongoose.isValidObjectId(vendor)) filter.vendor = vendor;
   if (supplierName) Object.assign(filter, { vendor: null, supplierName: new RegExp(`^${escapeRegex(String(supplierName).trim())}$`, "i") });
   if (product && mongoose.isValidObjectId(product)) filter["items.product"] = product;
+  // Payment status (only credit purchases can carry a balance).
+  const paid = { $ifNull: ["$amountPaid", "$total"] };
+  if (req.query.payment === "paid") filter.$expr = { $gte: [paid, "$total"] };
+  if (req.query.payment === "due") filter.$expr = { $lt: [paid, "$total"] };
   const range = dayRange(from, to);
   if (range) filter.date = range;
   if (category && mongoose.isValidObjectId(category)) {
@@ -247,8 +254,8 @@ router.get("/:id", async (req, res) => {
 router.post("/", async (req, res) => {
   const { vendor, invoiceNo, date, items, tdsAmount, paymentMode, amountPaid } = req.body;
 
-  if (!vendor) return res.status(400).json({ message: "This field is required." });
-  if (!invoiceNo || !invoiceNo.trim()) return res.status(400).json({ message: "This field is required." });
+  // The supplier is what this route is for (no supplier -> POST /direct).
+  if (!vendor) return res.status(400).json({ message: "Choose a supplier, or use Purchase Without Supplier." });
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: "Add at least one product line before saving." });
   }
@@ -264,18 +271,19 @@ router.post("/", async (req, res) => {
     let gstAmount = 0;
 
     for (const item of items) {
-      const product = await Product.findById(item.product);
+      const product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
       if (!product) {
-        return res.status(400).json({ message: "This field is required." });
+        return res.status(400).json({ message: "Choose the product for each line (or remove empty lines)." });
       }
+      // Product and quantity are what a stock-in is; everything else is
+      // optional (cost 0, batch no = invoice no, no expiry, No Rack).
       const qtyPacks = Number(item.qtyPacks);
-      const costPrice = Number(item.costPrice);
-      if (!(qtyPacks > 0)) return res.status(400).json({ message: "Please enter a valid number." });
+      const costPrice = optionalNumber(item.costPrice);
+      if (!(qtyPacks > 0)) return res.status(400).json({ message: `Enter the quantity for ${product.name}.` });
       if (!(costPrice >= 0)) return res.status(400).json({ message: "Please enter a valid number." });
-      if (!item.batchNo) return res.status(400).json({ message: "This field is required." });
-      if (!item.expiryDate) return res.status(400).json({ message: "Please enter a valid date." });
+      if (item.expiryDate && Number.isNaN(new Date(item.expiryDate).getTime())) return res.status(400).json({ message: "Please enter a valid date." });
       const rack = cleanRack(item.rack);
-      const rackError = await rackPositionError(item.rack);
+      const rackError = await rackPositionError(item.rack, { required: false });
       if (rackError) return res.status(400).json({ message: rackError });
 
       const lineAmount = Number((qtyPacks * costPrice).toFixed(2));
@@ -288,8 +296,8 @@ router.post("/", async (req, res) => {
         product: product._id,
         qtyPacks,
         costPrice,
-        batchNo: item.batchNo,
-        expiryDate: item.expiryDate,
+        batchNo: String(item.batchNo || "").trim(),
+        expiryDate: item.expiryDate || null,
         rack,
         lineAmount,
         lineGst,
@@ -307,11 +315,13 @@ router.post("/", async (req, res) => {
     const resolvedAmountPaid =
       resolvedPaymentMode === "Credit" ? Math.min(Math.max(Number(amountPaid) || 0, 0), total) : total;
 
+    const resolvedInvoiceNo = String(invoiceNo || "").trim() || `PUR-${String(await nextSequence("purchaseNo")).padStart(6, "0")}`;
+    for (const it of resolvedItems) if (!it.batchNo) it.batchNo = resolvedInvoiceNo;
     await attachPreviousRates(resolvedItems, { vendor });
     const purchase = await Purchase.create({
       vendor,
-      invoiceNo: invoiceNo.trim(),
-      date,
+      invoiceNo: resolvedInvoiceNo,
+      date: date || new Date(),
       items: resolvedItems.map(({ _productDoc, ...rest }) => rest),
       subtotal,
       gstAmount,
@@ -334,7 +344,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    await stockInPurchase(purchase, resolvedItems, date, req.user._id);
+    await stockInPurchase(purchase, resolvedItems, purchase.date, req.user._id);
 
     const populated = await purchase.populate([
       { path: "vendor", select: "name" },
@@ -361,7 +371,6 @@ router.post("/", async (req, res) => {
 router.post("/direct", async (req, res) => {
   const { invoiceNo, supplierName, date, items, paymentMode } = req.body;
 
-  if (!date) return res.status(400).json({ message: "Please enter a valid date." });
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: "Add at least one product line before saving." });
   }
@@ -374,17 +383,18 @@ router.post("/direct", async (req, res) => {
   // half-made products behind.
   const prepared = [];
   for (const item of items) {
+    // Only the quantity is needed for a stock-in; the rest is optional.
     const qtyPacks = Number(item.qtyPacks);
-    const costPrice = Number(item.costPrice);
+    const costPrice = optionalNumber(item.costPrice);
     const hasSelling = item.sellingPrice !== undefined && item.sellingPrice !== null && item.sellingPrice !== "";
     const sellingPrice = Number(item.sellingPrice);
     if (!(qtyPacks > 0) || !Number.isInteger(qtyPacks)) return res.status(400).json({ message: "Please enter a valid quantity." });
     if (!(costPrice >= 0)) return res.status(400).json({ message: "Please enter a valid purchase price." });
-    if (hasSelling && !(sellingPrice > 0)) return res.status(400).json({ message: "Please enter a valid selling price." });
-    if (!item.expiryDate || Number.isNaN(new Date(item.expiryDate).getTime())) {
+    if (hasSelling && !(sellingPrice >= 0)) return res.status(400).json({ message: "Please enter a valid selling price." });
+    if (item.expiryDate && Number.isNaN(new Date(item.expiryDate).getTime())) {
       return res.status(400).json({ message: "Please enter a valid expiry date." });
     }
-    const rackError = await rackPositionError(item.rack);
+    const rackError = await rackPositionError(item.rack, { required: false });
     if (rackError) return res.status(400).json({ message: rackError });
 
     let product = null;
@@ -393,17 +403,17 @@ router.post("/direct", async (req, res) => {
       product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
       if (!product || !product.isActive) return res.status(400).json({ message: "Selected product was not found." });
     } else {
-      const np = item.newProduct || {};
+      // A new product line: every detail optional, with the same defaults
+      // as Add Product (auto name, Uncategorized, Strip, 0% GST, price 0).
+      const np = { ...(item.newProduct || {}) };
       const name = String(np.name || "").trim();
-      if (!name) return res.status(400).json({ message: "Please enter the product name." });
-      if (!String(np.category || "").trim()) return res.status(400).json({ message: "Please choose a category." });
-      if (!PACK_UNITS.includes(np.packUnit)) return res.status(400).json({ message: "Please choose a pack unit." });
-      if (!GST_VALUES.includes(Number(np.gstPercent))) return res.status(400).json({ message: "Please choose a GST rate." });
-      if (!hasSelling) return res.status(400).json({ message: "Please enter a valid selling price." });
+      if (!String(np.category || "").trim()) np.category = "Uncategorized";
+      if (!np.packUnit) np.packUnit = "Strip";
+      if (np.gstPercent === undefined || np.gstPercent === null || np.gstPercent === "") np.gstPercent = 0;
+      if (!PACK_UNITS.includes(np.packUnit)) return res.status(400).json({ message: "Please choose a valid pack unit." });
+      if (!GST_VALUES.includes(Number(np.gstPercent))) return res.status(400).json({ message: "Please choose a valid GST rate." });
       const soldAs = deriveSoldAs(np.unitsPerPack);
-      if (soldAs === "pack-and-loose" && !LOOSE_UNITS.includes(np.looseUnitName)) {
-        return res.status(400).json({ message: "Please choose the loose unit." });
-      }
+      if (soldAs === "pack-and-loose" && !LOOSE_UNITS.includes(np.looseUnitName)) np.looseUnitName = "Piece";
       newProduct = { ...np, name, soldAs };
     }
     prepared.push({ item, qtyPacks, costPrice, sellingPrice: hasSelling ? sellingPrice : null, product, newProduct });
@@ -424,30 +434,32 @@ router.post("/direct", async (req, res) => {
       const rack = cleanRack(item.rack);
       let product = existing;
       if (newProduct) {
-        product =
-          madeHere.get(newProduct.name.toLowerCase()) ||
-          (await Product.findOne({ isActive: true, name: new RegExp(`^${escapeRegex(newProduct.name)}$`, "i") }));
+        product = newProduct.name
+          ? madeHere.get(newProduct.name.toLowerCase()) ||
+            (await Product.findOne({ isActive: true, name: new RegExp(`^${escapeRegex(newProduct.name)}$`, "i") }))
+          : null;
       }
       if (newProduct && !product) {
         const category = await resolveCategory(String(newProduct.category).trim());
+        const productCode = await generateProductCode(newProduct.name);
         product = await Product.create({
-          name: newProduct.name,
+          name: newProduct.name || `Product ${productCode}`,
           brand: String(newProduct.brand || "").trim(),
-          productCode: await generateProductCode(newProduct.name),
+          productCode,
           category: category._id,
           soldAs: newProduct.soldAs,
           packUnit: newProduct.packUnit,
           unitsPerPack: newProduct.soldAs === "pack-and-loose" ? Number(newProduct.unitsPerPack) : undefined,
           looseUnitName: newProduct.soldAs === "pack-and-loose" ? newProduct.looseUnitName : "",
           qty: 0,
-          packRate: sellingPrice,
-          looseRate: computeLooseRate({ soldAs: newProduct.soldAs, packRate: sellingPrice, unitsPerPack: newProduct.unitsPerPack }),
+          packRate: sellingPrice ?? 0,
+          looseRate: computeLooseRate({ soldAs: newProduct.soldAs, packRate: sellingPrice ?? 0, unitsPerPack: newProduct.unitsPerPack }) ?? 0,
           gstPercent: Number(newProduct.gstPercent),
           rack,
           vendor: null,
         });
         createdProductIds.push(product._id);
-        madeHere.set(newProduct.name.toLowerCase(), product);
+        if (newProduct.name) madeHere.set(newProduct.name.toLowerCase(), product);
       } else if (sellingPrice !== null && sellingPrice !== product.packRate) {
         // A new selling price entered for an existing product becomes its
         // current price (saved along with the stock-in below).
@@ -465,7 +477,7 @@ router.post("/direct", async (req, res) => {
         qtyPacks,
         costPrice,
         batchNo: String(item.batchNo || "").trim() || resolvedInvoiceNo,
-        expiryDate: item.expiryDate,
+        expiryDate: item.expiryDate || null,
         rack,
         lineAmount,
         lineGst,
@@ -488,7 +500,7 @@ router.post("/direct", async (req, res) => {
       vendor: null,
       supplierName: String(supplierName || "").trim(),
       invoiceNo: resolvedInvoiceNo,
-      date,
+      date: date || new Date(),
       items: resolvedItems.map(({ _productDoc, ...rest }) => rest),
       subtotal,
       gstAmount,
@@ -499,7 +511,7 @@ router.post("/direct", async (req, res) => {
       createdBy: req.user._id,
     });
 
-    await stockInPurchase(purchase, resolvedItems, date, req.user._id);
+    await stockInPurchase(purchase, resolvedItems, purchase.date, req.user._id);
 
     const populated = await purchase.populate([{ path: "items.product", select: "name productCode" }]);
     res.status(201).json(populated);

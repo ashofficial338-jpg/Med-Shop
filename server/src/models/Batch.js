@@ -20,9 +20,11 @@ const batchSchema = new mongoose.Schema(
       trim: true,
       maxlength: 30,
     },
+    // Optional: null when not entered. No-expiry stock is sold after dated
+    // stock and is never flagged as expired.
     expiryDate: {
       type: Date,
-      required: true,
+      default: null,
     },
     costPrice: {
       type: Number,

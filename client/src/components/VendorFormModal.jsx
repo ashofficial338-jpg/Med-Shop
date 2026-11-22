@@ -19,10 +19,10 @@ export default function VendorFormModal({ vendor, onClose, onSaved }) {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  // All optional; anything entered must be well-formed.
   const isValid =
-    form.name.trim().length > 0 &&
-    /^\d{10}$/.test(form.phone) &&
-    form.gstNumber.trim().length === 15 &&
+    (!form.phone || /^\d{10}$/.test(form.phone)) &&
+    (!form.gstNumber.trim() || form.gstNumber.trim().length === 15) &&
     (!form.email || EMAIL_RE.test(form.email));
 
   const handleSubmit = async (e) => {

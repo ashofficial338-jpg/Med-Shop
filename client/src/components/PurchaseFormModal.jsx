@@ -4,7 +4,7 @@ import { createPurchase } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
 import PurchaseRateHint from "./PurchaseRateHint";
-import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
+import { validPosition } from "../utils/rack";
 
 const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
 
@@ -18,7 +18,6 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const [lines, setLines] = useState([{ ...emptyLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [rackMissing, setRackMissing] = useState(false);
 
   useEffect(() => {
     listProducts().then(setProducts);
@@ -73,18 +72,16 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const balancePayable = Number((total - paidNow).toFixed(2));
 
   const validLines = lines.filter(
-    (l) => l.product && Number(l.qtyPacks) > 0 && Number(l.costPrice) >= 0 && l.batchNo.trim() && l.expiryDate
+    (l) => l.product && Number(l.qtyPacks) > 0 && (l.costPrice === "" || Number(l.costPrice) >= 0)
   );
-  const isValid = invoiceNo.trim().length > 0 && date && validLines.length === lines.length && lines.length > 0;
+  // Only a product and quantity per line are needed; invoice no, batch no,
+  // expiry, rack and rate are optional (auto invoice / batch numbers).
+  const isValid = validLines.length === lines.length && lines.length > 0;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
-    if (lines.some((l) => !isRackChoice(l.rack))) {
-      setRackMissing(true);
-      setError(RACK_REQUIRED_MESSAGE);
-      return;
-    }
+
     setSaving(true);
     setError("");
     try {
@@ -178,7 +175,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
                   className="col-span-2"
                   value={line.rack}
                   onChange={(v) => setLine(idx, "rack", v)}
-                  invalid={rackMissing && !isRackChoice(line.rack)}
+                  invalid={false}
                   labelClassName={labelCls}
                 />
               </div>

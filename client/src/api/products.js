@@ -93,3 +93,8 @@ export function getCompositionReport(params) {
 export function exportCompositionReport(format, params) {
   return downloadFile("/products/composition-report", { ...params, format }, reportFileName("GuganMedicals_Composition_Report", format));
 }
+
+// Only the filters worth showing: real brands / dosage forms and the price range.
+export function getProductFilterOptions() {
+  return api.get("/products/filter-options").then((r) => r.data);
+}

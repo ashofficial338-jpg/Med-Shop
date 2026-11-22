@@ -48,7 +48,8 @@ export default function Customers() {
     setDetail(data);
   };
 
-  const isValid = name.trim() && PHONE_RE.test(phone);
+  // Name and phone are optional; a phone that's entered must be 10 digits.
+  const isValid = !phone || PHONE_RE.test(phone);
 
   const handleCreate = async (e) => {
     e.preventDefault();

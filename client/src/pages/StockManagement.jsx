@@ -44,7 +44,7 @@ function ExpiryGroup({ title, batches, selected, onToggle, onToggleAll, badgeCls
               <input type="checkbox" checked={selected.has(b._id)} onChange={() => onToggle(b._id)} />
               <div>
                 <p className="text-text">{b.product?.name} <span className="font-mono text-xs text-muted">({b.product?.productCode})</span></p>
-                <p className="text-xs text-muted">Batch {b.batchNo} · Expires {new Date(b.expiryDate).toLocaleDateString()} · Qty {b.qtyRemaining}</p>
+                <p className="text-xs text-muted">Batch {b.batchNo} · Expires {b.expiryDate ? new Date(b.expiryDate).toLocaleDateString() : "—"} · Qty {b.qtyRemaining}</p>
               </div>
             </div>
           </label>

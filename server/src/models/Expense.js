@@ -13,12 +13,12 @@ const expenseSchema = new mongoose.Schema(
     category: {
       type: String,
       enum: EXPENSE_CATEGORIES,
-      required: true,
+      default: "Other",
     },
     amount: {
       type: Number,
-      required: true,
-      min: 0.01,
+      default: 0,
+      min: 0,
     },
     // Which cash bucket this expense drew from - the Day Book (dayBookHelpers.js)
     // uses this to attribute outflows to Cash/UPI; Card/Other sit outside those
@@ -31,7 +31,7 @@ const expenseSchema = new mongoose.Schema(
     },
     date: {
       type: Date,
-      required: true,
+      default: Date.now,
     },
     notes: {
       type: String,

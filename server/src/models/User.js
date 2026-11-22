@@ -2,13 +2,14 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
+    // Optional. Unique only when present (partial index below). A user with
+    // no email signs in with their username, which must then be unique.
     email: {
       type: String,
-      required: true,
-      unique: true,
       lowercase: true,
       trim: true,
       maxlength: 50,
+      set: (v) => (v === null || v === undefined || String(v).trim() === "" ? undefined : v),
     },
     username: {
       type: String,
@@ -37,7 +38,9 @@ const userSchema = new mongoose.Schema(
       default: [],
     },
   },
-  { timestamps: true }
+  { timestamps: true, autoIndex: false }
 );
+
+userSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: "string" } } });
 
 export default mongoose.model("User", userSchema);

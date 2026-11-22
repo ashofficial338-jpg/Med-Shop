@@ -16,13 +16,15 @@ function publicProduct(p) {
   return {
     _id: p._id,
     name: p.name,
-    brand: p.brand || "",
+    brand: p.manufacturer || p.brand || "",
     category: p.category?.name || "",
     categoryId: p.category?._id || null,
     image: p.image || "",
     strength: p.strengthValue ? `${p.strengthValue} ${p.strengthUnit || ""}`.trim() : "",
     packUnit: p.packUnit,
     price: p.packRate,
+    dosageForm: p.dosageForm || "",
+    composition: p.composition || p.genericName || "",
     inStock: p.qty > 0,
   };
 }
@@ -36,7 +38,7 @@ async function buildShowcase() {
       { $group: { _id: "$category", count: { $sum: 1 } } },
     ]),
     Product.find({ isActive: true, qty: { $gt: 0 } })
-      .select("name brand category image strengthValue strengthUnit packUnit packRate qty")
+      .select("name brand manufacturer category image strengthValue strengthUnit packUnit packRate qty dosageForm composition genericName")
       .populate("category", "name")
       .sort({ updatedAt: -1 })
       .limit(60)
@@ -54,7 +56,7 @@ async function buildShowcase() {
   const topIds = top.map((t) => t._id);
   const topProducts = topIds.length
     ? await Product.find({ _id: { $in: topIds }, isActive: true })
-        .select("name brand category image strengthValue strengthUnit packUnit packRate qty")
+        .select("name brand manufacturer category image strengthValue strengthUnit packUnit packRate qty dosageForm composition genericName")
         .populate("category", "name")
         .lean()
     : [];

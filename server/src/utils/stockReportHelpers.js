@@ -54,7 +54,7 @@ async function stockReportFor({ category, availability, scope = {} }) {
     const effectiveRate = product.soldAs === "pack-and-loose" ? product.looseRate : product.packRate;
     const valueMrp = Number((product.qty * effectiveRate).toFixed(2));
 
-    const nearestExpiry = productBatches.reduce((min, b) => (!min || b.expiryDate < min ? b.expiryDate : min), null);
+    const nearestExpiry = productBatches.reduce((min, b) => (b.expiryDate && (!min || b.expiryDate < min) ? b.expiryDate : min), null);
     // Purchase price per pack: the cost of the most recently received lot still on hand.
     const latestBatch = productBatches.reduce((last, b) => (!last || b.receivedAt > last.receivedAt ? b : last), null);
 

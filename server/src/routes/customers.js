@@ -33,14 +33,17 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { name, phone, email, address } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ message: "This field is required." });
-  if (!/^\d{10}$/.test(phone || "")) {
-    return res.status(400).json({ message: "Enter a valid 10-digit phone number." });
+  // Name and phone are optional; a phone that is given must be 10 digits
+  // (it's how a returning customer is found).
+  const { email, address } = req.body;
+  const phone = String(req.body.phone || "").trim();
+  const name = String(req.body.name || "").trim() || (phone ? `Customer ${phone}` : `Customer ${(await Customer.countDocuments()) + 1}`);
+  if (phone && !/^\d{10}$/.test(phone)) {
+    return res.status(400).json({ message: "Enter a valid 10-digit phone number, or leave it blank." });
   }
 
   try {
-    const existing = await Customer.findOne({ phone });
+    const existing = phone ? await Customer.findOne({ phone }) : null;
     if (existing?.isActive) return res.status(409).json({ message: "A customer with this phone number already exists." });
 
     // Phone is unique, so re-adding a deleted customer restores that record
@@ -51,7 +54,7 @@ router.post("/", async (req, res) => {
       return res.status(201).json(existing);
     }
 
-    const customer = await Customer.create({ name: name.trim(), phone, email, address });
+    const customer = await Customer.create({ name, phone: phone || undefined, email, address });
     res.status(201).json(customer);
   } catch (e) {
     res.status(500).json({ message: "Something went wrong. Please try again." });

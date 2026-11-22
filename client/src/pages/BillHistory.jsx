@@ -10,7 +10,7 @@ import { compactParams } from "../utils/query";
 
 // Filters live in the URL so dashboard links (e.g. "Total Sales" for a date
 // range / payment mode / category) open this list already narrowed down.
-const FILTER_KEYS = ["q", "from", "to", "paymentMode", "status", "category"];
+const FILTER_KEYS = ["q", "from", "to", "paymentMode", "status", "payment", "category"];
 
 export default function BillHistory() {
   const { user } = useAuth();
@@ -60,7 +60,7 @@ export default function BillHistory() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <input
           type="text"
-          placeholder="Search by bill number"
+          placeholder="Bill number, customer name or phone"
           value={filters.q}
           onChange={(e) => setFilter("q", e.target.value)}
           className={`${inputCls} w-full max-w-xs`}
@@ -77,6 +77,12 @@ export default function BillHistory() {
           <option value="">All bills</option>
           <option value="completed">Completed</option>
           <option value="void">Void</option>
+        </select>
+        <select aria-label="Payment status" value={filters.payment} onChange={(e) => setFilter("payment", e.target.value)} className={inputCls}>
+          <option value="">Any payment status</option>
+          <option value="paid">Fully paid</option>
+          <option value="partial">Partly paid</option>
+          <option value="unpaid">Unpaid (credit)</option>
         </select>
         {filters.category && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1.5 text-xs font-semibold text-primary">

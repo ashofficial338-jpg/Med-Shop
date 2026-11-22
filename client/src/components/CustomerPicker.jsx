@@ -204,7 +204,7 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
             <button
               type="button"
               onClick={handleCreate}
-              disabled={!newName.trim() || !PHONE_RE.test(newPhone) || saving}
+              disabled={(newPhone !== "" && !PHONE_RE.test(newPhone)) || saving}
               className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save & Select"}

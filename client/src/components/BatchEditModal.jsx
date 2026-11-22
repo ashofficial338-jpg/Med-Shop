@@ -2,7 +2,7 @@ import { useState } from "react";
 import { updateBatch } from "../api/products";
 import RackInput from "./RackInput";
 import RequiredMark from "./RequiredMark";
-import { NO_RACK, isRackChoice } from "../utils/rack";
+import { NO_RACK } from "../utils/rack";
 
 // Edit one stock entry (batch). Quantity is in the product's stock unit -
 // loose units (e.g. Tablets) for products sold loose, whole packs otherwise.
@@ -11,7 +11,7 @@ export default function BatchEditModal({ product, batch, isAdmin, onClose, onSav
   const unit = product.soldAs === "pack-and-loose" ? `${product.looseUnitName}s` : `${product.packUnit}s`;
   const [form, setForm] = useState({
     batchNo: batch.batchNo,
-    expiryDate: String(batch.expiryDate).slice(0, 10),
+    expiryDate: batch.expiryDate ? String(batch.expiryDate).slice(0, 10) : "",
     qtyRemaining: String(batch.qtyRemaining),
     rack: batch.rack || NO_RACK,
     costPrice: batch.costPrice ?? "",
@@ -22,7 +22,8 @@ export default function BatchEditModal({ product, batch, isAdmin, onClose, onSav
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const qty = Number(form.qtyRemaining);
   const qtyValid = form.qtyRemaining !== "" && Number.isInteger(qty) && qty >= 0;
-  const isValid = form.batchNo.trim() && form.expiryDate && qtyValid && isRackChoice(form.rack) && (!isAdmin || Number(form.costPrice) >= 0);
+  // Blank fields keep / clear their value; only entered numbers are checked.
+  const isValid = (form.qtyRemaining === "" || qtyValid) && (!isAdmin || form.costPrice === "" || Number(form.costPrice) >= 0);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,9 +34,10 @@ export default function BatchEditModal({ product, batch, isAdmin, onClose, onSav
       const data = {
         batchNo: form.batchNo.trim(),
         expiryDate: form.expiryDate,
-        qtyRemaining: qty,
+        // Blank quantity / cost leave the current values unchanged.
+        ...(form.qtyRemaining !== "" ? { qtyRemaining: qty } : {}),
         rack: form.rack,
-        ...(isAdmin ? { costPrice: Number(form.costPrice) } : {}),
+        ...(isAdmin && form.costPrice !== "" ? { costPrice: Number(form.costPrice) } : {}),
       };
       await updateBatch(product._id, batch._id, data);
       onSaved();
@@ -85,7 +87,7 @@ export default function BatchEditModal({ product, batch, isAdmin, onClose, onSav
             labelClassName={labelCls}
             value={form.rack}
             onChange={(v) => setForm((f) => ({ ...f, rack: v }))}
-            invalid={!isRackChoice(form.rack)}
+            invalid={false}
           />
         </div>
 

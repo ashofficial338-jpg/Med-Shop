@@ -10,6 +10,7 @@ export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { d
 export const money = (n) => (n == null ? "—" : `₹${Number(n).toFixed(2)}`);
 
 export function expiryTone(days) {
+  if (days === null || days === undefined) return "text-muted";
   if (days < 0) return "text-danger";
   if (days <= 30) return "text-warning";
   return "text-muted";
@@ -43,7 +44,7 @@ export function StockRowCard({ row, right }) {
         <p className="mt-1 text-xs text-muted">
           Batch <span className="font-mono text-text">{row.batchNo}</span> · exp{" "}
           <span className={expiryTone(row.daysToExpiry)}>{fmtDate(row.expiryDate)}</span>
-          {row.daysToExpiry < 0 ? " (expired)" : row.daysToExpiry <= 90 ? ` (${row.daysToExpiry} days)` : ""}
+          {row.daysToExpiry === null ? "" : row.daysToExpiry < 0 ? " (expired)" : row.daysToExpiry <= 90 ? ` (${row.daysToExpiry} days)` : ""}
         </p>
       </div>
       <div className="text-right">

@@ -4,7 +4,7 @@ import { createDirectPurchase, listUnregisteredSuppliers } from "../api/purchase
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
 import PurchaseRateHint from "./PurchaseRateHint";
-import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
+import { validPosition } from "../utils/rack";
 
 const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
@@ -45,7 +45,6 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
   const [lines, setLines] = useState([{ ...emptyLine }]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [rackMissing, setRackMissing] = useState(false);
 
   useEffect(() => {
     listProducts().then(setProducts).catch(() => {});
@@ -106,32 +105,23 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
   const gstTotal = lines.reduce((sum, l) => sum + lineGst(l), 0);
   const total = subtotal + gstTotal;
 
+  // Only the quantity is needed per line (and which product, for an existing
+  // one). Everything else is optional; the server fills sensible defaults.
   const lineValid = (l) => {
     const common =
-      Number.isInteger(Number(l.qtyPacks)) && Number(l.qtyPacks) > 0 && l.costPrice !== "" && Number(l.costPrice) >= 0 && l.expiryDate;
+      Number.isInteger(Number(l.qtyPacks)) &&
+      Number(l.qtyPacks) > 0 &&
+      (l.costPrice === "" || Number(l.costPrice) >= 0) &&
+      (l.sellingPrice === "" || Number(l.sellingPrice) >= 0);
     if (!common) return false;
-    if (!l.isNew) return Boolean(l.product) && (l.sellingPrice === "" || Number(l.sellingPrice) > 0);
-    const loose = Number(l.unitsPerPack) > 1;
-    return (
-      l.name.trim() &&
-      l.category.trim() &&
-      PACK_UNITS.includes(l.packUnit) &&
-      GST_VALUES.includes(Number(l.gstPercent)) &&
-      Number(l.sellingPrice) > 0 &&
-      (!loose || LOOSE_UNITS.includes(l.looseUnitName))
-    );
+    return l.isNew || Boolean(l.product);
   };
-  const isValid =
-    Boolean(date) && lines.length > 0 && lines.every(lineValid) && (mode === "none" || supplierName.trim().length > 0);
+  const isValid = lines.length > 0 && lines.every(lineValid);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
-    if (lines.some((l) => !isRackChoice(l.rack))) {
-      setRackMissing(true);
-      setError(RACK_REQUIRED_MESSAGE);
-      return;
-    }
+
     setSaving(true);
     setError("");
     try {
@@ -341,7 +331,7 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
                   className="col-span-2"
                   value={line.rack}
                   onChange={(v) => setLine(idx, "rack", v)}
-                  invalid={rackMissing && !isRackChoice(line.rack)}
+                  invalid={false}
                   labelClassName={labelCls}
                 />
               </div>

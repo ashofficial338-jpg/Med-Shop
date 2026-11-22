@@ -481,16 +481,33 @@ function ProductSkeletons({ n = 8 }) {
 function Products({ data, loading, failed, query, setQuery, category, setCategory, onRetry }) {
   const PAGE = 12;
   const [shown, setShown] = useState(PAGE);
+  // Optional extra filters - only offered when the products actually vary.
+  const [brand, setBrand] = useState("");
+  const [form, setForm] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const items = useMemo(() => data?.featured || [], [data]);
+  const brands = useMemo(() => [...new Set(items.map((p) => p.brand).filter(Boolean))].sort(), [items]);
+  const forms = useMemo(() => [...new Set(items.map((p) => p.dosageForm).filter(Boolean))].sort(), [items]);
+  const prices = items.map((p) => Number(p.price) || 0);
+  const priceSpread = prices.length > 1 && Math.max(...prices) > Math.min(...prices);
   const list = useMemo(() => {
-    const items = data?.featured || [];
     const q = query.trim().toLowerCase();
+    const min = minPrice === "" ? null : Number(minPrice);
+    const max = maxPrice === "" ? null : Number(maxPrice);
     return items.filter(
       (p) =>
         (!category || p.category === category) &&
-        (!q || `${p.name} ${p.brand} ${p.category}`.toLowerCase().includes(q))
+        (!brand || p.brand === brand) &&
+        (!form || p.dosageForm === form) &&
+        (min === null || p.price >= min) &&
+        (max === null || p.price <= max) &&
+        (!q || `${p.name} ${p.brand} ${p.category} ${p.composition || ""} ${p.strength || ""}`.toLowerCase().includes(q))
     );
-  }, [data, query, category]);
-  useEffect(() => setShown(PAGE), [query, category]);
+  }, [items, query, category, brand, form, minPrice, maxPrice]);
+  useEffect(() => setShown(PAGE), [query, category, brand, form, minPrice, maxPrice]);
+  const filterCls = "h-10 rounded-xl border border-border bg-white/80 px-3 text-sm text-text focus:outline-none";
+  const anyExtra = brand || form || minPrice || maxPrice;
   useReveal([list, shown]);
 
   const chips = data?.categories || [];
@@ -515,7 +532,7 @@ function Products({ data, loading, failed, query, setQuery, category, setCategor
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, brand or category"
+              placeholder="Search by name, brand, category or composition"
               className="h-12 w-full rounded-2xl border border-border bg-white/80 pl-11 pr-4 text-sm text-text shadow-[var(--shadow-card)] backdrop-blur placeholder:text-muted/70 focus:outline-none"
             />
           </div>
@@ -541,6 +558,48 @@ function Products({ data, loading, failed, query, setQuery, category, setCategor
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {(brands.length > 1 || forms.length > 0 || priceSpread) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="More filters">
+            {brands.length > 1 && (
+              <select aria-label="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} className={filterCls}>
+                <option value="">All brands</option>
+                {brands.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            )}
+            {forms.length > 0 && (
+              <select aria-label="Type" value={form} onChange={(e) => setForm(e.target.value)} className={filterCls}>
+                <option value="">All types</option>
+                {forms.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            )}
+            {priceSpread && (
+              <>
+                <input type="number" min="0" aria-label="Minimum price" placeholder="Min ₹" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} className={`${filterCls} w-24`} />
+                <span className="text-muted">–</span>
+                <input type="number" min="0" aria-label="Maximum price" placeholder="Max ₹" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className={`${filterCls} w-24`} />
+              </>
+            )}
+            {anyExtra && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBrand("");
+                  setForm("");
+                  setMinPrice("");
+                  setMaxPrice("");
+                }}
+                className="text-sm font-semibold text-primary hover:underline"
+              >
+                Clear
+              </button>
+            )}
           </div>
         )}
 

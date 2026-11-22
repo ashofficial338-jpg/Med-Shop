@@ -43,12 +43,22 @@ router.get("/", async (req, res) => {
   res.json(users);
 });
 
+// Whether another account already signs in with this username.
+async function usernameTaken(username, excludeId = null) {
+  const name = String(username || "").trim();
+  if (!name) return false;
+  const re = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+  return Boolean(await User.exists({ username: re, ...(excludeId ? { _id: { $ne: excludeId } } : {}) }));
+}
+
 router.post(
   "/",
   [
-    body("email").isEmail().withMessage("Please enter a valid email address."),
-    body("username").trim().isLength({ min: 1, max: 50 }).withMessage("This field is required."),
-    body("role").isIn(["admin", "staff"]).withMessage("This field is required."),
+    // Email and role are optional. Username + password are what the person
+    // signs in with, so they stay required.
+    body("email").optional({ values: "falsy" }).isEmail().withMessage("Please enter a valid email address, or leave it blank."),
+    body("username").trim().isLength({ min: 1, max: 50 }).withMessage("Enter a username - it's needed to sign in."),
+    body("role").optional({ values: "falsy" }).isIn(["admin", "staff"]).withMessage("Please choose Admin or Staff."),
     body("password")
       .isLength({ min: 6, max: 15 })
       .withMessage("Password must be between 6 and 15 characters."),
@@ -59,16 +69,21 @@ router.post(
       return res.status(400).json({ message: errors.array()[0].msg });
     }
 
-    const { email, username, role, password, isActive = true, permissions } = req.body;
+    const { username, password, isActive = true, permissions } = req.body;
+    const role = req.body.role || "staff";
+    const email = String(req.body.email || "").toLowerCase().trim();
 
-    const existing = await User.findOne({ email: email.toLowerCase().trim() });
-    if (existing) {
-      return res.status(409).json({ message: "This value is already in use." });
+    if (email && (await User.exists({ email }))) {
+      return res.status(409).json({ message: "This email is already in use." });
+    }
+    // Without an email, sign-in is by username alone, so it must be unique.
+    if (!email && (await usernameTaken(username))) {
+      return res.status(409).json({ message: "That username is already used. Pick another, or add an email address." });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({
-      email: email.toLowerCase().trim(),
+      email: email || undefined,
       username,
       role,
       passwordHash,
@@ -83,8 +98,8 @@ router.post(
 router.patch(
   "/:id",
   [
-    body("username").optional().trim().isLength({ min: 1, max: 50 }).withMessage("This field is required."),
-    body("email").optional().isEmail().withMessage("Please enter a valid email address."),
+    body("username").optional().trim().isLength({ min: 1, max: 50 }).withMessage("Username is needed to sign in."),
+    body("email").optional({ values: "falsy" }).isEmail().withMessage("Please enter a valid email address, or leave it blank."),
     body("role").optional().isIn(["admin", "staff"]),
     body("isActive").optional().isBoolean(),
     body("permissions").optional().isArray(),
@@ -115,11 +130,15 @@ router.patch(
     }
 
     if (req.body.email !== undefined) {
-      const email = String(req.body.email).toLowerCase().trim();
-      if (email !== user.email && (await User.exists({ email, _id: { $ne: user._id } }))) {
-        return res.status(409).json({ message: "This value is already in use." });
+      const email = String(req.body.email || "").toLowerCase().trim();
+      if (email && email !== user.email && (await User.exists({ email, _id: { $ne: user._id } }))) {
+        return res.status(409).json({ message: "This email is already in use." });
       }
-      user.email = email;
+      const nextUsername = req.body.username !== undefined ? req.body.username : user.username;
+      if (!email && (await usernameTaken(nextUsername, user._id))) {
+        return res.status(409).json({ message: "Another account uses this username, so this one needs an email to sign in." });
+      }
+      user.email = email || undefined;
     }
     if (req.body.username !== undefined) user.username = req.body.username;
     if (req.body.role !== undefined) user.role = req.body.role;

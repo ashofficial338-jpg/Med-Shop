@@ -4,15 +4,17 @@ const customerSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
       trim: true,
       maxlength: 100,
+      default: "",
     },
+    // Optional. Unique only when present (partial index below), so any
+    // number of customers can be saved without a phone.
     phone: {
       type: String,
-      required: true,
-      unique: true,
+      trim: true,
       match: /^\d{10}$/,
+      set: (v) => (v === null || v === undefined || String(v).trim() === "" ? undefined : v),
     },
     email: {
       type: String,
@@ -30,7 +32,11 @@ const customerSchema = new mongoose.Schema(
       default: true,
     },
   },
-  { timestamps: true }
+  // Indexes are managed by utils/optionalIndexes.js (the phone index had to
+  // change from unique to partial-unique on existing databases).
+  { timestamps: true, autoIndex: false }
 );
+
+customerSchema.index({ phone: 1 }, { unique: true, partialFilterExpression: { phone: { $type: "string" } } });
 
 export default mongoose.model("Customer", customerSchema);

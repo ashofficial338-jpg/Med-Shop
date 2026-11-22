@@ -63,12 +63,13 @@ router.get("/export", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { category, amount, date, notes, paymentMode } = req.body;
-  if (!EXPENSE_CATEGORIES.includes(category)) {
-    return res.status(400).json({ message: "This field is required." });
-  }
-  if (!(Number(amount) > 0)) return res.status(400).json({ message: "Please enter a valid number." });
-  if (!date) return res.status(400).json({ message: "Please enter a valid date." });
+  // All optional: category "Other", amount 0 and today's date by default.
+  const { notes, paymentMode } = req.body;
+  const category = req.body.category || "Other";
+  if (!EXPENSE_CATEGORIES.includes(category)) return res.status(400).json({ message: "Please choose a valid category." });
+  const amount = req.body.amount === undefined || req.body.amount === "" || req.body.amount === null ? 0 : Number(req.body.amount);
+  if (!(amount >= 0)) return res.status(400).json({ message: "Please enter a valid number." });
+  const date = req.body.date || new Date();
 
   const expense = await Expense.create({
     category,

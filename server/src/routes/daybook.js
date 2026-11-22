@@ -55,12 +55,14 @@ router.get("/export", async (req, res) => {
 });
 
 router.post("/adjustments", async (req, res) => {
-  const { type, date, balance, note } = req.body;
-  if (!["Cash", "UPI", "Credit"].includes(type)) {
-    return res.status(400).json({ message: "This field is required." });
+  // The balance is what this records; type defaults to Cash, date to today.
+  const { balance, note } = req.body;
+  const type = req.body.type || "Cash";
+  const date = req.body.date || new Date().toISOString().slice(0, 10);
+  if (!["Cash", "UPI", "Credit"].includes(type)) return res.status(400).json({ message: "Please choose Cash, UPI or Credit." });
+  if (balance === undefined || balance === null || balance === "" || !(Number(balance) >= 0)) {
+    return res.status(400).json({ message: "Enter the balance to record." });
   }
-  if (!date) return res.status(400).json({ message: "Please enter a valid date." });
-  if (!(Number(balance) >= 0)) return res.status(400).json({ message: "Please enter a valid number." });
 
   await DayBookAdjustment.create({
     type,

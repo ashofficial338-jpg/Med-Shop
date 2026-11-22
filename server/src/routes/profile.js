@@ -8,7 +8,7 @@ const router = Router();
 router.patch(
   "/",
   requireAuth,
-  [body("username").trim().isLength({ min: 1, max: 50 }).withMessage("This field is required.")],
+  [body("username").trim().isLength({ min: 1, max: 50 }).withMessage("Your username is needed to sign in.")],
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -31,7 +31,7 @@ router.post(
   "/change-password",
   requireAuth,
   [
-    body("currentPassword").notEmpty().withMessage("This field is required."),
+    body("currentPassword").notEmpty().withMessage("Enter your current password."),
     body("newPassword")
       .isLength({ min: 6, max: 15 })
       .withMessage("Password must be between 6 and 15 characters."),

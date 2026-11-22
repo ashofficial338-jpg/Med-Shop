@@ -1,9 +1,5 @@
-// Appended to a <label> to flag a mandatory field, e.g. <label>Name<RequiredMark /></label>
+// Fields are optional across the app, so no mandatory (*) marker is shown.
+// Kept as a no-op so existing <label>…<RequiredMark /></label> markup is harmless.
 export default function RequiredMark() {
-  return (
-    <span className="text-danger" aria-hidden="true">
-      {" "}
-      *
-    </span>
-  );
+  return null;
 }

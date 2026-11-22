@@ -82,6 +82,19 @@ async function duplicateProductError({ name, barcode }, excludeId = null) {
   return null;
 }
 
+// Add Product with every field optional: blanks become safe defaults rather
+// than errors. nameGiven tells whether to auto-name it after its code.
+function productDefaults(body) {
+  const b = { ...body };
+  b.nameGiven = Boolean(String(b.name || "").trim());
+  b.name = String(b.name || "").trim();
+  if (!b.category || !String(b.category).trim()) b.category = "Uncategorized";
+  if (!b.packUnit) b.packUnit = "Strip";
+  if (b.gstPercent === undefined || b.gstPercent === null || b.gstPercent === "") b.gstPercent = 0;
+  if (b.packRate === undefined || b.packRate === null || b.packRate === "" || !(Number(b.packRate) >= 0)) b.packRate = 0;
+  return b;
+}
+
 // Adds the derived Composition Group so lists can group brands together.
 function withGroup(obj) {
   return { ...obj, compositionKey: compositionKey(obj), compositionLabel: compositionLabel(obj) };
@@ -115,17 +128,63 @@ async function withBatchSummary(products) {
   });
 }
 
-router.get("/", requireAuth, async (req, res) => {
-  const { q, category, availability, vendor, rack } = req.query;
+// Shared by the product list and its filter options. Every filter is
+// optional; status (active / deleted / all) is admin-only.
+function productListFilter(req) {
+  const { category, vendor, rack, brand, dosageForm, minPrice, maxPrice, status } = req.query;
   const filter = { isActive: true };
+  if (req.user.role === "admin" && status === "inactive") filter.isActive = false;
+  if (req.user.role === "admin" && status === "all") delete filter.isActive;
+  if (category) filter.category = category;
+  if (rack !== undefined) filter.rack = String(rack).trim().toUpperCase();
+  if (vendor) filter.vendor = vendor;
+  // Brand matches either the manufacturer or the marketing company.
+  if (brand) {
+    const re = new RegExp(`^${escapeRegex(String(brand).trim())}$`, "i");
+    filter.$and = [...(filter.$and || []), { $or: [{ manufacturer: re }, { brand: re }] }];
+  }
+  if (dosageForm) filter.dosageForm = dosageForm;
+  const min = minPrice === undefined || minPrice === "" ? NaN : Number(minPrice);
+  const max = maxPrice === undefined || maxPrice === "" ? NaN : Number(maxPrice);
+  if (!Number.isNaN(min) || !Number.isNaN(max)) {
+    filter.packRate = {};
+    if (!Number.isNaN(min)) filter.packRate.$gte = min;
+    if (!Number.isNaN(max)) filter.packRate.$lte = max;
+  }
+  return filter;
+}
+
+// Which optional filters are worth showing: only brands / dosage forms that
+// real products have, and the actual price range.
+router.get("/filter-options", requireAuth, async (req, res) => {
+  const base = { isActive: true };
+  const [brands, makers, forms, range] = await Promise.all([
+    Product.distinct("brand", base),
+    Product.distinct("manufacturer", base),
+    Product.distinct("dosageForm", base),
+    Product.aggregate([{ $match: base }, { $group: { _id: null, min: { $min: "$packRate" }, max: { $max: "$packRate" } } }]),
+  ]);
+  const seen = new Map();
+  for (const b of [...makers, ...brands]) {
+    const name = String(b || "").trim();
+    if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
+  }
+  res.json({
+    brands: [...seen.values()].sort((a, b) => a.localeCompare(b)),
+    dosageForms: forms.filter(Boolean).sort(),
+    price: range[0] ? { min: range[0].min, max: range[0].max } : null,
+    hasInactive: req.user.role === "admin" ? Boolean(await Product.exists({ isActive: false })) : false,
+  });
+});
+
+router.get("/", requireAuth, async (req, res) => {
+  const { q, availability } = req.query;
+  const filter = productListFilter(req);
 
   // Brand name, generic name, composition, strength, manufacturer, code,
   // barcode or rack - see utils/composition.js.
   const search = productSearchFilter(q);
-  if (search) Object.assign(filter, search);
-  if (category) filter.category = category;
-  if (rack !== undefined) filter.rack = String(rack).trim().toUpperCase();
-  if (vendor) filter.vendor = vendor;
+  if (search) filter.$and = [...(filter.$and || []), search];
   availabilityFilter(filter, availability);
 
   let products = await Product.find(filter).populate("category", "name").populate("vendor", "name").sort({ createdAt: -1 });
@@ -215,7 +274,8 @@ router.get("/expiry-tracker", requireAuth, requireRole("admin"), async (req, res
 
   for (const b of batches) {
     if (!b.product) continue; // product deactivated since - skip from the tracker
-    if (b.expiryDate < now) expired.push(b);
+    if (!b.expiryDate) ok.push(b); // no expiry entered - never flagged
+    else if (b.expiryDate < now) expired.push(b);
     else if (b.expiryDate <= soonCutoff) expiringSoon.push(b);
     else ok.push(b);
   }
@@ -235,14 +295,14 @@ router.get("/expiry-tracker/export", requireAuth, requireRole("admin"), async (r
   const rows = batches
     .filter((b) => b.product)
     .map((b) => {
-      const status = b.expiryDate < now ? "Expired" : b.expiryDate <= soonCutoff ? "Expiring Soon" : "OK";
-      const daysLeft = Math.ceil((b.expiryDate - now) / (24 * 60 * 60 * 1000));
+      const status = !b.expiryDate ? "No expiry" : b.expiryDate < now ? "Expired" : b.expiryDate <= soonCutoff ? "Expiring Soon" : "OK";
+      const daysLeft = b.expiryDate ? Math.ceil((b.expiryDate - now) / (24 * 60 * 60 * 1000)) : "";
       return {
         status,
         product: b.product.name,
         productCode: b.product.productCode,
         batchNo: b.batchNo,
-        expiryDate: b.expiryDate.toISOString().slice(0, 10),
+        expiryDate: b.expiryDate ? b.expiryDate.toISOString().slice(0, 10) : "",
         daysLeft,
         qtyRemaining: b.qtyRemaining,
         costPrice: b.costPrice ?? "",
@@ -472,18 +532,23 @@ router.patch("/:id/batches/:batchId", requireAuth, requirePermission("stock.edit
   if (!batch) return;
   const b = req.body;
 
-  if (b.batchNo !== undefined) {
+  // A blank batch number keeps the current one.
+  if (b.batchNo !== undefined && String(b.batchNo).trim()) {
     const batchNo = String(b.batchNo).trim();
-    if (!batchNo || batchNo.length > 30) return res.status(400).json({ message: "Batch No is required (up to 30 characters)." });
+    if (batchNo.length > 30) return res.status(400).json({ message: "Batch No can be up to 30 characters." });
     if (batchNo !== batch.batchNo && (await Batch.exists({ product: product._id, batchNo, _id: { $ne: batch._id } }))) {
       return res.status(409).json({ message: "This product already has a batch with that number." });
     }
     batch.batchNo = batchNo;
   }
   if (b.expiryDate !== undefined) {
-    const expiry = new Date(b.expiryDate);
-    if (Number.isNaN(expiry.getTime())) return res.status(400).json({ message: "Please enter a valid date." });
-    batch.expiryDate = expiry;
+    // Blank clears the expiry (it's optional).
+    if (b.expiryDate === "" || b.expiryDate === null) batch.expiryDate = null;
+    else {
+      const expiry = new Date(b.expiryDate);
+      if (Number.isNaN(expiry.getTime())) return res.status(400).json({ message: "Please enter a valid date." });
+      batch.expiryDate = expiry;
+    }
   }
   if (b.costPrice !== undefined && req.user.role === "admin") {
     const cost = Number(b.costPrice);
@@ -570,31 +635,25 @@ router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
     if (err) return res.status(400).json({ message: err.message });
 
     try {
-      const b = req.body;
+      // Every field is optional; blanks get safe defaults (see productDefaults).
+      const b = productDefaults(req.body);
       const category = await resolveCategory(b.category);
-      if (!category) return res.status(400).json({ message: "This field is required." });
-
-      if (!PACK_UNITS.includes(b.packUnit)) {
-        return res.status(400).json({ message: "This field is required." });
-      }
+      if (!PACK_UNITS.includes(b.packUnit)) return res.status(400).json({ message: "Please choose a valid pack unit." });
       const soldAs = deriveSoldAs(b.unitsPerPack);
-      if (soldAs === "pack-and-loose" && !LOOSE_UNITS.includes(b.looseUnitName)) {
-        return res.status(400).json({ message: "This field is required." });
-      }
-      if (!GST_VALUES.includes(Number(b.gstPercent))) {
-        return res.status(400).json({ message: "This field is required." });
-      }
+      if (soldAs === "pack-and-loose" && !LOOSE_UNITS.includes(b.looseUnitName)) b.looseUnitName = "Piece";
+      if (!GST_VALUES.includes(Number(b.gstPercent))) return res.status(400).json({ message: "Please choose a valid GST rate." });
 
       const medicine = medicineFields(b);
       if (medicine.error) return res.status(400).json({ message: medicine.error });
-      const duplicate = await duplicateProductError({ name: b.name, barcode: medicine.fields.barcode });
+      const duplicate = await duplicateProductError({ name: b.nameGiven ? b.name : null, barcode: medicine.fields.barcode });
       if (duplicate) return res.status(409).json({ message: duplicate });
 
       const qty = computeQty({ ...b, soldAs });
       const rack = cleanRack(b.rack);
-      const rackError = await rackPositionError(b.rack, { required: qty > 0 });
+      const rackError = await rackPositionError(b.rack, { required: false });
       if (rackError) return res.status(400).json({ message: rackError });
       const productCode = await generateProductCode(b.name || "");
+      if (!b.nameGiven) b.name = `Product ${productCode}`;
       const looseRate = computeLooseRate({ soldAs, packRate: b.packRate, unitsPerPack: b.unitsPerPack });
 
       const product = await Product.create({
@@ -620,17 +679,14 @@ router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
         ...medicine.fields,
       });
 
-      // Opening stock: creates this product's first batch/lot, if any was entered.
+      // Opening stock: creates this product's first batch/lot, if any was
+      // entered. Batch no, expiry and cost are optional.
       if (qty > 0) {
-        if (!b.batchNo || !b.expiryDate || b.costPrice === undefined || b.costPrice === "") {
-          await Product.deleteOne({ _id: product._id });
-          return res.status(400).json({ message: "This field is required." });
-        }
         await upsertBatch({
           product,
-          batchNo: b.batchNo,
-          expiryDate: b.expiryDate,
-          costPrice: b.costPrice,
+          batchNo: String(b.batchNo || "").trim() || `OPEN-${productCode}`,
+          expiryDate: b.expiryDate || null,
+          costPrice: Number(b.costPrice) || 0,
           addQty: qty,
           receivedAt: new Date(),
           rack,
@@ -735,7 +791,7 @@ router.patch("/:id/enable-loose", requireAuth, requirePermission("products.edit"
   const unitsPerPack = Number(req.body.unitsPerPack);
   const looseUnitName = req.body.looseUnitName;
   if (!(unitsPerPack > 1)) return res.status(400).json({ message: "Please enter a valid number." });
-  if (!LOOSE_UNITS.includes(looseUnitName)) return res.status(400).json({ message: "This field is required." });
+  if (!LOOSE_UNITS.includes(looseUnitName)) return res.status(400).json({ message: "Choose the loose unit to sell in." });
 
   try {
     const batches = await Batch.find({ product: product._id });
@@ -844,7 +900,7 @@ router.get("/import/template", requireAuth, requirePermission("products.add"), a
 });
 
 router.post("/import", requireAuth, requirePermission("products.add"), importUpload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: "This field is required." });
+  if (!req.file) return res.status(400).json({ message: "Choose an Excel file to import." });
 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(req.file.buffer);
@@ -896,17 +952,18 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
     });
 
     try {
-      if (!data.name) throw new Error("Name is required.");
-      if (!data.category) throw new Error("Category is required.");
+      // Every column is optional; blanks get the same defaults as Add Product.
+      if (!data.name) data.name = `Imported product row ${rowNum}`;
+      if (!data.category) data.category = "Uncategorized";
+      if (!data.packUnit) data.packUnit = "Strip";
       if (!PACK_UNITS.includes(data.packUnit)) throw new Error("Pack Unit is invalid.");
       const soldAs = deriveSoldAs(data.unitsPerPack);
-      if (soldAs === "pack-and-loose" && !LOOSE_UNITS.includes(data.looseUnitName)) {
-        throw new Error("Loose Unit Name is invalid for a pack-and-loose product.");
-      }
+      if (soldAs === "pack-and-loose" && !LOOSE_UNITS.includes(data.looseUnitName)) data.looseUnitName = "Piece";
+      if (data.gstPercent === undefined || data.gstPercent === null || data.gstPercent === "") data.gstPercent = 0;
       if (!GST_VALUES.includes(Number(data.gstPercent))) throw new Error("GST % is invalid.");
-      if (!data.batchNo) throw new Error("Batch No is required.");
-      if (!data.expiryDate) throw new Error("Expiry Date is required.");
-      if (!data.packRate || Number(data.packRate) <= 0) throw new Error("Pack Rate must be greater than 0.");
+      if (!data.batchNo) data.batchNo = `IMP-${Date.now().toString(36).toUpperCase()}-${rowNum}`;
+      if (!data.expiryDate) data.expiryDate = null;
+      if (!(Number(data.packRate) >= 0)) data.packRate = 0;
       // A blank Rack cell falls back to No Rack rather than failing the row.
       const rack = cleanRack(data.rack);
       const rackError = await rackPositionError(data.rack, { required: false });

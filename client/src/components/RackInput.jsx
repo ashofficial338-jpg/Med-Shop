@@ -6,7 +6,7 @@ import { NO_RACK, positionsOf, rackLetter, describePosition } from "../utils/rac
 // Rack + Rack Position picker for stock-in forms. `value` is a position code
 // like "A-001", NO_RACK for the always-available "No Rack" fallback, or ""
 // until a choice is made. `invalid` highlights it after a save attempt without one.
-export default function RackInput({ id, value, onChange, invalid, label = "Rack", required = true, className = "", labelClassName = "" }) {
+export default function RackInput({ id, value, onChange, invalid, label = "Rack", required = false, className = "", labelClassName = "" }) {
   const [racks, setRacks] = useState(null);
   // A chosen position decides the rack; until one is picked, remember the
   // rack the user selected so its positions can be listed.

@@ -11,6 +11,7 @@ import cors from "cors";
 import morgan from "morgan";
 import { connectDB } from "./config/db.js";
 import { syncBatchLocations } from "./utils/syncBatchLocations.js";
+import { ensureOptionalIndexes } from "./utils/optionalIndexes.js";
 import authRoutes from "./routes/auth.js";
 import profileRoutes from "./routes/profile.js";
 import usersRoutes from "./routes/users.js";
@@ -118,6 +119,7 @@ connectDB()
     // 0.0.0.0 so the host's router (Render) can reach it, not just localhost.
     app.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
     syncBatchLocations().catch((e) => console.error("Rack location sync failed:", e.message));
+    ensureOptionalIndexes().catch((e) => console.error("Optional-field index update failed:", e.message));
   })
   .catch((err) => {
     console.error("Failed to connect to MongoDB:", err.message);

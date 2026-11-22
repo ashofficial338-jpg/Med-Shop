@@ -119,7 +119,7 @@ async function takeAcrossLocations(product, batch, wanted) {
 // if the total can't be covered, whatever was taken is put back and null is
 // returned so the caller can report insufficient stock.
 export async function allocateFefo(product, neededQty) {
-  const batches = await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } }).sort({ expiryDate: 1 });
+  const batches = byExpiry(await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } }));
   let remaining = neededQty;
   const breakdown = [];
   for (const batch of batches) {
@@ -199,7 +199,18 @@ export async function refreshProductRack(product) {
 // The expiry date this product would actually be sold against next (FEFO
 // order) - i.e. the batch that's about to run out first. Null if no stock.
 export async function earliestActiveBatch(productId) {
-  return Batch.findOne({ product: productId, qtyRemaining: { $gt: 0 } }).sort({ expiryDate: 1 });
+  return byExpiry(await Batch.find({ product: productId, qtyRemaining: { $gt: 0 } }))[0] || null;
+}
+
+// Earliest expiry first; batches with no expiry entered go last (Mongo's
+// ascending sort would put them first).
+export function byExpiry(batches) {
+  return [...batches].sort((a, b) => {
+    if (!a.expiryDate && !b.expiryDate) return 0;
+    if (!a.expiryDate) return 1;
+    if (!b.expiryDate) return -1;
+    return new Date(a.expiryDate) - new Date(b.expiryDate);
+  });
 }
 
 // A sale recorded before batch tracking existed has no batchBreakdown to

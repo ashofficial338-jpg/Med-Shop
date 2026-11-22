@@ -27,7 +27,7 @@ export default function BillPreview() {
   }
 
   const handleVoid = async () => {
-    if (!voidReason.trim()) return;
+    // The reason is optional.
     try {
       const updated = await voidSale(sale._id, voidReason);
       setSale(updated);
@@ -83,7 +83,7 @@ export default function BillPreview() {
             />
             <button
               onClick={handleVoid}
-              disabled={!voidReason.trim()}
+
               className="mt-2 w-full rounded-lg bg-danger py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               Confirm Void

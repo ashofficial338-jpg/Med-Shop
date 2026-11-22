@@ -10,7 +10,7 @@ import CategoriesModal from "../components/CategoriesModal";
 import FloatingCartBar from "../components/FloatingCartBar";
 import CompositionReportModal from "../components/CompositionReportModal";
 import { combinedStockLabel } from "../utils/medicine";
-import { listProducts, listCategories } from "../api/products";
+import { listProducts, listCategories, getProductFilterOptions } from "../api/products";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
 import { can } from "../utils/permissions";
@@ -61,6 +61,13 @@ export default function Products() {
   // product's detail panel directly (?product=<id>).
   const [category, setCategory] = useState(searchParams.get("category") || "");
   const [availability, setAvailability] = useState(searchParams.get("availability") || "");
+  // Extra filters, each shown only when the data supports it.
+  const [brand, setBrand] = useState("");
+  const [dosageForm, setDosageForm] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [status, setStatus] = useState("");
+  const [filterOptions, setFilterOptions] = useState(null);
   const urlProduct = searchParams.get("product");
   const [loading, setLoading] = useState(true);
 
@@ -110,11 +117,16 @@ export default function Products() {
     if (query) params.q = query;
     if (category) params.category = category;
     if (availability) params.availability = availability;
+    if (brand) params.brand = brand;
+    if (dosageForm) params.dosageForm = dosageForm;
+    if (minPrice !== "") params.minPrice = minPrice;
+    if (maxPrice !== "") params.maxPrice = maxPrice;
+    if (status) params.status = status;
     listProducts(params).then((data) => {
       setProducts(data);
       setLoading(false);
     });
-  }, [query, category, availability]);
+  }, [query, category, availability, brand, dosageForm, minPrice, maxPrice, status]);
 
   useEffect(() => {
     load();
@@ -122,7 +134,19 @@ export default function Products() {
 
   useEffect(() => {
     listCategories().then(setCategories);
+    getProductFilterOptions().then(setFilterOptions).catch(() => {});
   }, []);
+
+  const extraActive = [brand, dosageForm, minPrice, maxPrice, status, category, availability].some(Boolean);
+  const clearFilters = () => {
+    setBrand("");
+    setDosageForm("");
+    setMinPrice("");
+    setMaxPrice("");
+    setStatus("");
+    setCategory("");
+    setAvailability("");
+  };
 
   // The top-bar search navigates here with ?q=, including while already on this page.
   useEffect(() => {
@@ -211,10 +235,61 @@ export default function Products() {
           <option value="low">Low Stock</option>
           <option value="out">Out of Stock</option>
         </select>
+        {filterOptions?.brands?.length > 0 && (
+          <select aria-label="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} className={selectCls}>
+            <option value="">All Brands</option>
+            {filterOptions.brands.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+        )}
+        {filterOptions?.dosageForms?.length > 0 && (
+          <select aria-label="Dosage form" value={dosageForm} onChange={(e) => setDosageForm(e.target.value)} className={selectCls}>
+            <option value="">All Forms</option>
+            {filterOptions.dosageForms.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+        {filterOptions?.price && filterOptions.price.max > filterOptions.price.min && (
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              min="0"
+              aria-label="Minimum price"
+              placeholder={`₹${Math.floor(filterOptions.price.min)}`}
+              value={minPrice}
+              onChange={(e) => setMinPrice(e.target.value)}
+              className={`${selectCls} w-24`}
+            />
+            <span className="text-muted">–</span>
+            <input
+              type="number"
+              min="0"
+              aria-label="Maximum price"
+              placeholder={`₹${Math.ceil(filterOptions.price.max)}`}
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(e.target.value)}
+              className={`${selectCls} w-24`}
+            />
+          </div>
+        )}
+        {isAdmin && filterOptions?.hasInactive && (
+          <select aria-label="Product status" value={status} onChange={(e) => setStatus(e.target.value)} className={selectCls}>
+            <option value="">Active products</option>
+            <option value="inactive">Deleted products</option>
+            <option value="all">All products</option>
+          </select>
+        )}
         <label className="flex h-11 cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface px-3.5 text-sm text-text">
           <input type="checkbox" checked={grouped} onChange={toggleGrouped} className="accent-primary" />
           Group by composition
         </label>
+        {extraActive && (
+          <button type="button" onClick={clearFilters} className="h-11 rounded-xl px-3 text-sm font-semibold text-primary hover:bg-surface">
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div className="mt-6 flex items-start gap-4">

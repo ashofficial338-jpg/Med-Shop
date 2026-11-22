@@ -5,7 +5,7 @@ import { listVendors } from "../api/vendors";
 import { useAuth } from "../context/AuthContext";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
-import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
+import { validPosition, isRackChoice } from "../utils/rack";
 import { DOSAGE_FORMS, RELEASE_TYPES } from "../utils/medicine";
 
 // Medicine details - sent even when blank so clearing one sticks.
@@ -56,7 +56,6 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
   const [imagePreview, setImagePreview] = useState(product?.image || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [rackMissing, setRackMissing] = useState(false);
 
   const [showEnableLoose, setShowEnableLoose] = useState(false);
   const [enableUnitsPerPack, setEnableUnitsPerPack] = useState("");
@@ -106,7 +105,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
   // by whether a pack actually breaks into more than one unit. Every product
   // still arrives as whole packs either way.
   const hasLooseSplit = Number(form.unitsPerPack) > 1;
-  // Opening stock being entered means it's going on a shelf - rack becomes required.
+  // Opening stock being entered (its rack is optional - blank = No Rack).
   const addsStock = !isEdit && (Number(form.qtyPacks) > 0 || Number(form.qtyLooseExtra) > 0);
 
   const computedPerUnit =
@@ -131,23 +130,14 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
     setImagePreview(URL.createObjectURL(file));
   };
 
-  const isValid =
-    form.name.trim().length > 0 &&
-    form.category &&
-    PACK_UNITS.includes(form.packUnit) &&
-    GST_VALUES.includes(Number(form.gstPercent)) &&
-    Number(form.packRate) > 0 &&
-    (isEdit || !hasLooseSplit || LOOSE_UNITS.includes(form.looseUnitName)) &&
-    (isEdit || (form.batchNo.trim().length > 0 && form.expiryDate && form.costPrice !== ""));
+  // Every field is optional (blanks get defaults on the server); only values
+  // that are entered have to make sense.
+  const isValid = (form.packRate === "" || Number(form.packRate) >= 0) && (form.costPrice === "" || Number(form.costPrice) >= 0);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
-    if (addsStock && !isRackChoice(form.rack)) {
-      setRackMissing(true);
-      setError(RACK_REQUIRED_MESSAGE);
-      return;
-    }
+
     setSaving(true);
     setError("");
 
@@ -241,8 +231,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
             labelClassName={labelCls}
             value={form.rack}
             onChange={(v) => setForm((f) => ({ ...f, rack: v }))}
-            required={addsStock}
-            invalid={rackMissing && addsStock && !isRackChoice(form.rack)}
+            invalid={false}
             label={addsStock ? "Rack (where this stock is shelved)" : "Rack"}
           />
 

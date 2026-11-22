@@ -79,7 +79,7 @@ function BrandStock({ line, batches, racks, onPick }) {
       >
         <option value="">Auto: earliest expiry, primary rack</option>
         {batches.map((b) => (
-          <optgroup key={b._id} label={`Batch ${b.batchNo} · exp ${exp(b.expiryDate)} · ${unitsLabel(product, b.qtyRemaining)}`}>
+          <optgroup key={b._id} label={`Batch ${b.batchNo} · exp ${b.expiryDate ? exp(b.expiryDate) : "—"} · ${unitsLabel(product, b.qtyRemaining)}`}>
             {b.locations.length > 1 && <option value={`${b._id}|*`}>Batch {b.batchNo} – any rack</option>}
             {b.locations.map((l) => (
               <option key={l.rack || "none"} value={`${b._id}|${l.rack}`}>
@@ -163,7 +163,7 @@ export default function Checkout() {
           ...(l.batch && hasRack(l) ? { rack: l.rack || "NONE" } : {}),
         })),
         ...(isCredit ? { amountReceived: receivedNow } : {}),
-        ...(withOverride ? { overrideExpiredReason: overrideReason } : {}),
+        ...(withOverride ? { overrideExpired: true, overrideExpiredReason: overrideReason } : {}),
       });
       clearCart();
       navigate(`/bills/${sale._id}`, { replace: true });
@@ -298,7 +298,7 @@ export default function Checkout() {
           />
           <button
             onClick={() => submit(true)}
-            disabled={!overrideReason.trim() || saving}
+            disabled={saving}
             className="mt-2 rounded-lg bg-warning px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             Override & Complete Payment

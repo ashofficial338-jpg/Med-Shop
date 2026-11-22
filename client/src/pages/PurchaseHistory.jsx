@@ -11,7 +11,7 @@ import { listUnregisteredSuppliers } from "../api/purchases";
 import { compactParams } from "../utils/query";
 
 // Filters live in the URL so dashboard links open this list pre-filtered.
-const FILTER_KEYS = ["vendor", "supplierName", "product", "from", "to", "category"];
+const FILTER_KEYS = ["vendor", "supplierName", "product", "payment", "from", "to", "category"];
 
 export default function PurchaseHistory() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -109,6 +109,11 @@ export default function PurchaseHistory() {
             ))}
           </optgroup>
           <option value="none">No supplier</option>
+        </select>
+        <select aria-label="Payment status" value={filters.payment} onChange={(e) => setFilter("payment", e.target.value)} className={selectCls}>
+          <option value="">Any payment status</option>
+          <option value="paid">Fully paid</option>
+          <option value="due">Balance due</option>
         </select>
         <select aria-label="Category" value={filters.category} onChange={(e) => setFilter("category", e.target.value)} className={selectCls}>
           <option value="">All Categories</option>

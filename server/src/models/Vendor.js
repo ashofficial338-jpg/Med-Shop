@@ -4,19 +4,21 @@ const vendorSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
       trim: true,
       maxlength: 150,
+      default: "",
     },
     contactPerson: {
       type: String,
       trim: true,
       default: "",
     },
+    // Optional; when given it must be 10 digits.
     phone: {
       type: String,
-      required: true,
-      match: /^\d{10}$/,
+      trim: true,
+      default: "",
+      match: /^(\d{10})?$/,
     },
     email: {
       type: String,
@@ -29,13 +31,13 @@ const vendorSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    // Optional; when given it must be 15 characters.
     gstNumber: {
       type: String,
-      required: true,
       trim: true,
       uppercase: true,
-      minlength: 15,
-      maxlength: 15,
+      default: "",
+      match: /^(.{15})?$/,
     },
     notes: {
       type: String,

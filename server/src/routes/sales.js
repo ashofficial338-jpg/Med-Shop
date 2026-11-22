@@ -26,10 +26,20 @@ function canAccessSale(sale, user) {
 // Shared by the list and its export, so a download always matches the screen.
 // paymentMode/status/category let dashboard links open a pre-filtered list.
 async function buildSaleFilter(req) {
-  const { q, from, to, paymentMode, status, category } = req.query;
+  const { q, from, to, paymentMode, status, category, payment } = req.query;
   const filter = {};
   if (req.user.role === "staff") filter.createdBy = req.user._id;
-  if (q) filter.billNo = new RegExp(q, "i");
+  // Search by bill number or customer name / phone.
+  if (q && String(q).trim()) {
+    const re = new RegExp(String(q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const customers = await Customer.find({ $or: [{ name: re }, { phone: re }] }, "_id").limit(200);
+    filter.$or = [{ billNo: re }, { customer: { $in: customers.map((c) => c._id) } }];
+  }
+  // Payment status: fully paid, partly paid, or nothing paid yet (credit).
+  const paid = { $ifNull: ["$amountPaid", "$total"] };
+  if (payment === "paid") filter.$expr = { $gte: [paid, "$total"] };
+  if (payment === "partial") filter.$expr = { $and: [{ $gt: [paid, 0] }, { $lt: [paid, "$total"] }] };
+  if (payment === "unpaid") filter.$expr = { $and: [{ $lte: [paid, 0] }, { $gt: ["$total", 0] }] };
   const range = dayRange(from, to);
   if (range) filter.createdAt = range;
   if (paymentMode) filter.paymentMode = paymentMode;
@@ -167,8 +177,10 @@ router.post("/", async (req, res) => {
         if (!pickedBatch) return res.status(400).json({ message: `The selected batch of ${product.name} is no longer available.` });
       }
       const nextBatch = pickedBatch || (await earliestActiveBatch(product._id));
-      const isExpired = nextBatch && new Date(nextBatch.expiryDate) < now;
-      if (isExpired && !(isAdmin && overrideExpiredReason)) {
+      const isExpired = Boolean(nextBatch?.expiryDate) && new Date(nextBatch.expiryDate) < now;
+      // An admin can knowingly sell expired stock; the reason note is optional.
+      const overriding = isAdmin && (req.body.overrideExpired === true || Boolean(overrideExpiredReason));
+      if (isExpired && !overriding) {
         return res.status(400).json({ message: "This batch has expired and cannot be sold." });
       }
 
@@ -324,8 +336,8 @@ router.post("/", async (req, res) => {
 });
 
 router.post("/:id/void", requireRole("admin"), async (req, res) => {
-  const { reason } = req.body;
-  if (!reason || !reason.trim()) return res.status(400).json({ message: "This field is required." });
+  // The reason is optional; it is recorded when given.
+  const reason = String(req.body.reason || "").trim() || "No reason given";
 
   const sale = await Sale.findById(req.params.id).populate("customer", "name phone").populate("createdBy", "username");
   if (!sale) return res.status(404).json({ message: "No records found." });

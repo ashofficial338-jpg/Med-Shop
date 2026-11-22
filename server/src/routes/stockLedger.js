@@ -95,15 +95,16 @@ router.post("/adjust", async (req, res) => {
   const { product: productId, adjustmentType, qty, reason, batchId, batchNo, expiryDate, costPrice } = req.body;
   const rack = cleanRack(req.body.rack);
 
-  if (!productId) return res.status(400).json({ message: "This field is required." });
+  if (!productId) return res.status(400).json({ message: "Choose the product to adjust." });
   if (!["add", "reduce"].includes(adjustmentType)) {
-    return res.status(400).json({ message: "This field is required." });
+    return res.status(400).json({ message: "Choose add or reduce." });
   }
   const quantity = Number(qty);
   if (!(quantity > 0)) return res.status(400).json({ message: "Please enter a valid number." });
-  if (!reason || !reason.trim()) return res.status(400).json({ message: "This field is required." });
+  // Reason, rack, batch no, expiry and cost are optional; product, type,
+  // quantity (and for a reduction, which batch) are what the adjustment is.
   if (adjustmentType === "add") {
-    const rackError = await rackPositionError(req.body.rack);
+    const rackError = await rackPositionError(req.body.rack, { required: false });
     if (rackError) return res.status(400).json({ message: rackError });
   }
 
@@ -116,7 +117,7 @@ router.post("/adjust", async (req, res) => {
   if (adjustmentType === "reduce") {
     // Admin picks exactly which lot this came from - breakage/spoilage found
     // on the shelf is almost always traceable to one specific pack.
-    if (!batchId) return res.status(400).json({ message: "This field is required." });
+    if (!batchId) return res.status(400).json({ message: "Choose which batch to reduce." });
     batch = await Batch.findOne({ _id: batchId, product: product._id });
     if (!batch) return res.status(404).json({ message: "No records found." });
     if (quantity > batch.qtyRemaining) {
@@ -146,14 +147,11 @@ router.post("/adjust", async (req, res) => {
       batch.rack = rack;
       await batch.save();
     } else {
-      if (!batchNo || !expiryDate || costPrice === undefined || costPrice === "") {
-        return res.status(400).json({ message: "This field is required." });
-      }
       batch = await upsertBatch({
         product,
-        batchNo,
-        expiryDate,
-        costPrice,
+        batchNo: String(batchNo || "").trim() || `ADJ-${Date.now().toString(36).toUpperCase()}`,
+        expiryDate: expiryDate || null,
+        costPrice: Number(costPrice) || 0,
         addQty: quantity,
         receivedAt: new Date(),
         rack,
@@ -171,7 +169,7 @@ router.post("/adjust", async (req, res) => {
     type: adjustmentType === "add" ? "manual-add" : "manual-reduce",
     qtyChange: adjustmentType === "add" ? quantity : -quantity,
     rack: ledgerRack,
-    reason: reason.trim(),
+    reason: String(reason || "").trim() || (adjustmentType === "add" ? "Stock added" : "Stock reduced"),
     performedBy: req.user._id,
   });
 

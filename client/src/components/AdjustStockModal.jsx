@@ -3,7 +3,7 @@ import { listProducts, getProductBatches } from "../api/products";
 import { adjustStock } from "../api/stock";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
-import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
+import { validPosition } from "../utils/rack";
 
 const NEW_BATCH = "__new__";
 
@@ -21,7 +21,6 @@ export default function AdjustStockModal({ onClose, onSaved }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [rack, setRack] = useState("");
-  const [rackMissing, setRackMissing] = useState(false);
 
   useEffect(() => {
     listProducts().then(setProducts);
@@ -36,24 +35,14 @@ export default function AdjustStockModal({ onClose, onSaved }) {
 
   const isNewBatch = adjustmentType === "add" && batchChoice === NEW_BATCH;
 
-  const isValid =
-    product &&
-    Number(qty) > 0 &&
-    reason.trim().length > 0 &&
-    (adjustmentType === "reduce"
-      ? Boolean(batchChoice)
-      : batchChoice === NEW_BATCH
-      ? newBatchNo.trim() && newExpiryDate && newCostPrice !== ""
-      : Boolean(batchChoice));
+  // Product, quantity and (to reduce) the batch are what an adjustment is;
+  // reason, rack and new-batch details are optional.
+  const isValid = product && Number(qty) > 0 && (adjustmentType === "add" || Boolean(batchChoice));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid || saving) return;
-    if (adjustmentType === "add" && !isRackChoice(rack)) {
-      setRackMissing(true);
-      setError(RACK_REQUIRED_MESSAGE);
-      return;
-    }
+
     setSaving(true);
     setError("");
     try {
@@ -129,7 +118,7 @@ export default function AdjustStockModal({ onClose, onSaved }) {
               <option value="">Select…</option>
               {batches.map((b) => (
                 <option key={b._id} value={b._id}>
-                  {b.batchNo} — {b.qtyRemaining} left, expires {new Date(b.expiryDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                  {b.batchNo} — {b.qtyRemaining} left, expires {!b.expiryDate ? "—" : new Date(b.expiryDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                 </option>
               ))}
               {adjustmentType === "add" && <option value={NEW_BATCH}>+ New Batch…</option>}
@@ -162,7 +151,7 @@ export default function AdjustStockModal({ onClose, onSaved }) {
             id="adjust-rack"
             value={rack}
             onChange={setRack}
-            invalid={rackMissing && !isRackChoice(rack)}
+            invalid={false}
             label="Rack (where this stock is shelved)"
             labelClassName={labelCls}
           />

@@ -120,7 +120,8 @@ async function stockRows({ scope, racks, isAdmin, productFilter = null }) {
     for (const loc of effectiveLocations(b)) {
       if (!scope.matches(loc.rack)) continue;
       const where = describePosition(loc.rack, racks.get(loc.rack.charAt(0)));
-      const days = Math.floor((new Date(b.expiryDate).getTime() - now) / DAY);
+      // null when no expiry was entered: never counts as expiring.
+      const days = b.expiryDate ? Math.floor((new Date(b.expiryDate).getTime() - now) / DAY) : null;
       const unitCost = p.soldAs === "pack-and-loose" ? b.costPrice / p.unitsPerPack : b.costPrice;
       const unitRate = p.soldAs === "pack-and-loose" ? p.looseRate : p.packRate;
       rows.push({
@@ -139,7 +140,7 @@ async function stockRows({ scope, racks, isAdmin, productFilter = null }) {
         batchNo: b.batchNo,
         expiryDate: b.expiryDate,
         daysToExpiry: days,
-        expiryStatus: days < 0 ? "Expired" : days <= 30 ? "Expiring Soon" : days <= EXPIRY_SOON_DAYS ? `Within ${EXPIRY_SOON_DAYS} days` : "OK",
+        expiryStatus: days === null ? "No expiry" : days < 0 ? "Expired" : days <= 30 ? "Expiring Soon" : days <= EXPIRY_SOON_DAYS ? `Within ${EXPIRY_SOON_DAYS} days` : "OK",
         qty: loc.qty,
         qtyDisplay: unitsLabel(p, loc.qty),
         packs: r2(packsOf(p, loc.qty)),
@@ -153,12 +154,13 @@ async function stockRows({ scope, racks, isAdmin, productFilter = null }) {
       });
     }
   }
-  rows.sort((a, b) => a.rack.localeCompare(b.rack) || a.name.localeCompare(b.name) || new Date(a.expiryDate) - new Date(b.expiryDate));
+  const t = (d) => (d ? new Date(d).getTime() : Infinity);
+  rows.sort((a, b) => a.rack.localeCompare(b.rack) || a.name.localeCompare(b.name) || t(a.expiryDate) - t(b.expiryDate));
   return rows;
 }
 
 function exportRows(res, format, { title, subtitle, file, rows, isAdmin }) {
-  const flat = rows.map((r) => ({ ...r, rack: r.rack || "No Rack", expiryDate: new Date(r.expiryDate).toISOString().slice(0, 10) }));
+  const flat = rows.map((r) => ({ ...r, rack: r.rack || "No Rack", expiryDate: r.expiryDate ? new Date(r.expiryDate).toISOString().slice(0, 10) : "" }));
   if (format === "pdf") {
     return streamPdfReport(res, `${file}.pdf`, {
       title,
@@ -230,7 +232,9 @@ router.get("/summary", async (req, res) => {
     if (r.rack) s.positions.add(r.rack);
     s.products.add(String(r.productId));
     s.batches += 1;
-    if (r.daysToExpiry < 0) s.expired += 1;
+    if (r.daysToExpiry === null) {
+      /* no expiry entered */
+    } else if (r.daysToExpiry < 0) s.expired += 1;
     else if (new Date(r.expiryDate).getTime() <= soon) s.expiringSoon += 1;
     s.valueMrp += r.valueMrp;
     byLetter.set(key, s);
@@ -279,7 +283,7 @@ router.get("/expiry", async (req, res) => {
   if (!scope) return res.status(400).json({ message: "That is not a known rack, shelf or position code." });
   const days = Math.min(Math.max(Number(req.query.days) || EXPIRY_SOON_DAYS, 1), 730);
   const isAdmin = req.user.role === "admin";
-  const rows = (await stockRows({ scope, racks, isAdmin })).filter((r) => r.daysToExpiry <= days);
+  const rows = (await stockRows({ scope, racks, isAdmin })).filter((r) => r.daysToExpiry !== null && r.daysToExpiry <= days);
   if (req.query.format) {
     return exportRows(res, req.query.format, { title: "Gugan Medicals - Rack-wise Expiry Alerts", subtitle: `Expired or expiring within ${days} days · ${scope.label}`, file: "GuganMedicals_Rack_Expiry", rows, isAdmin });
   }
@@ -447,7 +451,8 @@ router.post("/", requirePermission("racks.add"), async (req, res) => {
   if (!/^[A-Z]$/.test(letter)) return res.status(400).json({ message: "Please choose a rack letter from A to Z." });
   const { fields, error } = layoutFrom(req.body);
   if (error) return res.status(400).json({ message: error });
-  if (!fields.positions) return res.status(400).json({ message: `Number of positions must be between 1 and ${MAX_POSITIONS}.` });
+  // Positions are optional: a new rack starts with 10 unless told otherwise.
+  if (!fields.positions) Object.assign(fields, { positions: 10, shelves: 1, rowsPerShelf: 1, binsPerRow: null });
   if (await Rack.exists({ letter })) return res.status(409).json({ message: `Rack ${letter} already exists.` });
 
   const rack = await Rack.create({ letter, ...fields });

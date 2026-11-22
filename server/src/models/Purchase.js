@@ -14,17 +14,17 @@ const purchaseItemSchema = new mongoose.Schema(
     },
     costPrice: {
       type: Number,
-      required: true,
+      default: 0,
       min: 0,
     },
     batchNo: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
     },
     expiryDate: {
       type: Date,
-      required: true,
+      default: null,
     },
     // The rate this product was last bought at (from this supplier when
     // possible, else from anyone) when this line was saved - a snapshot for

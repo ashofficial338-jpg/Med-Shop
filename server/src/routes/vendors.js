@@ -208,12 +208,20 @@ router.patch("/:id/rating", async (req, res) => {
   res.json(vendor);
 });
 
+// Every vendor field is optional; values that are given must be well-formed.
 const vendorValidation = [
-  body("name").trim().isLength({ min: 1, max: 150 }).withMessage("This field is required."),
-  body("phone").matches(/^\d{10}$/).withMessage("Enter a valid 10-digit phone number."),
-  body("gstNumber").trim().isLength({ min: 15, max: 15 }).withMessage("Enter a valid 15-character GSTIN."),
-  body("email").optional({ checkFalsy: true }).isEmail().withMessage("Please enter a valid email address."),
+  body("name").optional({ values: "falsy" }).trim().isLength({ max: 150 }).withMessage("Name can be up to 150 characters."),
+  body("phone").optional({ values: "falsy" }).trim().matches(/^\d{10}$/).withMessage("Enter a valid 10-digit phone number, or leave it blank."),
+  body("gstNumber").optional({ values: "falsy" }).trim().isLength({ min: 15, max: 15 }).withMessage("Enter a valid 15-character GSTIN, or leave it blank."),
+  body("email").optional({ values: "falsy" }).isEmail().withMessage("Please enter a valid email address."),
 ];
+
+// A vendor saved with no name still needs something to show in lists.
+async function withVendorName(body) {
+  const out = { ...body };
+  if (out.name !== undefined && !String(out.name || "").trim()) out.name = `Supplier ${(await Vendor.countDocuments()) + 1}`;
+  return out;
+}
 
 router.post("/", vendorValidation, async (req, res) => {
   const errors = validationResult(req);
@@ -222,7 +230,7 @@ router.post("/", vendorValidation, async (req, res) => {
   }
 
   try {
-    const vendor = await Vendor.create(req.body);
+    const vendor = await Vendor.create(await withVendorName({ name: "", ...req.body }));
     res.status(201).json(vendor);
   } catch (e) {
     res.status(500).json({ message: "Something went wrong. Please try again." });
@@ -238,7 +246,7 @@ router.patch("/:id", vendorValidation, async (req, res) => {
   const vendor = await Vendor.findById(req.params.id);
   if (!vendor) return res.status(404).json({ message: "No records found." });
 
-  Object.assign(vendor, req.body);
+  Object.assign(vendor, await withVendorName(req.body));
   await vendor.save();
   res.json(vendor);
 });
