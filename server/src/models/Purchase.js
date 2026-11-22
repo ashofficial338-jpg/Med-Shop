@@ -53,10 +53,20 @@ const purchaseItemSchema = new mongoose.Schema(
 
 const purchaseSchema = new mongoose.Schema(
   {
+    // Null for a direct purchase (bought without a registered supplier, e.g.
+    // from a local market). Those are always settled up front - never Credit -
+    // so they never show up in any supplier ledger or payable.
     vendor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Vendor",
-      required: true,
+      default: null,
+    },
+    // Optional free-text "bought from" note for direct purchases.
+    supplierName: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: "",
     },
     invoiceNo: {
       type: String,

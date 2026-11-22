@@ -208,7 +208,7 @@ router.get("/export", requireRole("admin"), async (req, res) => {
       rows: purchases.map((p) => ({
         invoiceNo: p.invoiceNo,
         date: p.date.toISOString().slice(0, 10),
-        vendor: p.vendor?.name,
+        vendor: p.vendor ? p.vendor.name || "Unknown supplier" : p.supplierName ? `${p.supplierName} (no supplier)` : "No supplier",
         subtotal: p.subtotal,
         gst: p.gstAmount,
         tds: p.tdsAmount,

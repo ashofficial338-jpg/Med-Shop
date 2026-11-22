@@ -5,6 +5,7 @@ import { listPurchases, exportPurchases } from "../api/purchases";
 import { listVendors } from "../api/vendors";
 import { listCategories } from "../api/products";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
+import DirectPurchaseModal from "../components/DirectPurchaseModal";
 import { compactParams } from "../utils/query";
 
 // Filters live in the URL so dashboard links open this list pre-filtered.
@@ -16,6 +17,8 @@ export default function PurchaseHistory() {
   const [vendors, setVendors] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showDirect, setShowDirect] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
   const params = compactParams(filters);
@@ -29,7 +32,7 @@ export default function PurchaseHistory() {
       setPurchases(data);
       setLoading(false);
     });
-  }, [paramsKey]);
+  }, [paramsKey, reloadKey]);
 
   useEffect(() => {
     listVendors().then(setVendors);
@@ -44,12 +47,21 @@ export default function PurchaseHistory() {
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Purchase History</h1>
-        <ReportDownloadButtons onExport={(format) => exportPurchases(format, params)} />
+        <div className="flex flex-wrap gap-2">
+          <ReportDownloadButtons onExport={(format) => exportPurchases(format, params)} />
+          <button
+            onClick={() => setShowDirect(true)}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+          >
+            Purchase Without Supplier
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <select aria-label="Vendor" value={filters.vendor} onChange={(e) => setFilter("vendor", e.target.value)} className={selectCls}>
           <option value="">All Vendors</option>
+          <option value="none">No Supplier (direct)</option>
           {vendors.map((v) => (
             <option key={v._id} value={v._id}>{v.name}</option>
           ))}
@@ -83,8 +95,13 @@ export default function PurchaseHistory() {
           <div key={p._id} className="rounded-xl bg-surface p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="font-medium text-text">{p.vendor?.name} — {p.invoiceNo}</p>
-                <p className="text-xs text-muted">{new Date(p.date).toLocaleDateString()}</p>
+                <p className="font-medium text-text">
+                  {p.vendor ? p.vendor.name : p.supplierName || "No supplier"} — {p.invoiceNo}
+                  {!p.vendor && (
+                    <span className="ml-2 rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-muted">Without supplier</span>
+                  )}
+                </p>
+                <p className="text-xs text-muted">{new Date(p.date).toLocaleDateString()} · {p.paymentMode}</p>
               </div>
               <p className="font-mono text-sm font-semibold text-text">₹{p.total.toFixed(2)}</p>
             </div>
@@ -98,6 +115,15 @@ export default function PurchaseHistory() {
           </div>
         ))}
       </div>
+      {showDirect && (
+        <DirectPurchaseModal
+          onClose={() => setShowDirect(false)}
+          onSaved={() => {
+            setShowDirect(false);
+            setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
     </Layout>
   );
 }

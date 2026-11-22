@@ -9,6 +9,11 @@ export function createPurchase(data) {
   return api.post("/purchases", data).then((r) => r.data);
 }
 
+// Purchase without a supplier - see server routes/purchases.js POST /direct.
+export function createDirectPurchase(data) {
+  return api.post("/purchases/direct", data).then((r) => r.data);
+}
+
 export function exportPurchases(format, params) {
   return downloadFile("/purchases/export", { ...params, format }, reportFileName("GuganMedicals_Purchases_Report", format));
 }

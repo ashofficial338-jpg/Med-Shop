@@ -10,18 +10,34 @@ import { computeInternalQty } from "../utils/stockUnits.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
 import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
+import { nextSequence } from "../models/Counter.js";
+import { generateProductCode, resolveCategory, computeLooseRate, deriveSoldAs } from "../utils/productHelpers.js";
 import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
 
+const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
+const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
+const GST_VALUES = [0, 5, 12, 18, 28];
+// A purchase without a supplier has nobody to owe, so it's always paid up front.
+const DIRECT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
+
+// Who a purchase was bought from, for lists and exports.
+export function purchasePartyName(p) {
+  if (p.vendor) return p.vendor.name || "Unknown supplier";
+  return p.supplierName ? `${p.supplierName} (no supplier)` : "No supplier";
+}
+
 // Shared by the list and its export. `category` keeps purchases that include
 // at least one product from that category (used by dashboard links).
 async function buildPurchaseFilter(req) {
   const { vendor, from, to, category } = req.query;
   const filter = {};
-  if (vendor) filter.vendor = vendor;
+  // "none" lists the purchases made without a supplier.
+  if (vendor === "none") filter.vendor = null;
+  else if (vendor) filter.vendor = vendor;
   const range = dayRange(from, to);
   if (range) filter.date = range;
   if (category && mongoose.isValidObjectId(category)) {
@@ -29,6 +45,50 @@ async function buildPurchaseFilter(req) {
     filter["items.product"] = { $in: ids };
   }
   return filter;
+}
+
+// Stock-in shared by supplier and direct purchases: each line creates (or
+// tops up, if this exact batch number already exists for the product) its own
+// Batch row, so an older lot's expiry is never overwritten by a newer
+// delivery's. `lines` carry their Product doc as _productDoc.
+async function stockInPurchase(purchase, lines, date, userId) {
+  for (let i = 0; i < lines.length; i++) {
+    const item = lines[i];
+    const product = item._productDoc;
+    const addQty = computeInternalQty({
+      soldAs: product.soldAs,
+      unitsPerPack: product.unitsPerPack,
+      qtyPacks: item.qtyPacks,
+      qtyLooseExtra: 0,
+    });
+
+    const batch = await upsertBatch({
+      product,
+      batchNo: item.batchNo,
+      expiryDate: item.expiryDate,
+      costPrice: item.costPrice,
+      addQty,
+      receivedAt: date,
+      purchase: purchase._id,
+      rack: item.rack,
+    });
+    purchase.items[i].batch = batch._id;
+
+    product.qty += addQty;
+    product.rack = item.rack;
+    await product.save();
+
+    await StockLedger.create({
+      product: product._id,
+      batch: batch._id,
+      type: "purchase",
+      qtyChange: addQty,
+      reason: purchase.vendor ? `Purchase invoice ${purchase.invoiceNo}` : `Direct purchase ${purchase.invoiceNo} (no supplier)`,
+      refId: purchase._id,
+      performedBy: userId,
+    });
+  }
+  await purchase.save();
 }
 
 router.get("/", async (req, res) => {
@@ -44,13 +104,13 @@ router.get("/", async (req, res) => {
 // Express matches in registration order, so this must come first or "/:id"
 // would treat "export" as a purchase id.
 router.get("/export", async (req, res) => {
-  const { format } = req.query;
+  const { format, from, to, vendor } = req.query;
   const filter = await buildPurchaseFilter(req);
   const purchases = await Purchase.find(filter).populate("vendor", "name").sort({ date: -1, createdAt: -1 });
   const rows = purchases.map((p) => ({
     invoiceNo: p.invoiceNo,
     date: p.date.toISOString().slice(0, 10),
-    vendor: p.vendor?.name || "",
+    vendor: purchasePartyName(p),
     paymentMode: p.paymentMode,
     subtotal: p.subtotal,
     gst: p.gstAmount,
@@ -63,7 +123,7 @@ router.get("/export", async (req, res) => {
   if (format === "pdf") {
     return streamPdfReport(res, "GuganMedicals_Purchases_Report.pdf", {
       title: "Gugan Medicals - Purchases Report",
-      subtitle: `${periodLabel(from, to)}${vendor ? ` · Vendor: ${purchases[0]?.vendor?.name || "selected vendor"}` : ""} · Total: Rs. ${rows.reduce((s, r) => s + r.total, 0).toFixed(2)}`,
+      subtitle: `${periodLabel(from, to)}${vendor ? ` · Vendor: ${vendor === "none" ? "No supplier" : purchases[0]?.vendor?.name || "selected vendor"}` : ""} · Total: Rs. ${rows.reduce((s, r) => s + r.total, 0).toFixed(2)}`,
       columns: [
         { header: "Invoice No", key: "invoiceNo" },
         { header: "Date", key: "date" },
@@ -193,47 +253,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // Stock-in: each line creates (or tops up, if this exact batch number
-    // already exists for the product) its own Batch row, so an older lot's
-    // expiry is never overwritten by a newer delivery's.
-    for (let i = 0; i < resolvedItems.length; i++) {
-      const item = resolvedItems[i];
-      const product = item._productDoc;
-      const addQty = computeInternalQty({
-        soldAs: product.soldAs,
-        unitsPerPack: product.unitsPerPack,
-        qtyPacks: item.qtyPacks,
-        qtyLooseExtra: 0,
-      });
-
-      const batch = await upsertBatch({
-        product,
-        batchNo: item.batchNo,
-        expiryDate: item.expiryDate,
-        costPrice: item.costPrice,
-        addQty,
-        receivedAt: date,
-        purchase: purchase._id,
-        rack: item.rack,
-      });
-      purchase.items[i].batch = batch._id;
-
-      product.qty += addQty;
-      product.rack = item.rack;
-      await product.save();
-
-      await StockLedger.create({
-        product: product._id,
-        batch: batch._id,
-        type: "purchase",
-        qtyChange: addQty,
-        reason: `Purchase invoice ${purchase.invoiceNo}`,
-        refId: purchase._id,
-        performedBy: req.user._id,
-      });
-    }
-
-    await purchase.save();
+    await stockInPurchase(purchase, resolvedItems, date, req.user._id);
 
     const populated = await purchase.populate([
       { path: "vendor", select: "name" },
@@ -243,6 +263,155 @@ router.post("/", async (req, res) => {
   } catch (e) {
     if (e.code === 11000) {
       return res.status(409).json({ message: "This invoice number has already been recorded for this vendor." });
+    }
+    if (e.name === "ValidationError") {
+      return res.status(400).json({ message: Object.values(e.errors)[0].message });
+    }
+    console.error(e);
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+});
+
+// Purchase without a supplier: stock bought from anywhere (local market,
+// another shop, ...). Each line is either an existing product or a brand-new
+// one described inline (name, category, pack, GST, selling price), which is
+// created here. Always paid up front, so it never touches supplier ledgers.
+router.post("/direct", async (req, res) => {
+  const { invoiceNo, supplierName, date, items, paymentMode } = req.body;
+
+  if (!date) return res.status(400).json({ message: "Please enter a valid date." });
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ message: "Add at least one product line before saving." });
+  }
+  const mode = paymentMode || "Cash";
+  if (!DIRECT_PAYMENT_MODES.includes(mode)) {
+    return res.status(400).json({ message: "A purchase without a supplier is paid up front - choose Cash, UPI, Bank Transfer, Cheque or Other." });
+  }
+
+  // Validate every line before creating anything, so a bad line never leaves
+  // half-made products behind.
+  const prepared = [];
+  for (const item of items) {
+    const qtyPacks = Number(item.qtyPacks);
+    const costPrice = Number(item.costPrice);
+    const hasSelling = item.sellingPrice !== undefined && item.sellingPrice !== null && item.sellingPrice !== "";
+    const sellingPrice = Number(item.sellingPrice);
+    if (!(qtyPacks > 0) || !Number.isInteger(qtyPacks)) return res.status(400).json({ message: "Please enter a valid quantity." });
+    if (!(costPrice >= 0)) return res.status(400).json({ message: "Please enter a valid purchase price." });
+    if (hasSelling && !(sellingPrice > 0)) return res.status(400).json({ message: "Please enter a valid selling price." });
+    if (!item.expiryDate || Number.isNaN(new Date(item.expiryDate).getTime())) {
+      return res.status(400).json({ message: "Please enter a valid expiry date." });
+    }
+    const rackError = await rackPositionError(item.rack);
+    if (rackError) return res.status(400).json({ message: rackError });
+
+    let product = null;
+    let newProduct = null;
+    if (item.product) {
+      product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
+      if (!product || !product.isActive) return res.status(400).json({ message: "Selected product was not found." });
+    } else {
+      const np = item.newProduct || {};
+      const name = String(np.name || "").trim();
+      if (!name) return res.status(400).json({ message: "Please enter the product name." });
+      if (!String(np.category || "").trim()) return res.status(400).json({ message: "Please choose a category." });
+      if (!PACK_UNITS.includes(np.packUnit)) return res.status(400).json({ message: "Please choose a pack unit." });
+      if (!GST_VALUES.includes(Number(np.gstPercent))) return res.status(400).json({ message: "Please choose a GST rate." });
+      if (!hasSelling) return res.status(400).json({ message: "Please enter a valid selling price." });
+      const soldAs = deriveSoldAs(np.unitsPerPack);
+      if (soldAs === "pack-and-loose" && !LOOSE_UNITS.includes(np.looseUnitName)) {
+        return res.status(400).json({ message: "Please choose the loose unit." });
+      }
+      newProduct = { ...np, name, soldAs };
+    }
+    prepared.push({ item, qtyPacks, costPrice, sellingPrice: hasSelling ? sellingPrice : null, product, newProduct });
+  }
+
+  const createdProductIds = [];
+  let purchase = null;
+  try {
+    const resolvedInvoiceNo =
+      String(invoiceNo || "").trim() || `DP-${String(await nextSequence("directPurchaseNo")).padStart(6, "0")}`;
+
+    const resolvedItems = [];
+    let subtotal = 0;
+    let gstAmount = 0;
+
+    for (const { item, qtyPacks, costPrice, sellingPrice, product: existing, newProduct } of prepared) {
+      const rack = cleanRack(item.rack);
+      let product = existing;
+      if (newProduct) {
+        const category = await resolveCategory(String(newProduct.category).trim());
+        product = await Product.create({
+          name: newProduct.name,
+          brand: String(newProduct.brand || "").trim(),
+          productCode: await generateProductCode(newProduct.name),
+          category: category._id,
+          soldAs: newProduct.soldAs,
+          packUnit: newProduct.packUnit,
+          unitsPerPack: newProduct.soldAs === "pack-and-loose" ? Number(newProduct.unitsPerPack) : undefined,
+          looseUnitName: newProduct.soldAs === "pack-and-loose" ? newProduct.looseUnitName : "",
+          qty: 0,
+          packRate: sellingPrice,
+          looseRate: computeLooseRate({ soldAs: newProduct.soldAs, packRate: sellingPrice, unitsPerPack: newProduct.unitsPerPack }),
+          gstPercent: Number(newProduct.gstPercent),
+          rack,
+          vendor: null,
+        });
+        createdProductIds.push(product._id);
+      } else if (sellingPrice !== null && sellingPrice !== product.packRate) {
+        // A new selling price entered for an existing product becomes its
+        // current price (saved along with the stock-in below).
+        product.packRate = sellingPrice;
+        product.looseRate = computeLooseRate({ soldAs: product.soldAs, packRate: sellingPrice, unitsPerPack: product.unitsPerPack });
+      }
+
+      const lineAmount = Number((qtyPacks * costPrice).toFixed(2));
+      const lineGst = Number(((lineAmount * product.gstPercent) / 100).toFixed(2));
+      subtotal += lineAmount;
+      gstAmount += lineGst;
+
+      resolvedItems.push({
+        product: product._id,
+        qtyPacks,
+        costPrice,
+        batchNo: String(item.batchNo || "").trim() || resolvedInvoiceNo,
+        expiryDate: item.expiryDate,
+        rack,
+        lineAmount,
+        lineGst,
+        _productDoc: product,
+      });
+    }
+
+    subtotal = Number(subtotal.toFixed(2));
+    gstAmount = Number(gstAmount.toFixed(2));
+    const total = Number((subtotal + gstAmount).toFixed(2));
+
+    purchase = await Purchase.create({
+      vendor: null,
+      supplierName: String(supplierName || "").trim(),
+      invoiceNo: resolvedInvoiceNo,
+      date,
+      items: resolvedItems.map(({ _productDoc, ...rest }) => rest),
+      subtotal,
+      gstAmount,
+      tdsAmount: 0,
+      total,
+      paymentMode: mode,
+      amountPaid: total,
+      createdBy: req.user._id,
+    });
+
+    await stockInPurchase(purchase, resolvedItems, date, req.user._id);
+
+    const populated = await purchase.populate([{ path: "items.product", select: "name productCode" }]);
+    res.status(201).json(populated);
+  } catch (e) {
+    // Nothing was stocked in yet, so products made for this purchase go too.
+    if (!purchase && createdProductIds.length) await Product.deleteMany({ _id: { $in: createdProductIds } });
+    if (e.code === 11000) {
+      return res.status(409).json({ message: "This invoice number has already been recorded for a purchase without a supplier." });
     }
     if (e.name === "ValidationError") {
       return res.status(400).json({ message: Object.values(e.errors)[0].message });
