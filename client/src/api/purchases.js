@@ -35,3 +35,7 @@ export function getPurchase(id) {
 export function updatePurchase(id, data) {
   return api.put(`/purchases/${id}`, data).then((r) => r.data);
 }
+
+export function deletePurchase(id) {
+  return api.delete(`/purchases/${id}`).then((r) => r.data);
+}

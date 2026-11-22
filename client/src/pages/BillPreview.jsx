@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
-import { getSale, openSalePdf, voidSale } from "../api/sales";
+import { getSale, openSalePdf, voidSale, deleteSale } from "../api/sales";
 import { useAuth } from "../context/AuthContext";
 import RequiredMark from "../components/RequiredMark";
 import SaleEditModal from "../components/SaleEditModal";
@@ -27,6 +27,16 @@ export default function BillPreview() {
       </Layout>
     );
   }
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete bill ${sale.billNo} completely?${sale.paymentStatus === "void" ? "" : " Its stock goes back on the shelves."} This cannot be undone.`)) return;
+    try {
+      await deleteSale(sale._id);
+      navigate("/bills", { replace: true });
+    } catch (err) {
+      setError(err.response?.data?.message || "Something went wrong. Please try again.");
+    }
+  };
 
   const handleVoid = async () => {
     // The reason is optional.
@@ -83,6 +93,12 @@ export default function BillPreview() {
             className="rounded-lg py-2.5 text-sm font-semibold text-danger hover:bg-danger/10"
           >
             Void Bill
+          </button>
+        )}
+
+        {user.role === "admin" && (
+          <button onClick={handleDelete} className="rounded-lg py-2.5 text-sm font-semibold text-danger hover:bg-danger/10">
+            Delete Bill
           </button>
         )}
 

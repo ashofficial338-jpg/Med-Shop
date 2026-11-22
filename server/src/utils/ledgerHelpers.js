@@ -59,7 +59,7 @@ export async function buildCustomerLedger(customerId) {
 
   const entries = mergeLedgerEntries(
     sales.map((s) => ({ date: s.createdAt, type: "Credit Sale", ref: s.billNo, amount: s.total })),
-    payments.map((p) => ({ date: p.date, type: "Payment Received", ref: p.paymentNo, amount: p.amount }))
+    payments.map((p) => ({ date: p.date, type: "Payment Received", ref: p.paymentNo, amount: p.amount, paymentId: p._id }))
   );
   const outstandingBalance = Number(sales.reduce((sum, s) => sum + balanceDue(s), 0).toFixed(2));
   const openSales = sales
@@ -76,7 +76,7 @@ export async function buildSupplierLedger(vendorId) {
 
   const entries = mergeLedgerEntries(
     purchases.map((p) => ({ date: p.date, type: "Purchase", ref: p.invoiceNo, amount: p.total })),
-    payments.map((p) => ({ date: p.date, type: "Payment Made", ref: p.paymentNo, amount: p.amount }))
+    payments.map((p) => ({ date: p.date, type: "Payment Made", ref: p.paymentNo, amount: p.amount, paymentId: p._id }))
   );
   const outstandingBalance = Number(purchases.reduce((sum, p) => sum + balanceDue(p), 0).toFixed(2));
   const openPurchases = purchases
@@ -168,4 +168,51 @@ export async function recordSupplierPayment({ vendorId, amount, mode, date, note
     recordedBy,
   });
   return { paymentNo };
+}
+
+// Undoes one payment: takes its amount back off the bill/invoice it paid.
+// A payment tied to one doc reduces that doc; an on-account payment was
+// spread oldest-first, so it comes back off the newest docs first - only from
+// the part of each doc's amountPaid that no linked payment explains.
+async function unwindPayment(payment, docs, linkField, PaymentModel) {
+  const linkedOthers = await PaymentModel.find({ _id: { $ne: payment._id }, [linkField]: { $in: docs.map((d) => d._id) } });
+  const explained = new Map();
+  for (const p of linkedOthers) explained.set(String(p[linkField]), (explained.get(String(p[linkField])) || 0) + p.amount);
+
+  let remaining = payment.amount;
+  const take = async (doc, max) => {
+    const t = Number(Math.min(max, remaining, doc.amountPaid ?? 0).toFixed(2));
+    if (t <= 0) return;
+    doc.amountPaid = Number(((doc.amountPaid ?? 0) - t).toFixed(2));
+    await doc.save();
+    remaining = Number((remaining - t).toFixed(2));
+  };
+  const own = payment[linkField] ? docs.find((d) => String(d._id) === String(payment[linkField])) : null;
+  if (own) await take(own, remaining);
+  const newestFirst = [...docs].reverse();
+  for (const doc of newestFirst) {
+    if (remaining <= 0) break;
+    await take(doc, (doc.amountPaid ?? 0) - (explained.get(String(doc._id)) || 0));
+  }
+  for (const doc of newestFirst) {
+    if (remaining <= 0) break;
+    await take(doc, remaining); // anything still left (older records)
+  }
+  await PaymentModel.deleteOne({ _id: payment._id });
+}
+
+export async function deleteCustomerPayment(customerId, paymentId) {
+  const payment = await CustomerPayment.findOne({ _id: paymentId, customer: customerId }).catch(() => null);
+  if (!payment) return { error: "No records found." };
+  const sales = await Sale.find({ customer: customerId, paymentMode: "Credit", paymentStatus: { $ne: "void" } }).sort({ createdAt: 1 });
+  await unwindPayment(payment, sales, "sale", CustomerPayment);
+  return { paymentNo: payment.paymentNo };
+}
+
+export async function deleteSupplierPayment(vendorId, paymentId) {
+  const payment = await SupplierPayment.findOne({ _id: paymentId, vendor: vendorId }).catch(() => null);
+  if (!payment) return { error: "No records found." };
+  const purchases = await Purchase.find({ vendor: vendorId, paymentMode: "Credit" }).sort({ date: 1 });
+  await unwindPayment(payment, purchases, "purchase", SupplierPayment);
+  return { paymentNo: payment.paymentNo };
 }

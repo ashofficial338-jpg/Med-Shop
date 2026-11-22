@@ -8,7 +8,8 @@ import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import DirectPurchaseModal from "../components/DirectPurchaseModal";
 import PurchaseFormModal from "../components/PurchaseFormModal";
 import PurchaseEditModal from "../components/PurchaseEditModal";
-import { listUnregisteredSuppliers } from "../api/purchases";
+import { listUnregisteredSuppliers, deletePurchase } from "../api/purchases";
+import { toast } from "react-toastify";
 import { compactParams } from "../utils/query";
 
 // Filters live in the URL so dashboard links open this list pre-filtered.
@@ -25,6 +26,21 @@ export default function PurchaseHistory() {
   const [unregistered, setUnregistered] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [editingId, setEditingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const handleDelete = async (p) => {
+    if (!window.confirm(`Delete purchase ${p.invoiceNo}? Its stock comes off the shelves again. This cannot be undone.`)) return;
+    setDeletingId(p._id);
+    try {
+      await deletePurchase(p._id);
+      toast.success(`Purchase ${p.invoiceNo} deleted.`);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
   const params = compactParams(filters);
@@ -167,6 +183,13 @@ export default function PurchaseHistory() {
                   className="rounded-lg border border-border px-3 py-1 text-xs font-semibold text-primary hover:bg-bg"
                 >
                   Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(p)}
+                  disabled={deletingId === p._id}
+                  className="rounded-lg border border-danger/40 px-3 py-1 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
+                >
+                  {deletingId === p._id ? "Deleting…" : "Delete"}
                 </button>
               </div>
             </div>

@@ -2,7 +2,7 @@ import { Router } from "express";
 import Customer from "../models/Customer.js";
 import Sale from "../models/Sale.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { buildCustomerLedger, customerOutstandingMap, recordCustomerPayment } from "../utils/ledgerHelpers.js";
+import { buildCustomerLedger, customerOutstandingMap, recordCustomerPayment, deleteCustomerPayment } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 
 const router = Router();
@@ -191,6 +191,16 @@ router.post("/:id/payments", requireRole("admin"), async (req, res) => {
 
   const ledger = await buildCustomerLedger(customer._id);
   res.status(201).json({ customer, ...ledger });
+});
+
+// Deletes a recorded payment (Admin); the bills it paid off owe that amount again.
+router.delete("/:id/payments/:paymentId", requireRole("admin"), async (req, res) => {
+  const customer = await Customer.findById(req.params.id).catch(() => null);
+  if (!customer) return res.status(404).json({ message: "No records found." });
+  const result = await deleteCustomerPayment(customer._id, req.params.paymentId);
+  if (result.error) return res.status(404).json({ message: result.error });
+  const ledger = await buildCustomerLedger(customer._id);
+  res.json({ customer, ...ledger });
 });
 
 router.patch("/:id", requireRole("admin"), async (req, res) => {

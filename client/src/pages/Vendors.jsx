@@ -5,7 +5,7 @@ import Layout from "../components/Layout";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import VendorFormModal from "../components/VendorFormModal";
 import PurchaseFormModal from "../components/PurchaseFormModal";
-import { listVendors, setVendorActive, exportVendors } from "../api/vendors";
+import { listVendors, setVendorActive, exportVendors, deleteVendor } from "../api/vendors";
 import { listProducts } from "../api/products";
 
 function VendorProducts({ vendorId }) {
@@ -75,6 +75,17 @@ export default function Vendors() {
     setEditingVendor(null);
     setShowAddForm(false);
     load(query);
+  };
+
+  const handleDelete = async (v) => {
+    if (!window.confirm(`Delete ${v.name}? This cannot be undone.`)) return;
+    try {
+      await deleteVendor(v._id);
+      toast.success(`${v.name} deleted.`);
+      load(query);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
+    }
   };
 
   const toggleActive = async (v) => {
@@ -168,6 +179,9 @@ export default function Vendors() {
                   </button>
                   <button onClick={() => toggleActive(v)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-muted hover:bg-bg">
                     Deactivate
+                  </button>
+                  <button onClick={() => handleDelete(v)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-danger hover:bg-danger/10">
+                    Delete
                   </button>
                 </div>
               </div>

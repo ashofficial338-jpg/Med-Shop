@@ -44,3 +44,11 @@ export function exportVendors(format, params) {
 export function exportVendorReport(id, period, format, name) {
   return downloadFile(`/vendors/${id}/report/export`, { period, format }, reportFileName(`GuganMedicals_VendorReport_${name || id}`, format));
 }
+
+export function deleteVendor(id) {
+  return api.delete(`/vendors/${id}`).then((r) => r.data);
+}
+
+export function deleteSupplierPayment(vendorId, paymentId) {
+  return api.delete(`/vendors/${vendorId}/payments/${paymentId}`).then((r) => r.data);
+}

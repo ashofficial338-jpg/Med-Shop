@@ -601,16 +601,9 @@ router.put("/:id", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/:id/void", requireRole("admin"), async (req, res) => {
-  // The reason is optional; it is recorded when given.
-  const reason = String(req.body.reason || "").trim() || "No reason given";
-
-  const sale = await Sale.findById(req.params.id).populate("customer", "name phone").populate("createdBy", "username");
-  if (!sale) return res.status(404).json({ message: "No records found." });
-  if (sale.paymentStatus === "void") {
-    return res.status(400).json({ message: "This bill has already been voided." });
-  }
-
+// Puts every unit a bill took back where it came from, logging each return
+// with `label` (e.g. "Void of GM-000012: wrong customer").
+async function returnSaleStock(sale, label, userId) {
   for (const item of sale.items) {
     await Product.updateOne({ _id: item.product }, { $inc: { qty: item.internalQtyDeducted } });
 
@@ -623,9 +616,9 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
           type: "void-reversal",
           qtyChange: b.qty,
           rack: b.rack,
-          reason: `Void of ${sale.billNo}: ${reason.trim()}`,
+          reason: label,
           refId: sale._id,
-          performedBy: req.user._id,
+          performedBy: userId,
         });
       }
     } else {
@@ -637,15 +630,28 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
         batch: batch._id,
         type: "void-reversal",
         qtyChange: item.internalQtyDeducted,
-        reason: `Void of ${sale.billNo}: ${reason.trim()} (pre-batch-tracking sale, returned to batch ${batch.batchNo})`,
+        reason: `${label} (pre-batch-tracking sale, returned to batch ${batch.batchNo})`,
         refId: sale._id,
-        performedBy: req.user._id,
+        performedBy: userId,
       });
     }
   }
+}
+
+router.post("/:id/void", requireRole("admin"), async (req, res) => {
+  // The reason is optional; it is recorded when given.
+  const reason = String(req.body.reason || "").trim() || "No reason given";
+
+  const sale = await Sale.findById(req.params.id).populate("customer", "name phone").populate("createdBy", "username");
+  if (!sale) return res.status(404).json({ message: "No records found." });
+  if (sale.paymentStatus === "void") {
+    return res.status(400).json({ message: "This bill has already been voided." });
+  }
+
+  await returnSaleStock(sale, `Void of ${sale.billNo}: ${reason}`, req.user._id);
 
   sale.paymentStatus = "void";
-  sale.voidReason = reason.trim();
+  sale.voidReason = reason;
   sale.voidedBy = req.user._id;
   sale.voidedAt = new Date();
   // A voided bill is dropped from the receivables ledger entirely (see
@@ -655,6 +661,36 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
   await sale.save();
 
   res.json({ ...sale.toObject(), billText: buildBillText(sale) });
+});
+
+// Removes a bill completely (Admin). A bill that still stands has its stock
+// put back first; what was received at billing goes with it. Money collected
+// later through the customer ledger has to be deleted there first, so the
+// customer's account never shows a payment for a bill that doesn't exist.
+router.delete("/:id", requireRole("admin"), async (req, res) => {
+  const sale = await Sale.findById(req.params.id);
+  if (!sale) return res.status(404).json({ message: "No records found." });
+
+  const linked = await CustomerPayment.find({ sale: sale._id });
+  const atBilling = linked.filter((p) => p.note === BILLING_RECEIPT_NOTE);
+  const receiptTotal = round2(atBilling.reduce((s, p) => s + p.amount, 0));
+  const collectedLater =
+    sale.paymentStatus !== "void" && sale.paymentMode === "Credit" ? round2((sale.amountPaid ?? 0) - receiptTotal) : 0;
+  if (collectedLater > 0 || linked.length > atBilling.length) {
+    return res.status(400).json({
+      message: "Payments were collected against this bill from the customer ledger. Delete those payments first, then delete the bill.",
+    });
+  }
+
+  try {
+    if (sale.paymentStatus !== "void") await returnSaleStock(sale, `Deleted bill ${sale.billNo}`, req.user._id);
+    await CustomerPayment.deleteMany({ _id: { $in: atBilling.map((p) => p._id) } });
+    await Sale.deleteOne({ _id: sale._id });
+    res.json({ message: `Bill ${sale.billNo} deleted.` });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
 });
 
 export default router;

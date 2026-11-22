@@ -34,3 +34,7 @@ export function exportSales(format, params) {
 export function updateSale(id, data) {
   return api.put(`/sales/${id}`, data).then((r) => r.data);
 }
+
+export function deleteSale(id) {
+  return api.delete(`/sales/${id}`).then((r) => r.data);
+}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Layout from "../components/Layout";
-import { getVendorLedger, recordSupplierPayment, exportVendorLedger } from "../api/vendors";
+import { getVendorLedger, recordSupplierPayment, exportVendorLedger, deleteSupplierPayment } from "../api/vendors";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 
 export default function VendorLedger() {
@@ -15,6 +15,17 @@ export default function VendorLedger() {
   const [purchaseId, setPurchaseId] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const removePayment = async (entry) => {
+    if (!window.confirm(`Delete payment ${entry.ref} of ₹${entry.credit.toFixed(2)}? The bills it paid off will owe that amount again.`)) return;
+    setError("");
+    try {
+      await deleteSupplierPayment(id, entry.paymentId);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || "Something went wrong. Please try again.");
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -141,12 +152,13 @@ export default function VendorLedger() {
               <th className="px-4 py-2 text-right">Debit</th>
               <th className="px-4 py-2 text-right">Credit</th>
               <th className="px-4 py-2 text-right">Balance</th>
+              <th className="px-2 py-2" />
             </tr>
           </thead>
           <tbody>
             {entries.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-muted">No records found.</td>
+                <td colSpan={7} className="px-4 py-6 text-center text-muted">No records found.</td>
               </tr>
             )}
             {entries.map((entry, i) => (
@@ -157,6 +169,13 @@ export default function VendorLedger() {
                 <td className="px-4 py-2 text-right font-mono">{entry.debit > 0 ? `₹${entry.debit.toFixed(2)}` : ""}</td>
                 <td className="px-4 py-2 text-right font-mono">{entry.credit > 0 ? `₹${entry.credit.toFixed(2)}` : ""}</td>
                 <td className="px-4 py-2 text-right font-mono font-semibold">₹{entry.balance.toFixed(2)}</td>
+                <td className="px-2 py-2 text-right">
+                  {entry.paymentId && (
+                    <button onClick={() => removePayment(entry)} className="text-xs font-semibold text-danger hover:underline">
+                      Delete
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

@@ -36,3 +36,7 @@ export function exportCustomerLedger(id, format, name) {
 export function exportCustomers(format, params) {
   return downloadFile("/customers/export", { ...params, format }, reportFileName("GuganMedicals_Customers_Report", format));
 }
+
+export function deleteCustomerPayment(customerId, paymentId) {
+  return api.delete(`/customers/${customerId}/payments/${paymentId}`).then((r) => r.data);
+}

@@ -54,6 +54,22 @@ router.get("/export", async (req, res) => {
   ]);
 });
 
+// Balance corrections recorded for one day, so a wrong one can be deleted.
+router.get("/adjustments", async (req, res) => {
+  const day = req.query.date ? new Date(req.query.date) : new Date();
+  if (Number.isNaN(day.getTime())) return res.status(400).json({ message: "Please enter a valid date." });
+  const start = new Date(day.toISOString().slice(0, 10));
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const list = await DayBookAdjustment.find({ date: { $gte: start, $lt: end } }).populate("setBy", "username").sort({ createdAt: -1 });
+  res.json(list);
+});
+
+router.delete("/adjustments/:id", async (req, res) => {
+  const adj = await DayBookAdjustment.findByIdAndDelete(req.params.id).catch(() => null);
+  if (!adj) return res.status(404).json({ message: "No records found." });
+  res.json({ message: "Balance correction deleted." });
+});
+
 router.post("/adjustments", async (req, res) => {
   // The balance is what this records; type defaults to Cash, date to today.
   const { balance, note } = req.body;

@@ -858,4 +858,93 @@ router.put("/:id", async (req, res) => {
   }
 });
 
+// Removes a purchase completely (Admin): every unit it brought in comes off
+// its batches again, and what was paid with it goes too. Refused while any of
+// that stock has been sold or used (correct the quantity with Edit instead),
+// or while payments made later through the supplier ledger point at it.
+router.delete("/:id", async (req, res) => {
+  const purchase = await Purchase.findById(req.params.id);
+  if (!purchase) return res.status(404).json({ message: "No records found." });
+
+  const linked = purchase.vendor ? await SupplierPayment.find({ purchase: purchase._id }) : [];
+  const atPurchase = linked.filter((p) => p.note === PAID_AT_PURCHASE_NOTE);
+  const paidAtPurchase = round2(atPurchase.reduce((s, p) => s + p.amount, 0));
+  const paidLater = purchase.paymentMode === "Credit" ? round2((purchase.amountPaid ?? 0) - paidAtPurchase) : 0;
+  if (paidLater > 0 || linked.length > atPurchase.length) {
+    return res.status(400).json({
+      message: "Payments were made against this purchase from the supplier ledger. Delete those payments first, then delete the purchase.",
+    });
+  }
+
+  const ledger = await StockLedger.find({ refId: purchase._id, type: { $in: ["purchase", "purchase-edit"] } });
+  const qtyByBatch = new Map();
+  for (const e of ledger) if (e.batch) qtyByBatch.set(String(e.batch), (qtyByBatch.get(String(e.batch)) || 0) + e.qtyChange);
+  const costByBatch = new Map();
+  for (const i of purchase.items) {
+    if (!i.batch) continue;
+    const c = costByBatch.get(String(i.batch)) || { value: 0, packs: 0 };
+    c.value += i.qtyPacks * i.costPrice;
+    c.packs += i.qtyPacks;
+    costByBatch.set(String(i.batch), c);
+  }
+  const batches = await Batch.find({ _id: { $in: [...qtyByBatch.keys()] } });
+
+  const productDelta = new Map();
+  for (const b of batches) {
+    const qty = qtyByBatch.get(String(b._id)) || 0;
+    if (b.qtyRemaining < qty) {
+      const p = await Product.findById(b.product);
+      const used = qty - b.qtyRemaining;
+      return res.status(400).json({
+        message: `${p?.name || "A product"} batch ${b.batchNo}: ${used} ${stockUnitName(p)} from this purchase ${used === 1 ? "has" : "have"} already been sold or used, so it can't be deleted. Use Edit to correct it instead.`,
+      });
+    }
+    productDelta.set(String(b.product), (productDelta.get(String(b.product)) || 0) - qty);
+  }
+  for (const [pid, delta] of productDelta) {
+    const p = await Product.findById(pid);
+    if (p && p.qty + delta < 0) {
+      return res.status(400).json({ message: `Only ${p.qty} ${stockUnitName(p)} of ${p.name} left in stock, so this purchase can't be deleted.` });
+    }
+  }
+
+  try {
+    const reason = `Deleted purchase ${purchase.invoiceNo}`;
+    for (const b of batches) {
+      const qty = qtyByBatch.get(String(b._id)) || 0;
+      if (qty === 0) continue;
+      const c = costByBatch.get(String(b._id));
+      const cost = c && c.packs > 0 ? c.value / c.packs : b.costPrice;
+      const left = b.qtyReceived - qty;
+      // Take this delivery's cost back out of the lot's blended cost.
+      if (left > 0) b.costPrice = Number(Math.max((b.qtyReceived * b.costPrice - qty * cost) / left, 0).toFixed(4));
+      b.qtyReceived = Math.max(left, 0);
+      b.qtyRemaining -= qty;
+      if (b.qtyReceived <= 0 && b.qtyRemaining <= 0) b.isDeleted = true;
+      await b.save();
+      await StockLedger.create({
+        product: b.product,
+        batch: b._id,
+        type: "purchase-edit",
+        qtyChange: -qty,
+        rack: b.rack || "",
+        reason,
+        refId: purchase._id,
+        performedBy: req.user._id,
+      });
+    }
+    for (const [pid, delta] of productDelta) {
+      if (delta !== 0) await Product.updateOne({ _id: pid }, { $inc: { qty: delta } });
+      const p = await Product.findById(pid);
+      if (p) await refreshProductRack(p);
+    }
+    await SupplierPayment.deleteMany({ _id: { $in: atPurchase.map((p) => p._id) } });
+    await Purchase.deleteOne({ _id: purchase._id });
+    res.json({ message: `Purchase ${purchase.invoiceNo} deleted.` });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+});
+
 export default router;

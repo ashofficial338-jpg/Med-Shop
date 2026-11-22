@@ -2,7 +2,10 @@ import { Router } from "express";
 import { body, validationResult } from "express-validator";
 import Vendor from "../models/Vendor.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { buildSupplierLedger, vendorOutstandingMap, recordSupplierPayment } from "../utils/ledgerHelpers.js";
+import { buildSupplierLedger, vendorOutstandingMap, recordSupplierPayment, deleteSupplierPayment } from "../utils/ledgerHelpers.js";
+import Purchase from "../models/Purchase.js";
+import SupplierPayment from "../models/SupplierPayment.js";
+import Product from "../models/Product.js";
 import { buildVendorReport } from "../utils/vendorReportHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 
@@ -144,6 +147,38 @@ router.post("/:id/payments", async (req, res) => {
 
   const ledger = await buildSupplierLedger(vendor._id);
   res.status(201).json({ vendor, ...ledger });
+});
+
+// Deletes a recorded payment; the invoices it paid off owe that amount again.
+router.delete("/:id/payments/:paymentId", async (req, res) => {
+  const vendor = await Vendor.findById(req.params.id).catch(() => null);
+  if (!vendor) return res.status(404).json({ message: "No records found." });
+  const result = await deleteSupplierPayment(vendor._id, req.params.paymentId);
+  if (result.error) return res.status(404).json({ message: result.error });
+  const ledger = await buildSupplierLedger(vendor._id);
+  res.json({ vendor, ...ledger });
+});
+
+// Deletes a supplier outright - only one with no purchases or payments on
+// record, since those would lose who they were with (mark the supplier
+// inactive instead, or delete their purchases first). Products that named
+// this supplier simply stop naming one.
+router.delete("/:id", async (req, res) => {
+  const vendor = await Vendor.findById(req.params.id).catch(() => null);
+  if (!vendor) return res.status(404).json({ message: "No records found." });
+  const [purchases, payments] = await Promise.all([
+    Purchase.countDocuments({ vendor: vendor._id }),
+    SupplierPayment.countDocuments({ vendor: vendor._id }),
+  ]);
+  if (purchases || payments) {
+    const what = [purchases && `${purchases} purchase${purchases === 1 ? "" : "s"}`, payments && `${payments} payment${payments === 1 ? "" : "s"}`]
+      .filter(Boolean)
+      .join(" and ");
+    return res.status(400).json({ message: `${vendor.name} has ${what} on record. Delete those first, or mark the supplier inactive instead.` });
+  }
+  await Product.updateMany({ vendor: vendor._id }, { $set: { vendor: null } });
+  await Vendor.deleteOne({ _id: vendor._id });
+  res.json({ message: `${vendor.name} deleted.` });
 });
 
 router.get("/:id/report", async (req, res) => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import { getDayBookSummary, recordDayBookAdjustment, exportDayBook } from "../api/daybook";
+import { getDayBookSummary, recordDayBookAdjustment, exportDayBook, listDayBookAdjustments, deleteDayBookAdjustment } from "../api/daybook";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 
 const TYPES = [
@@ -82,13 +82,57 @@ function BalanceCard({ label, type, date, data, onAdjusted }) {
   );
 }
 
+// Balance corrections recorded for the chosen day, each deletable.
+function Corrections({ date, reloadKey, onChanged }) {
+  const [list, setList] = useState([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    listDayBookAdjustments(date).then(setList).catch(() => setList([]));
+  }, [date, reloadKey]);
+  if (list.length === 0) return null;
+
+  const remove = async (a) => {
+    if (!window.confirm(`Delete the ${a.type} balance correction of ₹${a.balance.toFixed(2)}?`)) return;
+    try {
+      await deleteDayBookAdjustment(a._id);
+      onChanged();
+    } catch (err) {
+      setError(err.response?.data?.message || "Something went wrong. Please try again.");
+    }
+  };
+
+  return (
+    <div className="mt-6 rounded-xl bg-surface p-4 shadow-sm">
+      <h2 className="text-sm font-semibold text-text">Balance corrections on this day</h2>
+      <ul className="mt-2 divide-y divide-border text-sm">
+        {list.map((a) => (
+          <li key={a._id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span className="text-text">
+              {a.type}: ₹{a.balance.toFixed(2)}
+              <span className="ml-2 text-xs text-muted">
+                {a.note ? `${a.note} · ` : ""}by {a.setBy?.username || "—"} · {new Date(a.createdAt).toLocaleString()}
+              </span>
+            </span>
+            <button onClick={() => remove(a)} className="text-xs font-semibold text-danger hover:underline">
+              Delete
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+    </div>
+  );
+}
+
 export default function DayBook() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const load = () => {
     setLoading(true);
+    setReloadKey((k) => k + 1);
     getDayBookSummary(date).then((d) => {
       setData(d);
       setLoading(false);
@@ -124,6 +168,7 @@ export default function DayBook() {
           ))}
         </div>
       )}
+      <Corrections date={date} reloadKey={reloadKey} onChanged={load} />
     </Layout>
   );
 }
