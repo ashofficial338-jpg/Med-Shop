@@ -180,6 +180,32 @@ router.get("/unregistered-suppliers", async (req, res) => {
   res.json([...seen.values()].sort((a, b) => a.localeCompare(b)));
 });
 
+// Possible duplicates of a bill about to be entered (used by the scanned-bill
+// flow): the same invoice number from anyone, or the same date and total.
+// Read-only - saving still relies on the unique vendor + invoiceNo index.
+router.get("/check-duplicate", async (req, res) => {
+  const invoiceNo = String(req.query.invoiceNo || "").trim().slice(0, 60);
+  const total = Number(req.query.total);
+  const date = String(req.query.date || "");
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(new Date(date).getTime()) ? dayRange(date, date) : null;
+  const or = [];
+  if (invoiceNo) or.push({ invoiceNo: new RegExp(`^${escapeRegex(invoiceNo)}$`, "i") });
+  if (day && total > 0) or.push({ date: day, total: { $gte: total - 1, $lte: total + 1 } });
+  if (!or.length) return res.json([]);
+  const found = await Purchase.find({ $or: or }).populate("vendor", "name").sort({ date: -1 }).limit(5);
+  res.json(
+    found.map((p) => ({
+      _id: p._id,
+      invoiceNo: p.invoiceNo,
+      date: p.date,
+      total: p.total,
+      supplier: purchasePartyName(p),
+      vendor: p.vendor?._id || null,
+      sameInvoiceNo: Boolean(invoiceNo) && p.invoiceNo.toLowerCase() === invoiceNo.toLowerCase(),
+    }))
+  );
+});
+
 router.get("/", async (req, res) => {
   const filter = await buildPurchaseFilter(req);
   const purchases = await Purchase.find(filter)

@@ -5,6 +5,7 @@ import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
 import PurchaseRateHint from "./PurchaseRateHint";
 import { validPosition } from "../utils/rack";
+import { ScannedBillBanner, ScannedLineHint } from "./ScannedBillNotes";
 
 const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
@@ -33,16 +34,20 @@ const emptyLine = {
 // supplier at all. Each line is an existing product or a new one entered
 // inline; a "new" product whose name already exists gets its stock added to
 // that existing product - one master product, many suppliers.
-export default function DirectPurchaseModal({ initialMode = "none", onClose, onSaved }) {
+// `initialData` (optional) pre-fills the form from a scanned bill - see
+// InvoiceUploadModal. Without it the form starts empty as before.
+export default function DirectPurchaseModal({ initialMode = "none", onClose, onSaved, initialData }) {
   const [mode, setMode] = useState(initialMode); // "unregistered" | "none"
   const [knownSuppliers, setKnownSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [invoiceNo, setInvoiceNo] = useState("");
-  const [supplierName, setSupplierName] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [invoiceNo, setInvoiceNo] = useState(initialData?.invoiceNo || "");
+  const [supplierName, setSupplierName] = useState(initialData?.supplierName || "");
+  const [date, setDate] = useState(initialData?.date || new Date().toISOString().slice(0, 10));
   const [paymentMode, setPaymentMode] = useState("Cash");
-  const [lines, setLines] = useState([{ ...emptyLine }]);
+  const [lines, setLines] = useState(() =>
+    initialData?.lines?.length ? initialData.lines.map((l) => ({ ...emptyLine, ...l })) : [{ ...emptyLine }]
+  );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -78,19 +83,30 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
   };
 
   // Picking an existing product pre-fills its current selling price and rack.
+  // A rate read off a scanned bill is kept rather than cleared.
   const selectProduct = (idx, id) => {
     const p = productById(id);
     setLines((ls) =>
-      ls.map((l, i) =>
-        i === idx
-          ? { ...l, product: id, costPrice: "", costTouched: false, sellingPrice: p ? String(p.packRate ?? "") : "", rack: validPosition(p?.rack) || l.rack }
-          : l
-      )
+      ls.map((l, i) => {
+        if (i !== idx) return l;
+        const keepRate = Boolean(l.scan) && l.costPrice !== "";
+        return { ...l, product: id, costPrice: keepRate ? l.costPrice : "", costTouched: keepRate, sellingPrice: p ? String(p.packRate ?? "") : "", rack: validPosition(p?.rack) || l.rack };
+      })
     );
   };
 
+  // Switching existing/new clears the line - except what a scanned bill gave
+  // (qty, rate, batch, expiry, and its name for a new product).
   const toggleNew = (idx, isNew) => {
-    setLines((ls) => ls.map((l, i) => (i === idx ? { ...emptyLine, isNew, rack: l.rack } : l)));
+    setLines((ls) =>
+      ls.map((l, i) => {
+        if (i !== idx) return l;
+        const fromScan = l.scan
+          ? { scan: l.scan, qtyPacks: l.qtyPacks, costPrice: l.costPrice, costTouched: l.costTouched, batchNo: l.batchNo, expiryDate: l.expiryDate, name: isNew ? l.scan.name || "" : "" }
+          : {};
+        return { ...emptyLine, isNew, rack: l.rack, ...fromScan };
+      })
+    );
   };
 
   const addLine = () => setLines((ls) => [...ls, { ...emptyLine }]);
@@ -178,6 +194,8 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
           </div>
           <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close">✕</button>
         </div>
+
+        <ScannedBillBanner scan={initialData} computedTotal={total} />
 
         <div className="inline-flex rounded-lg border border-border p-0.5">
           <button type="button" onClick={() => setMode("unregistered")} className={tabCls(mode === "unregistered")}>Unregistered supplier</button>
@@ -344,6 +362,7 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
                   onSuggest={(rate) => suggestCost(idx, line.product, rate)}
                 />
               )}
+              <ScannedLineHint line={line} productGst={line.isNew ? null : productById(line.product)?.gstPercent} />
               <div className="mt-2 flex items-center justify-between text-xs text-muted">
                 <span>Line: ₹{lineAmount(line).toFixed(2)} + GST ₹{lineGst(line).toFixed(2)}</span>
                 {lines.length > 1 && (

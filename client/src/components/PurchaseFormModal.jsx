@@ -5,17 +5,22 @@ import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
 import PurchaseRateHint from "./PurchaseRateHint";
 import { validPosition } from "../utils/rack";
+import { ScannedBillBanner, ScannedLineHint } from "./ScannedBillNotes";
 
 const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
 
-export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
+// `initialData` (optional) pre-fills the form from a scanned bill - see
+// InvoiceUploadModal. Without it the form starts empty as before.
+export default function PurchaseFormModal({ vendor, onClose, onSaved, initialData }) {
   const [products, setProducts] = useState([]);
-  const [invoiceNo, setInvoiceNo] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [invoiceNo, setInvoiceNo] = useState(initialData?.invoiceNo || "");
+  const [date, setDate] = useState(initialData?.date || new Date().toISOString().slice(0, 10));
   const [tdsAmount, setTdsAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Credit");
   const [amountPaid, setAmountPaid] = useState("");
-  const [lines, setLines] = useState([{ ...emptyLine }]);
+  const [lines, setLines] = useState(() =>
+    initialData?.lines?.length ? initialData.lines.map((l) => ({ ...emptyLine, ...l })) : [{ ...emptyLine }]
+  );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -42,10 +47,15 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
     setLines((ls) => ls.map((l, i) => (i === idx && l.product === productId && !l.costTouched ? { ...l, costPrice: String(rate) } : l)));
   };
 
-  // Picking a product pre-fills the rack it already lives on.
+  // Picking a product pre-fills the rack it already lives on. A rate read
+  // off a scanned bill is kept rather than cleared.
   const selectProduct = (idx, id) => {
     setLines((ls) =>
-      ls.map((l, i) => (i === idx ? { ...l, product: id, costPrice: "", costTouched: false, rack: validPosition(productById(id)?.rack) || l.rack } : l))
+      ls.map((l, i) => {
+        if (i !== idx) return l;
+        const keepRate = Boolean(l.scan) && l.costPrice !== "";
+        return { ...l, product: id, costPrice: keepRate ? l.costPrice : "", costTouched: keepRate, rack: validPosition(productById(id)?.rack) || l.rack };
+      })
     );
   };
 
@@ -121,6 +131,8 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
           <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close">✕</button>
         </div>
 
+        <ScannedBillBanner scan={initialData} computedTotal={total} />
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>Invoice No<RequiredMark /></label>
@@ -185,6 +197,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
                 costPrice={line.costPrice}
                 onSuggest={(rate) => suggestCost(idx, line.product, rate)}
               />
+              <ScannedLineHint line={line} productGst={productById(line.product)?.gstPercent} />
               <div className="mt-2 flex items-center justify-between text-xs text-muted">
                 <span>Line: ₹{lineAmount(line).toFixed(2)} + GST ₹{lineGst(line).toFixed(2)}</span>
                 {lines.length > 1 && (

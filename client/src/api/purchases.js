@@ -27,6 +27,11 @@ export function getLastPurchaseRate(params) {
   return api.get("/purchases/last-rate", { params }).then((r) => r.data);
 }
 
+// Already-saved purchases that look like this bill (same invoice no, or same date + total).
+export function checkDuplicatePurchase(params) {
+  return api.get("/purchases/check-duplicate", { params }).then((r) => r.data);
+}
+
 export function getPurchase(id) {
   return api.get(`/purchases/${id}`).then((r) => r.data);
 }

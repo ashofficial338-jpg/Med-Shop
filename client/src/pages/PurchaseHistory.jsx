@@ -8,6 +8,7 @@ import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import DirectPurchaseModal from "../components/DirectPurchaseModal";
 import PurchaseFormModal from "../components/PurchaseFormModal";
 import PurchaseEditModal from "../components/PurchaseEditModal";
+import InvoiceUploadModal from "../components/InvoiceUploadModal";
 import { listUnregisteredSuppliers, deletePurchase } from "../api/purchases";
 import { toast } from "react-toastify";
 import { compactParams } from "../utils/query";
@@ -27,6 +28,9 @@ export default function PurchaseHistory() {
   const [reloadKey, setReloadKey] = useState(0);
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  // Pre-fill for the purchase forms when the entry started from an uploaded bill.
+  const [scanData, setScanData] = useState(null);
 
   const handleDelete = async (p) => {
     if (!window.confirm(`Delete purchase ${p.invoiceNo}? Its stock comes off the shelves again. This cannot be undone.`)) return;
@@ -58,6 +62,7 @@ export default function PurchaseHistory() {
   const saved = () => {
     setDirectMode(null);
     setSupplierVendor(null);
+    setScanData(null);
     setEditingId(null);
     setReloadKey((k) => k + 1);
     listUnregisteredSuppliers().then(setUnregistered).catch(() => {});
@@ -109,6 +114,13 @@ export default function PurchaseHistory() {
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
           >
             Purchase Without Supplier
+          </button>
+          <button
+            onClick={() => setUploadOpen(true)}
+            title="Read a purchase bill (JPG, PNG or PDF) and fill the purchase form from it"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark"
+          >
+            Upload Bill (Image / PDF)
           </button>
         </div>
       </div>
@@ -209,9 +221,41 @@ export default function PurchaseHistory() {
           </div>
         ))}
       </div>
-      {directMode && <DirectPurchaseModal initialMode={directMode} onClose={() => setDirectMode(null)} onSaved={saved} />}
+      {directMode && (
+        <DirectPurchaseModal
+          initialMode={directMode}
+          initialData={scanData}
+          onClose={() => {
+            setDirectMode(null);
+            setScanData(null);
+          }}
+          onSaved={saved}
+        />
+      )}
       {editingId && <PurchaseEditModal purchaseId={editingId} onClose={() => setEditingId(null)} onSaved={saved} />}
-      {supplierVendor && <PurchaseFormModal vendor={supplierVendor} onClose={() => setSupplierVendor(null)} onSaved={saved} />}
+      {supplierVendor && (
+        <PurchaseFormModal
+          vendor={supplierVendor}
+          initialData={scanData}
+          onClose={() => {
+            setSupplierVendor(null);
+            setScanData(null);
+          }}
+          onSaved={saved}
+        />
+      )}
+      {uploadOpen && (
+        <InvoiceUploadModal
+          vendors={vendors}
+          onClose={() => setUploadOpen(false)}
+          onContinue={({ vendor, mode, initialData }) => {
+            setUploadOpen(false);
+            setScanData(initialData);
+            if (vendor) setSupplierVendor(vendor);
+            else setDirectMode(mode);
+          }}
+        />
+      )}
     </Layout>
   );
 }
