@@ -26,3 +26,12 @@ export function listUnregisteredSuppliers() {
 export function getLastPurchaseRate(params) {
   return api.get("/purchases/last-rate", { params }).then((r) => r.data);
 }
+
+export function getPurchase(id) {
+  return api.get(`/purchases/${id}`).then((r) => r.data);
+}
+
+// Corrects a saved purchase - see server routes/purchases.js PUT /:id.
+export function updatePurchase(id, data) {
+  return api.put(`/purchases/${id}`, data).then((r) => r.data);
+}

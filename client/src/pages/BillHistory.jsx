@@ -122,6 +122,9 @@ export default function BillHistory() {
                 {s.paymentStatus === "void" && (
                   <span className="ml-2 rounded-full bg-danger/15 px-2 py-0.5 text-xs font-semibold text-danger">VOID</span>
                 )}
+                {s.editedAt && (
+                  <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">EDITED</span>
+                )}
                 {s.paymentStatus !== "void" && s.paymentMode === "Credit" && s.balanceDue > 0 && (
                   <span className="ml-2 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning">
                     CREDIT · ₹{s.balanceDue.toFixed(2)} due

@@ -14,7 +14,7 @@ const stockLedgerSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["purchase", "sale", "manual-add", "manual-reduce", "void-reversal", "stock-clearance", "rack-transfer", "stock-audit"],
+      enum: ["purchase", "sale", "manual-add", "manual-reduce", "void-reversal", "stock-clearance", "rack-transfer", "stock-audit", "sale-edit", "purchase-edit"],
       required: true,
     },
     qtyChange: {

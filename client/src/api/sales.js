@@ -29,3 +29,8 @@ export function exportSales(format, params) {
   const ext = format === "pdf" ? "pdf" : "xlsx";
   return downloadFile("/sales/export", { ...params, format }, `GuganMedicals_Sales_Report.${ext}`);
 }
+
+// Corrects a completed bill (admin) - see server routes/sales.js PUT /:id.
+export function updateSale(id, data) {
+  return api.put(`/sales/${id}`, data).then((r) => r.data);
+}

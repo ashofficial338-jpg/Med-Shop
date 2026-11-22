@@ -17,6 +17,8 @@ const LEDGER_TYPES = [
   ["manual-add", "Manual add"],
   ["manual-reduce", "Manual reduce"],
   ["void-reversal", "Void reversal"],
+  ["sale-edit", "Bill edit (returned)"],
+  ["purchase-edit", "Purchase edit"],
   ["stock-clearance", "Stock clearance (expired)"],
   ["rack-transfer", "Rack transfer"],
   ["stock-audit", "Stock audit"],

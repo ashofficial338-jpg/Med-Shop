@@ -79,6 +79,9 @@ const saleSchema = new mongoose.Schema(
     voidReason: { type: String, default: "" },
     voidedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     voidedAt: { type: Date, default: null },
+    // Set when an admin corrects the bill after it was made (PUT /sales/:id).
+    editedAt: { type: Date, default: null },
+    editedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

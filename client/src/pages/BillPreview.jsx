@@ -4,6 +4,7 @@ import Layout from "../components/Layout";
 import { getSale, openSalePdf, voidSale } from "../api/sales";
 import { useAuth } from "../context/AuthContext";
 import RequiredMark from "../components/RequiredMark";
+import SaleEditModal from "../components/SaleEditModal";
 
 export default function BillPreview() {
   const { id } = useParams();
@@ -13,6 +14,7 @@ export default function BillPreview() {
   const [showVoidForm, setShowVoidForm] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     getSale(id).then(setSale);
@@ -63,6 +65,18 @@ export default function BillPreview() {
           Done / New Bill
         </button>
 
+        {user.role === "admin" && sale.paymentStatus !== "void" && (
+          <button
+            onClick={() => setEditing(true)}
+            className="rounded-lg border border-primary py-2.5 text-sm font-semibold text-primary hover:bg-primary/10"
+          >
+            Edit Bill
+          </button>
+        )}
+        {sale.editedAt && (
+          <p className="text-center text-xs text-muted">Edited on {new Date(sale.editedAt).toLocaleString()}</p>
+        )}
+
         {user.role === "admin" && sale.paymentStatus !== "void" && !showVoidForm && (
           <button
             onClick={() => setShowVoidForm(true)}
@@ -91,6 +105,16 @@ export default function BillPreview() {
           </div>
         )}
       </div>
+      {editing && (
+        <SaleEditModal
+          sale={sale}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            getSale(id).then(setSale);
+          }}
+        />
+      )}
     </Layout>
   );
 }

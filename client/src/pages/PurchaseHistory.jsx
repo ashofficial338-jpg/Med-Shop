@@ -7,6 +7,7 @@ import { listCategories } from "../api/products";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import DirectPurchaseModal from "../components/DirectPurchaseModal";
 import PurchaseFormModal from "../components/PurchaseFormModal";
+import PurchaseEditModal from "../components/PurchaseEditModal";
 import { listUnregisteredSuppliers } from "../api/purchases";
 import { compactParams } from "../utils/query";
 
@@ -23,6 +24,7 @@ export default function PurchaseHistory() {
   const [supplierVendor, setSupplierVendor] = useState(null);
   const [unregistered, setUnregistered] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
+  const [editingId, setEditingId] = useState(null);
 
   const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
   const params = compactParams(filters);
@@ -40,6 +42,7 @@ export default function PurchaseHistory() {
   const saved = () => {
     setDirectMode(null);
     setSupplierVendor(null);
+    setEditingId(null);
     setReloadKey((k) => k + 1);
     listUnregisteredSuppliers().then(setUnregistered).catch(() => {});
   };
@@ -152,9 +155,20 @@ export default function PurchaseHistory() {
                     </span>
                   )}
                 </p>
-                <p className="text-xs text-muted">{new Date(p.date).toLocaleDateString()} · {p.paymentMode}</p>
+                <p className="text-xs text-muted">
+                  {new Date(p.date).toLocaleDateString()} · {p.paymentMode}
+                  {p.editedAt && ` · Edited ${new Date(p.editedAt).toLocaleDateString()}`}
+                </p>
               </div>
-              <p className="font-mono text-sm font-semibold text-text">₹{p.total.toFixed(2)}</p>
+              <div className="flex items-center gap-3">
+                <p className="font-mono text-sm font-semibold text-text">₹{p.total.toFixed(2)}</p>
+                <button
+                  onClick={() => setEditingId(p._id)}
+                  className="rounded-lg border border-border px-3 py-1 text-xs font-semibold text-primary hover:bg-bg"
+                >
+                  Edit
+                </button>
+              </div>
             </div>
             <ul className="mt-2 space-y-0.5 text-xs text-muted">
               {p.items.map((item, i) => (
@@ -173,6 +187,7 @@ export default function PurchaseHistory() {
         ))}
       </div>
       {directMode && <DirectPurchaseModal initialMode={directMode} onClose={() => setDirectMode(null)} onSaved={saved} />}
+      {editingId && <PurchaseEditModal purchaseId={editingId} onClose={() => setEditingId(null)} onSaved={saved} />}
       {supplierVendor && <PurchaseFormModal vendor={supplierVendor} onClose={() => setSupplierVendor(null)} onSaved={saved} />}
     </Layout>
   );

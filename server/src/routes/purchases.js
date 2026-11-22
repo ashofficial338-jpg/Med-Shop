@@ -7,7 +7,8 @@ import StockLedger from "../models/StockLedger.js";
 import SupplierPayment from "../models/SupplierPayment.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { computeInternalQty } from "../utils/stockUnits.js";
-import { upsertBatch, weightedAvgCost } from "../utils/batchHelpers.js";
+import { upsertBatch, weightedAvgCost, moveBetweenLocations, refreshProductRack } from "../utils/batchHelpers.js";
+import { effectiveLocations } from "../utils/locations.js";
 import Batch from "../models/Batch.js";
 import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
@@ -161,9 +162,10 @@ router.get("/last-rate", async (req, res) => {
 
 // Snapshots each line's previous purchase rate (supplier-specific, falling
 // back to the latest from anyone) before the new purchase is saved.
-async function attachPreviousRates(lines, supplierFilter) {
+async function attachPreviousRates(lines, supplierFilter, excludeId = null) {
   for (const line of lines) {
-    const find = (extra) => Purchase.findOne({ "items.product": line.product, ...extra }).sort({ date: -1, createdAt: -1 });
+    const notThis = excludeId ? { _id: { $ne: excludeId } } : {};
+    const find = (extra) => Purchase.findOne({ "items.product": line.product, ...notThis, ...extra }).sort({ date: -1, createdAt: -1 });
     const doc = (supplierFilter ? await find(supplierFilter) : null) || (await find({}));
     const item = doc && [...doc.items].reverse().find((i) => String(i.product) === String(line.product));
     line.previousCostPrice = item ? item.costPrice : null;
@@ -248,7 +250,12 @@ router.get("/:id", async (req, res) => {
     .populate("vendor", "name")
     .populate("items.product", "name productCode packUnit soldAs unitsPerPack");
   if (!purchase) return res.status(404).json({ message: "No records found." });
-  res.json(purchase);
+  // Split of amountPaid for the edit form: paid with the purchase itself
+  // (editable) vs paid later through the supplier ledger (protected).
+  const atPurchase = purchase.vendor ? await SupplierPayment.find({ purchase: purchase._id, note: "Paid at purchase" }) : [];
+  const paidAtPurchase = Number(atPurchase.reduce((s, p) => s + p.amount, 0).toFixed(2));
+  const paidLater = purchase.paymentMode === "Credit" ? Number(((purchase.amountPaid ?? 0) - paidAtPurchase).toFixed(2)) : 0;
+  res.json({ ...purchase.toObject(), paidAtPurchase, paidLater });
 });
 
 router.post("/", async (req, res) => {
@@ -524,6 +531,328 @@ router.post("/direct", async (req, res) => {
     if (e.name === "ValidationError") {
       return res.status(400).json({ message: Object.values(e.errors)[0].message });
     }
+    console.error(e);
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+});
+
+const PAID_AT_PURCHASE_NOTE = "Paid at purchase";
+const round2 = (n) => Number(Number(n).toFixed(2));
+const stockUnitName = (p) => (p?.soldAs === "pack-and-loose" ? p.looseUnitName : p?.packUnit) || "units";
+
+// Corrects a saved purchase (supplier, invoice no, date, products, qty, rate,
+// batch, expiry, rack, payment). Stock is reconciled per batch: each lot this
+// purchase brought in is raised or lowered by the difference, so stock that
+// was already sold from it stays accounted for - a quantity can't be cut
+// below what's already gone. A supplier purchase can't become a direct one
+// (or the reverse). Payments made later through the supplier ledger are
+// protected: such a purchase stays on Credit with the same supplier and its
+// total can't drop below what was paid.
+router.put("/:id", async (req, res) => {
+  const purchase = await Purchase.findById(req.params.id);
+  if (!purchase) return res.status(404).json({ message: "No records found." });
+  const { vendor, supplierName, invoiceNo, date, items, tdsAmount, paymentMode, amountPaid } = req.body;
+  const isDirect = !purchase.vendor;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ message: "Add at least one product line before saving." });
+  }
+  if (date && Number.isNaN(new Date(date).getTime())) return res.status(400).json({ message: "Please enter a valid date." });
+
+  let vendorId = null;
+  if (!isDirect) {
+    vendorId = vendor && mongoose.isValidObjectId(vendor) ? String(vendor) : String(purchase.vendor);
+    if (vendorId !== String(purchase.vendor)) {
+      const v = await Vendor.findById(vendorId);
+      if (!v || !v.isActive) return res.status(400).json({ message: "Please choose a valid supplier." });
+    }
+  }
+  const vendorChanged = !isDirect && vendorId !== String(purchase.vendor);
+  const mode = paymentMode || purchase.paymentMode;
+  const allowedModes = isDirect ? DIRECT_PAYMENT_MODES : [...DIRECT_PAYMENT_MODES, "Credit"];
+  if (!allowedModes.includes(mode)) {
+    return res.status(400).json({
+      message: isDirect ? "A purchase without a supplier is paid up front - choose Cash, UPI, Bank Transfer, Cheque or Other." : "Please choose a valid payment mode.",
+    });
+  }
+
+  const resolvedInvoiceNo = String(invoiceNo ?? "").trim() || purchase.invoiceNo;
+  const clash = await Purchase.exists({ _id: { $ne: purchase._id }, vendor: isDirect ? null : vendorId, invoiceNo: resolvedInvoiceNo });
+  if (clash) {
+    return res.status(409).json({
+      message: isDirect ? "This invoice number has already been recorded for a purchase without a supplier." : "This invoice number has already been recorded for this vendor.",
+    });
+  }
+
+  // What was paid at purchase can be corrected freely; payments made later
+  // through the supplier ledger can't be undone from here.
+  const billingPayments = isDirect ? [] : await SupplierPayment.find({ purchase: purchase._id, note: PAID_AT_PURCHASE_NOTE });
+  const paidAtPurchase = round2(billingPayments.reduce((s, p) => s + p.amount, 0));
+  const paidLater = purchase.paymentMode === "Credit" ? round2((purchase.amountPaid ?? 0) - paidAtPurchase) : 0;
+  if (paidLater > 0) {
+    if (mode !== "Credit") {
+      return res.status(400).json({ message: `₹${paidLater.toFixed(2)} has already been paid against this credit purchase, so it has to stay on Credit.` });
+    }
+    if (vendorChanged) {
+      return res.status(400).json({ message: "Payments are already recorded against this purchase for its supplier, so the supplier can't be changed." });
+    }
+  }
+
+  // Validate every line before touching any stock.
+  const lines = [];
+  for (const item of items) {
+    const product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
+    const sameProduct = (i) => String(i.product) === String(item.product);
+    const original =
+      purchase.items.find((i) => sameProduct(i) && i.batchNo === String(item.batchNo || "").trim()) || purchase.items.find(sameProduct);
+    if (!product || (!product.isActive && !original)) {
+      return res.status(400).json({ message: "Choose the product for each line (or remove empty lines)." });
+    }
+    const qtyPacks = Number(item.qtyPacks);
+    const costPrice = optionalNumber(item.costPrice);
+    if (!(qtyPacks > 0) || !Number.isInteger(qtyPacks)) return res.status(400).json({ message: `Enter the quantity for ${product.name}.` });
+    if (!(costPrice >= 0)) return res.status(400).json({ message: "Please enter a valid purchase price." });
+    if (item.expiryDate && Number.isNaN(new Date(item.expiryDate).getTime())) return res.status(400).json({ message: "Please enter a valid expiry date." });
+    const rack = cleanRack(item.rack);
+    const origRack = original ? cleanRack(original.rack) : undefined;
+    if (origRack !== rack) {
+      const rackError = await rackPositionError(item.rack, { required: false });
+      if (rackError) return res.status(400).json({ message: rackError });
+    }
+    const batchNo = String(item.batchNo || "").trim() || resolvedInvoiceNo;
+    if (batchNo.length > 30) return res.status(400).json({ message: "Batch number can be at most 30 characters." });
+
+    const lineAmount = round2(qtyPacks * costPrice);
+    lines.push({
+      product: product._id,
+      qtyPacks,
+      costPrice,
+      batchNo,
+      expiryDate: item.expiryDate || null,
+      rack,
+      lineAmount,
+      lineGst: round2((lineAmount * product.gstPercent) / 100),
+      previousCostPrice: original ? original.previousCostPrice : undefined,
+      _productDoc: product,
+      _addQty: computeInternalQty({ soldAs: product.soldAs, unitsPerPack: product.unitsPerPack, qtyPacks, qtyLooseExtra: 0 }),
+      _rackChanged: origRack !== undefined && origRack !== rack,
+    });
+  }
+
+  const subtotal = round2(lines.reduce((s, l) => s + l.lineAmount, 0));
+  const gstAmount = round2(lines.reduce((s, l) => s + l.lineGst, 0));
+  const total = round2(subtotal + gstAmount);
+  const paidNow = mode === "Credit" ? round2(Math.max(Number(amountPaid) || 0, 0)) : 0;
+  const resolvedAmountPaid = mode === "Credit" ? round2(paidLater + paidNow) : total;
+  if (resolvedAmountPaid > total) {
+    return res.status(400).json({
+      message: paidLater > 0
+        ? `₹${resolvedAmountPaid.toFixed(2)} has already been paid for this purchase, so the new total can't be less than that.`
+        : "Amount paid can't be more than the purchase total.",
+    });
+  }
+
+  // What this purchase actually put into each batch (from its own stock
+  // ledger entries, so earlier edits are included) and at what rate.
+  const ledger = await StockLedger.find({ refId: purchase._id, type: { $in: ["purchase", "purchase-edit"] } });
+  const oldQtyByBatch = new Map();
+  for (const e of ledger) if (e.batch) oldQtyByBatch.set(String(e.batch), (oldQtyByBatch.get(String(e.batch)) || 0) + e.qtyChange);
+  const oldCostByBatch = new Map();
+  for (const i of purchase.items) {
+    if (!i.batch) continue;
+    const c = oldCostByBatch.get(String(i.batch)) || { value: 0, packs: 0 };
+    c.value += i.qtyPacks * i.costPrice;
+    c.packs += i.qtyPacks;
+    oldCostByBatch.set(String(i.batch), c);
+  }
+  const oldBatches = await Batch.find({ _id: { $in: [...oldQtyByBatch.keys()] } });
+
+  // Corrected lines grouped by the lot they go into.
+  const groups = new Map();
+  for (const l of lines) {
+    const key = `${l.product}|${l.batchNo}`;
+    const g = groups.get(key) || { product: l._productDoc, batchNo: l.batchNo, qty: 0, value: 0, expiryDate: null, rack: l.rack, rackChanged: false, lines: [] };
+    g.qty += l._addQty;
+    g.value += l._addQty * l.costPrice;
+    if (l.expiryDate) g.expiryDate = l.expiryDate;
+    g.rack = l.rack;
+    g.rackChanged = g.rackChanged || l._rackChanged;
+    g.lines.push(l);
+    groups.set(key, g);
+  }
+  for (const g of groups.values()) g.cost = g.qty > 0 ? g.value / g.qty : 0;
+
+  const plan = [];
+  const productDelta = new Map();
+  const addDelta = (pid, d) => productDelta.set(String(pid), (productDelta.get(String(pid)) || 0) + d);
+  for (const b of oldBatches) {
+    const g = groups.get(`${b.product}|${b.batchNo}`);
+    const oldQty = oldQtyByBatch.get(String(b._id)) || 0;
+    const newQty = g ? g.qty : 0;
+    const delta = newQty - oldQty;
+    if (b.qtyRemaining + delta < 0) {
+      const p = g?.product || (await Product.findById(b.product));
+      const used = oldQty - b.qtyRemaining;
+      return res.status(400).json({
+        message: `${p?.name || "A product"} batch ${b.batchNo}: ${used} ${stockUnitName(p)} from this purchase ${used === 1 ? "has" : "have"} already been sold or used, so its quantity can't go below that.`,
+      });
+    }
+    const c = oldCostByBatch.get(String(b._id));
+    plan.push({ batch: b, group: g, oldQty, newQty, delta, oldCost: c && c.packs > 0 ? c.value / c.packs : b.costPrice });
+    if (g) g.matched = true;
+    addDelta(b.product, delta);
+  }
+  for (const g of groups.values()) if (!g.matched) addDelta(g.product._id, g.qty);
+  for (const [pid, delta] of productDelta) {
+    if (delta >= 0) continue;
+    const p = await Product.findById(pid);
+    if (p && p.qty + delta < 0) {
+      return res.status(400).json({ message: `Only ${p.qty} ${stockUnitName(p)} of ${p.name} left in stock, so this purchase can't be reduced that much.` });
+    }
+  }
+
+  const newLines = lines.filter((l) => l.previousCostPrice === undefined);
+  if (newLines.length) {
+    const cleanSupplierName = String(supplierName ?? purchase.supplierName ?? "").trim();
+    const supplierFilter = !isDirect
+      ? { vendor: vendorId }
+      : cleanSupplierName
+        ? { vendor: null, supplierName: new RegExp(`^${escapeRegex(cleanSupplierName)}$`, "i") }
+        : { vendor: null, supplierName: { $in: ["", null] } };
+    await attachPreviousRates(newLines, supplierFilter, purchase._id);
+  }
+
+  const purchaseDate = date ? new Date(date) : purchase.date;
+  purchase.set({
+    vendor: isDirect ? null : vendorId,
+    supplierName: isDirect ? String(supplierName ?? purchase.supplierName ?? "").trim() : purchase.supplierName,
+    invoiceNo: resolvedInvoiceNo,
+    date: purchaseDate,
+    items: lines.map(({ _productDoc, _addQty, _rackChanged, ...rest }) => rest),
+    subtotal,
+    gstAmount,
+    tdsAmount: isDirect ? 0 : Number(tdsAmount) || 0,
+    total,
+    paymentMode: mode,
+    amountPaid: resolvedAmountPaid,
+    editedAt: new Date(),
+    editedBy: req.user._id,
+  });
+  try {
+    await purchase.validate();
+  } catch (e) {
+    return res.status(400).json({ message: e.errors ? Object.values(e.errors)[0].message : "Please check the details and try again." });
+  }
+
+  try {
+    const reason = `Edit of purchase ${resolvedInvoiceNo}`;
+    for (const pl of plan) {
+      const b = pl.batch;
+      const g = pl.group;
+      const receivedBefore = b.qtyReceived;
+      const onlyThis = receivedBefore <= pl.oldQty; // this purchase is the lot's only delivery
+      const newReceived = Math.max(receivedBefore + pl.delta, 0);
+      if (newReceived > 0) {
+        const value = onlyThis ? pl.newQty * (g?.cost ?? 0) : receivedBefore * b.costPrice - pl.oldQty * pl.oldCost + pl.newQty * (g?.cost ?? 0);
+        b.costPrice = Number(Math.max(value / newReceived, 0).toFixed(4));
+      }
+      b.qtyReceived = newReceived;
+      b.qtyRemaining += pl.delta;
+      if (g) {
+        if (onlyThis) {
+          b.expiryDate = g.expiryDate || null;
+          b.receivedAt = purchaseDate;
+        } else if (g.expiryDate) {
+          b.expiryDate = g.expiryDate;
+        }
+        b.isDeleted = false;
+      } else if (b.qtyReceived <= 0 && b.qtyRemaining <= 0) {
+        // The line was removed and nothing of it was sold: retire the lot.
+        b.isDeleted = true;
+      }
+      await b.save();
+
+      // A corrected rack moves this purchase's stock to the new position.
+      if (g && g.rackChanged && g.rack !== (b.rack || "")) {
+        const from = b.rack || "";
+        const here = effectiveLocations(b).find((l) => l.rack === from)?.qty || 0;
+        const move = Math.min(here, g.qty);
+        if (move > 0) await moveBetweenLocations(b._id, from, g.rack, move);
+        await Batch.updateOne({ _id: b._id }, { $set: { rack: g.rack } });
+      }
+      if (g) for (const l of g.lines) l.batch = b._id;
+      if (pl.delta !== 0) {
+        await StockLedger.create({
+          product: b.product,
+          batch: b._id,
+          type: "purchase-edit",
+          qtyChange: pl.delta,
+          rack: g ? g.rack : b.rack || "",
+          reason,
+          refId: purchase._id,
+          performedBy: req.user._id,
+        });
+      }
+    }
+
+    for (const g of groups.values()) {
+      if (g.matched) continue;
+      const batch = await upsertBatch({
+        product: g.product,
+        batchNo: g.batchNo,
+        expiryDate: g.expiryDate,
+        costPrice: Number(g.cost.toFixed(4)),
+        addQty: g.qty,
+        receivedAt: purchaseDate,
+        purchase: purchase._id,
+        rack: g.rack,
+      });
+      for (const l of g.lines) l.batch = batch._id;
+      await StockLedger.create({
+        product: g.product._id,
+        batch: batch._id,
+        type: "purchase-edit",
+        qtyChange: g.qty,
+        rack: g.rack || "",
+        reason,
+        refId: purchase._id,
+        performedBy: req.user._id,
+      });
+    }
+
+    for (const [pid, delta] of productDelta) if (delta !== 0) await Product.updateOne({ _id: pid }, { $inc: { qty: delta } });
+    for (const g of groups.values()) {
+      if (g.rack && (g.rackChanged || !g.matched)) await Product.updateOne({ _id: g.product._id }, { $set: { rack: g.rack } });
+    }
+    const touched = new Set([...productDelta.keys(), ...lines.map((l) => String(l.product))]);
+    for (const pid of touched) {
+      const p = await Product.findById(pid);
+      if (p) await refreshProductRack(p);
+    }
+
+    lines.forEach((l, i) => (purchase.items[i].batch = l.batch || null));
+    await purchase.save();
+
+    await SupplierPayment.deleteMany({ _id: { $in: billingPayments.map((p) => p._id) } });
+    if (mode === "Credit" && paidNow > 0) {
+      await SupplierPayment.create({
+        paymentNo: billingPayments[0]?.paymentNo || (await generatePaymentNo("supplier")),
+        vendor: vendorId,
+        purchase: purchase._id,
+        amount: paidNow,
+        mode: billingPayments[0]?.mode || "Cash",
+        date: billingPayments[0]?.date || purchaseDate,
+        note: PAID_AT_PURCHASE_NOTE,
+        recordedBy: req.user._id,
+      });
+    }
+
+    const populated = await Purchase.findById(purchase._id)
+      .populate("vendor", "name")
+      .populate("items.product", "name productCode packUnit soldAs unitsPerPack");
+    res.json(populated);
+  } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ message: "This invoice number has already been recorded for this vendor." });
     console.error(e);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }

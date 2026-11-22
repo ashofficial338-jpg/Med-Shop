@@ -67,6 +67,8 @@ const TYPE_LABEL = {
   "manual-add": "Manual add",
   "manual-reduce": "Manual reduce",
   "void-reversal": "Void – returned",
+  "sale-edit": "Bill edit – returned",
+  "purchase-edit": "Purchase edit",
   "stock-clearance": "Expired write-off",
   "rack-transfer": "Moved",
   "stock-audit": "Audit correction",

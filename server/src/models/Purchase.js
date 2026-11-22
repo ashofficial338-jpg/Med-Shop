@@ -97,6 +97,9 @@ const purchaseSchema = new mongoose.Schema(
     // Only ever mutated by creating a SupplierPayment (see ledgerHelpers.js) -
     // never edited directly, so the sum of payments always matches this field.
     amountPaid: { type: Number, required: true, default: 0 },
+    // Set when an admin corrects the purchase after it was saved.
+    editedAt: { type: Date, default: null },
+    editedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
