@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
     env.DEV_API_PROXY ||
     (env.VITE_API_URL ? env.VITE_API_URL.replace(/\/api\/?$/, '') : 'http://localhost:5000')
   ).replace(/\/+$/, '')
+  if (mode === 'development') console.log(`  API proxy -> ${backend}`)
+  let warnedUnreachable = false
   const proxyOptions = {
     target: backend,
     changeOrigin: true,
@@ -30,6 +32,13 @@ export default defineConfig(({ mode }) => {
     // the client knows it's transient and retries.
     configure: (proxy) => {
       proxy.on('error', (err, req, res) => {
+        if (err?.code === 'ECONNREFUSED' && !warnedUnreachable) {
+          warnedUnreachable = true
+          console.warn(
+            `\n  Backend ${backend} is not reachable. Start it (cd ../server && npm run dev)` +
+            `\n  or set DEV_API_PROXY=https://med-shop-3.onrender.com in client/.env.\n`,
+          )
+        }
         if (!res || !('writeHead' in res) || res.headersSent || res.writableEnded) return
         res.writeHead(502, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ message: 'Server is restarting. Please try again in a moment.' }))
