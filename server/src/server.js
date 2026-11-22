@@ -115,7 +115,8 @@ if (missingEnv.length) {
 
 connectDB()
   .then(() => {
-    app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+    // 0.0.0.0 so the host's router (Render) can reach it, not just localhost.
+    app.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
     syncBatchLocations().catch((e) => console.error("Rack location sync failed:", e.message));
   })
   .catch((err) => {

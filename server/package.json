@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "src/server.js",
+  "main": "server.js",
   "scripts": {
     "dev": "node --watch-path=src --watch-path=.env src/server.js",
-    "start": "node src/server.js",
+    "start": "node server.js",
     "seed": "node src/utils/seedAdmin.js",
     "seed:demo": "node src/utils/seedDemoData.js"
   },
