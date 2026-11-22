@@ -171,7 +171,8 @@ function formatExpiry(date) {
 }
 function itemBatchLabel(item) {
   if (!item.batchBreakdown || item.batchBreakdown.length === 0) return "";
-  return item.batchBreakdown.map((b) => b.batchNo).filter(Boolean).join(",");
+  // One lot picked from two racks shows once.
+  return [...new Set(item.batchBreakdown.map((b) => b.batchNo).filter(Boolean))].join(",");
 }
 function itemExpiryLabel(item) {
   if (!item.batchBreakdown || item.batchBreakdown.length === 0) return "";

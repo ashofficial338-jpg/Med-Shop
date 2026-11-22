@@ -23,6 +23,7 @@ import VendorAnalysis from "./pages/VendorAnalysis";
 import Expenses from "./pages/Expenses";
 import DayBook from "./pages/DayBook";
 import StockManagement from "./pages/StockManagement";
+import RackCenter from "./pages/RackCenter";
 import ProductProfitabilityReport from "./pages/ProductProfitabilityReport";
 import RolesPermissions from "./pages/RolesPermissions";
 
@@ -111,6 +112,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <RackFinder />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/rack-center"
+          element={
+            <ProtectedRoute>
+              <RackCenter />
             </ProtectedRoute>
           }
         />

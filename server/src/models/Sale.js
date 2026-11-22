@@ -34,6 +34,8 @@ const saleItemSchema = new mongoose.Schema(
         // Batch record still existing/matching later - see billPdf.js.
         batchNo: { type: String, default: "" },
         expiryDate: { type: Date, default: null },
+        // Rack position this part was picked from (unset on older sales).
+        rack: { type: String },
         _id: false,
       },
     ],

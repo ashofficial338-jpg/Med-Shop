@@ -21,3 +21,8 @@ export function exportPurchases(format, params) {
 export function listUnregisteredSuppliers() {
   return api.get("/purchases/unregistered-suppliers").then((r) => r.data);
 }
+
+// Previous purchase rate (supplier-specific, else latest) to pre-fill a line.
+export function getLastPurchaseRate(params) {
+  return api.get("/purchases/last-rate", { params }).then((r) => r.data);
+}

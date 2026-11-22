@@ -246,6 +246,22 @@ export default function ProductDetailPanel({
                   <dd className="font-mono text-text">₹{Number(product.avgCostPrice).toFixed(2)} / {product.packUnit}</dd>
                 </div>
               )}
+              {product.locations?.length > 0 && (
+                <div className="col-span-2">
+                  <dt className="text-xs text-muted">Stored at</dt>
+                  <dd className="flex flex-wrap gap-1">
+                    {product.locations.map((l) => (
+                      <a
+                        key={l.rack || "none"}
+                        href={`/rack-center?loc=${encodeURIComponent(l.rack || "NONE")}`}
+                        className="rounded-md bg-primary-soft px-1.5 py-0.5 font-mono text-xs font-semibold text-primary hover:underline"
+                      >
+                        {l.rack || "No Rack"} · {stockDisplay({ ...product, qty: l.qty })}
+                      </a>
+                    ))}
+                  </dd>
+                </div>
+              )}
               <div className="col-span-2">
                 <dt className="text-xs text-muted">Stock on Hand</dt>
                 <dd className="text-text">
@@ -281,7 +297,12 @@ export default function ProductDetailPanel({
                             <span>Qty {b.qtyRemaining}</span>
                           </div>
                           <div className="mt-1 flex items-center justify-between gap-2">
-                            <span className="text-muted">{b.rack ? `Rack ID: ${b.rack}` : "No Rack"}</span>
+                            <span className="text-muted">
+                              📍{" "}
+                              {(b.locations?.length ? b.locations : [{ rack: b.rack, qty: b.qtyRemaining }])
+                                .map((l) => `${l.rack || "No Rack"}${b.locations?.length > 1 ? ` (${l.qty})` : ""}`)
+                                .join(", ")}
+                            </span>
                             {(canEditStock || canDeleteStock) && (
                               <span className="flex gap-1">
                                 {canEditStock && (

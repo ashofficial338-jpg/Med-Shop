@@ -7,6 +7,8 @@ import { useAuth } from "../context/AuthContext";
 import { createSale } from "../api/sales";
 import RequiredMark from "../components/RequiredMark";
 import { getSaleBatches } from "../api/products";
+import { listRacks } from "../api/racks";
+import { describePosition, rackLetter } from "../utils/rack";
 import { makerOf } from "../utils/medicine";
 
 // Internal stock units one cart line takes (loose units for pack-and-loose products).
@@ -22,33 +24,69 @@ function unitsLabel(product, units) {
   return `${units} ${product.packUnit}${units === 1 ? "" : "s"}`;
 }
 
-// The selected brand's live stock and lots. Stock is only ever taken from
-// this exact product - from the picked batch, or earliest expiry first.
-function BrandStock({ line, batches, onPick }) {
+const hasRack = (line) => line.rack !== null && line.rack !== undefined;
+
+// Units available for a line: the picked rack position of the picked batch,
+// the picked batch, or the whole brand.
+function availableFor(line, batches) {
+  if (!batches) return null;
+  if (!line.batch) return batches.reduce((s, b) => s + b.qtyRemaining, 0);
+  const b = batches.find((x) => x._id === line.batch);
+  if (!b) return 0;
+  if (!hasRack(line)) return b.qtyRemaining;
+  return b.locations.find((l) => l.rack === line.rack)?.qty || 0;
+}
+
+function where(code, racks) {
+  if (!code) return "No Rack";
+  const d = describePosition(code, racks.find((r) => r.letter === rackLetter(code)));
+  return d.shelf ? `${code} (Shelf ${d.shelf}, Row ${d.row}, Bin ${d.bin})` : code;
+}
+
+// The selected brand's live stock, lots and rack positions - picking
+// assistance for staff. Stock is only ever taken from this exact product:
+// the picked batch + rack, or earliest expiry first from its primary rack.
+function BrandStock({ line, batches, racks, onPick }) {
   const { product } = line;
   if (!batches) return <p className="text-xs text-muted">Checking stock…</p>;
-  const total = batches.reduce((s, b) => s + b.qtyRemaining, 0);
-  const picked = batches.find((b) => b._id === line.batch);
-  const available = line.batch ? picked?.qtyRemaining || 0 : total;
+  const available = availableFor(line, batches);
   const short = lineUnits(line) > available;
+  const exp = (d) => new Date(d).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  const autoFrom = batches[0]?.locations?.[0];
+  const picked = batches.find((b) => b._id === line.batch);
+  let pickFrom = "—";
+  if (line.batch && hasRack(line)) pickFrom = where(line.rack, racks);
+  else if (picked) pickFrom = picked.locations.map((l) => where(l.rack, racks)).join(" / ");
+  else if (autoFrom) pickFrom = `${where(autoFrom.rack, racks)} · batch ${batches[0].batchNo}`;
+  const value = line.batch ? `${line.batch}|${hasRack(line) ? line.rack : "*"}` : "";
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-      <span className={short ? "font-semibold text-danger" : "text-muted"}>
+    <div className="mt-1 space-y-1 text-xs">
+      <p className={short ? "font-semibold text-danger" : "text-muted"}>
         {short ? "Not enough stock: " : "Available: "}
         {unitsLabel(product, available)}
-        {line.batch ? " in this batch" : ""}
-      </span>
+        {line.batch ? (hasRack(line) ? " at this position" : " in this batch") : ""}
+      </p>
+      <p className="font-semibold text-primary">📍 Pick from: {pickFrom}</p>
       <select
-        aria-label={`Batch for ${product.name}`}
-        value={line.batch || ""}
-        onChange={(e) => onPick(e.target.value || null)}
-        className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-xs text-text focus:border-primary focus:outline-none"
+        aria-label={`Batch and rack for ${product.name}`}
+        value={value}
+        onChange={(e) => {
+          if (!e.target.value) return onPick(null, null);
+          const [batchId, rack] = e.target.value.split("|");
+          onPick(batchId, rack === "*" ? null : rack);
+        }}
+        className="max-w-full rounded-md border border-border bg-surface px-1.5 py-0.5 text-xs text-text focus:border-primary focus:outline-none"
       >
-        <option value="">Batch: auto (earliest expiry)</option>
+        <option value="">Auto: earliest expiry, primary rack</option>
         {batches.map((b) => (
-          <option key={b._id} value={b._id}>
-            {b.batchNo} · exp {new Date(b.expiryDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })} · {unitsLabel(product, b.qtyRemaining)}
-          </option>
+          <optgroup key={b._id} label={`Batch ${b.batchNo} · exp ${exp(b.expiryDate)} · ${unitsLabel(product, b.qtyRemaining)}`}>
+            {b.locations.length > 1 && <option value={`${b._id}|*`}>Batch {b.batchNo} – any rack</option>}
+            {b.locations.map((l) => (
+              <option key={l.rack || "none"} value={`${b._id}|${l.rack}`}>
+                {b.batchNo} @ {where(l.rack, racks)} · {unitsLabel(product, l.qty)}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
     </div>
@@ -70,6 +108,11 @@ export default function Checkout() {
   const [needsOverride, setNeedsOverride] = useState(false);
   const [saving, setSaving] = useState(false);
   const [batchesByProduct, setBatchesByProduct] = useState({});
+  const [racks, setRacks] = useState([]);
+
+  useEffect(() => {
+    listRacks().then(setRacks).catch(() => {});
+  }, []);
 
   const productIds = [...new Set(lines.map((l) => l.product._id))].sort().join(",");
   useEffect(() => {
@@ -98,10 +141,8 @@ export default function Checkout() {
   const balanceDue = Number((total - receivedNow).toFixed(2));
   // Block payment while any line asks for more than its brand (or picked batch) has.
   const shortLine = lines.find((l) => {
-    const batches = batchesByProduct[l.product._id];
-    if (!batches) return false;
-    const available = l.batch ? batches.find((b) => b._id === l.batch)?.qtyRemaining || 0 : batches.reduce((s, b) => s + b.qtyRemaining, 0);
-    return lineUnits(l) > available;
+    const available = availableFor(l, batchesByProduct[l.product._id]);
+    return available !== null && lineUnits(l) > available;
   });
   const canSubmit = (!isCredit || Boolean(customer)) && !shortLine;
 
@@ -114,7 +155,13 @@ export default function Checkout() {
         customer: customer?._id || null,
         paymentMode,
         discount: appliedDiscount,
-        items: lines.map((l) => ({ product: l.product._id, unitType: l.unitType, qty: l.qty, ...(l.batch ? { batch: l.batch } : {}) })),
+        items: lines.map((l) => ({
+          product: l.product._id,
+          unitType: l.unitType,
+          qty: l.qty,
+          ...(l.batch ? { batch: l.batch } : {}),
+          ...(l.batch && hasRack(l) ? { rack: l.rack || "NONE" } : {}),
+        })),
         ...(isCredit ? { amountReceived: receivedNow } : {}),
         ...(withOverride ? { overrideExpiredReason: overrideReason } : {}),
       });
@@ -150,7 +197,8 @@ export default function Checkout() {
               <BrandStock
                 line={line}
                 batches={batchesByProduct[line.product._id]}
-                onPick={(batchId) => setLineBatch(line.product, line.unitType, batchId)}
+                racks={racks}
+                onPick={(batchId, rack) => setLineBatch(line.product, line.unitType, batchId, rack)}
               />
             </div>
             <div className="flex items-center gap-1">
@@ -234,7 +282,7 @@ export default function Checkout() {
       {shortLine && (
         <p className="mt-3 text-sm text-danger">
           Not enough stock of {shortLine.product.name}
-          {shortLine.batch ? " in the selected batch" : ""}. Reduce the quantity{shortLine.batch ? " or choose another batch" : ""}.
+          {shortLine.batch ? " in the selected batch/rack" : ""}. Reduce the quantity{shortLine.batch ? " or choose another batch or rack" : ""}.
         </p>
       )}
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}

@@ -7,7 +7,8 @@ import StockLedger from "../models/StockLedger.js";
 import SupplierPayment from "../models/SupplierPayment.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { computeInternalQty } from "../utils/stockUnits.js";
-import { upsertBatch } from "../utils/batchHelpers.js";
+import { upsertBatch, weightedAvgCost } from "../utils/batchHelpers.js";
+import Batch from "../models/Batch.js";
 import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { nextSequence } from "../models/Counter.js";
@@ -90,12 +91,76 @@ async function stockInPurchase(purchase, lines, date, userId) {
       batch: batch._id,
       type: "purchase",
       qtyChange: addQty,
+      rack: item.rack || "",
       reason: purchase.vendor ? `Purchase invoice ${purchase.invoiceNo}` : `Direct purchase ${purchase.invoiceNo} (no supplier)`,
       refId: purchase._id,
       performedBy: userId,
     });
   }
   await purchase.save();
+}
+
+// Previous purchase rate for a product, to pre-fill (never force) the
+// purchase price on a new entry. Supplier-specific when this supplier has
+// sold it before; otherwise the latest rate from anyone; otherwise the newest
+// batch's cost (e.g. opening stock). Read-only - history is never touched.
+router.get("/last-rate", async (req, res) => {
+  const { product, vendor, supplierName } = req.query;
+  if (!mongoose.isValidObjectId(product)) return res.status(400).json({ message: "Please choose a product." });
+  const pid = new mongoose.Types.ObjectId(product);
+  const find = (extra) => Purchase.findOne({ "items.product": pid, ...extra }).populate("vendor", "name").sort({ date: -1, createdAt: -1 });
+  let supplierFilter = null;
+  if (vendor && mongoose.isValidObjectId(vendor)) supplierFilter = { vendor };
+  else if (supplierName && String(supplierName).trim()) supplierFilter = { vendor: null, supplierName: new RegExp(`^${escapeRegex(String(supplierName).trim())}$`, "i") };
+  else if (req.query.noSupplier === "1") supplierFilter = { vendor: null, supplierName: { $in: ["", null] } };
+
+  const rateOf = (p) => {
+    if (!p) return null;
+    const item = [...p.items].reverse().find((i) => String(i.product) === String(pid));
+    return {
+      costPrice: item.costPrice,
+      qtyPacks: item.qtyPacks,
+      batchNo: item.batchNo,
+      date: p.date,
+      invoiceNo: p.invoiceNo,
+      supplier: purchasePartyName(p),
+      supplierType: p.vendor ? "registered" : p.supplierName ? "unregistered" : "none",
+      purchaseId: p._id,
+    };
+  };
+  const [bySupplierDoc, latestDoc, recentDocs] = await Promise.all([
+    supplierFilter ? find(supplierFilter) : null,
+    find({}),
+    Purchase.find({ "items.product": pid }).populate("vendor", "name").sort({ date: -1, createdAt: -1 }).limit(5),
+  ]);
+  const supplierRate = rateOf(bySupplierDoc);
+  const latestRate = rateOf(latestDoc);
+  let batchRate = null;
+  if (!latestRate) {
+    const b = await Batch.findOne({ product: pid }).sort({ receivedAt: -1 });
+    if (b) batchRate = { costPrice: b.costPrice, date: b.receivedAt, batchNo: b.batchNo, supplier: "Opening stock / adjustment", supplierType: "none" };
+  }
+  const basis = supplierRate ? "supplier" : latestRate ? "latest" : batchRate ? "batch" : null;
+  const suggested = (supplierRate || latestRate || batchRate)?.costPrice ?? null;
+  res.json({
+    suggested,
+    basis,
+    supplierRate,
+    latestRate: latestRate || batchRate,
+    recent: recentDocs.map(rateOf),
+    avgCostOnHand: weightedAvgCost(await Batch.find({ product: pid, qtyRemaining: { $gt: 0 } })),
+  });
+});
+
+// Snapshots each line's previous purchase rate (supplier-specific, falling
+// back to the latest from anyone) before the new purchase is saved.
+async function attachPreviousRates(lines, supplierFilter) {
+  for (const line of lines) {
+    const find = (extra) => Purchase.findOne({ "items.product": line.product, ...extra }).sort({ date: -1, createdAt: -1 });
+    const doc = (supplierFilter ? await find(supplierFilter) : null) || (await find({}));
+    const item = doc && [...doc.items].reverse().find((i) => String(i.product) === String(line.product));
+    line.previousCostPrice = item ? item.costPrice : null;
+  }
 }
 
 // Names of unregistered suppliers used so far, for filters and autocomplete.
@@ -242,6 +307,7 @@ router.post("/", async (req, res) => {
     const resolvedAmountPaid =
       resolvedPaymentMode === "Credit" ? Math.min(Math.max(Number(amountPaid) || 0, 0), total) : total;
 
+    await attachPreviousRates(resolvedItems, { vendor });
     const purchase = await Purchase.create({
       vendor,
       invoiceNo: invoiceNo.trim(),
@@ -411,6 +477,13 @@ router.post("/direct", async (req, res) => {
     gstAmount = Number(gstAmount.toFixed(2));
     const total = Number((subtotal + gstAmount).toFixed(2));
 
+    const cleanSupplierName = String(supplierName || "").trim();
+    await attachPreviousRates(
+      resolvedItems,
+      cleanSupplierName
+        ? { vendor: null, supplierName: new RegExp(`^${escapeRegex(cleanSupplierName)}$`, "i") }
+        : { vendor: null, supplierName: { $in: ["", null] } }
+    );
     purchase = await Purchase.create({
       vendor: null,
       supplierName: String(supplierName || "").trim(),

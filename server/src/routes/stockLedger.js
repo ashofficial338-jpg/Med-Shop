@@ -2,6 +2,7 @@ import { Router } from "express";
 import StockLedger from "../models/StockLedger.js";
 import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
+import { effectiveLocations } from "../utils/locations.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
 import { cleanRack, rackPositionError } from "../utils/rack.js";
@@ -110,6 +111,7 @@ router.post("/adjust", async (req, res) => {
   if (!product) return res.status(404).json({ message: "No records found." });
 
   let batch;
+  let ledgerRack = rack;
 
   if (adjustmentType === "reduce") {
     // Admin picks exactly which lot this came from - breakage/spoilage found
@@ -120,7 +122,19 @@ router.post("/adjust", async (req, res) => {
     if (quantity > batch.qtyRemaining) {
       return res.status(400).json({ message: "Cannot reduce below available stock." });
     }
+    // Optionally from one exact rack position; otherwise the primary rack first.
+    const locs = effectiveLocations(batch);
+    if (req.body.fromRack !== undefined && req.body.fromRack !== null && req.body.fromRack !== "") {
+      const from = cleanRack(req.body.fromRack);
+      const loc = locs.find((l) => l.rack === from);
+      if (!loc || loc.qty < quantity) return res.status(400).json({ message: `Only ${loc?.qty || 0} on ${from || "No Rack"} in this batch.` });
+      loc.qty -= quantity;
+      ledgerRack = from;
+    } else {
+      ledgerRack = locs[0]?.rack ?? "";
+    }
     batch.qtyRemaining -= quantity;
+    batch.locations = locs.filter((l) => l.qty > 0);
     await batch.save();
     product.qty -= quantity;
   } else {
@@ -156,6 +170,7 @@ router.post("/adjust", async (req, res) => {
     batch: batch._id,
     type: adjustmentType === "add" ? "manual-add" : "manual-reduce",
     qtyChange: adjustmentType === "add" ? quantity : -quantity,
+    rack: ledgerRack,
     reason: reason.trim(),
     performedBy: req.user._id,
   });

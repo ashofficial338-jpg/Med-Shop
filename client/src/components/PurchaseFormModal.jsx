@@ -3,6 +3,7 @@ import { listProducts } from "../api/products";
 import { createPurchase } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
+import PurchaseRateHint from "./PurchaseRateHint";
 import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
 
 const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
@@ -31,13 +32,22 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
   const vendorProducts = products.filter((p) => p.vendor?._id === vendor._id || p.vendor === vendor._id);
   const otherProducts = products.filter((p) => !(p.vendor?._id === vendor._id || p.vendor === vendor._id));
 
+  // Typing a purchase price marks it as the user's own rate, so a looked-up
+  // previous rate never overwrites it.
   const setLine = (idx, key, value) => {
-    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, [key]: value } : l)));
+    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, [key]: value, ...(key === "costPrice" ? { costTouched: true } : {}) } : l)));
+  };
+
+  // Pre-fill with the previous purchase rate unless a rate was typed already.
+  const suggestCost = (idx, productId, rate) => {
+    setLines((ls) => ls.map((l, i) => (i === idx && l.product === productId && !l.costTouched ? { ...l, costPrice: String(rate) } : l)));
   };
 
   // Picking a product pre-fills the rack it already lives on.
   const selectProduct = (idx, id) => {
-    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, product: id, rack: validPosition(productById(id)?.rack) || l.rack } : l)));
+    setLines((ls) =>
+      ls.map((l, i) => (i === idx ? { ...l, product: id, costPrice: "", costTouched: false, rack: validPosition(productById(id)?.rack) || l.rack } : l))
+    );
   };
 
   const addLine = () => setLines((ls) => [...ls, { ...emptyLine }]);
@@ -152,7 +162,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
                   <input type="number" min="1" value={line.qtyPacks} onChange={(e) => setLine(idx, "qtyPacks", e.target.value)} className={inputCls} />
                 </div>
                 <div>
-                  <label className={labelCls}>Cost Price<RequiredMark /></label>
+                  <label className={labelCls}>Purchase Rate<RequiredMark /></label>
                   <input type="number" min="0" step="0.01" value={line.costPrice} onChange={(e) => setLine(idx, "costPrice", e.target.value)} className={inputCls} />
                 </div>
                 <div>
@@ -172,6 +182,12 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved }) {
                   labelClassName={labelCls}
                 />
               </div>
+              <PurchaseRateHint
+                productId={line.product}
+                vendorId={vendor._id}
+                costPrice={line.costPrice}
+                onSuggest={(rate) => suggestCost(idx, line.product, rate)}
+              />
               <div className="mt-2 flex items-center justify-between text-xs text-muted">
                 <span>Line: ₹{lineAmount(line).toFixed(2)} + GST ₹{lineGst(line).toFixed(2)}</span>
                 {lines.length > 1 && (

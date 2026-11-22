@@ -155,6 +155,12 @@ export default function PurchaseHistory() {
               {p.items.map((item, i) => (
                 <li key={i}>
                   {item.product?.name} ({item.product?.productCode}) — {item.qtyPacks} × ₹{item.costPrice}
+                  {item.previousCostPrice != null && item.previousCostPrice !== item.costPrice && (
+                    <span className={item.costPrice > item.previousCostPrice ? "text-danger" : "text-success"}>
+                      {" "}(prev ₹{item.previousCostPrice})
+                    </span>
+                  )}
+                  {item.rack ? ` · 📍 ${item.rack}` : ""}
                 </li>
               ))}
             </ul>

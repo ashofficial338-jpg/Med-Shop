@@ -46,10 +46,13 @@ export function CartProvider({ children }) {
     setLines((prev) => prev.filter((l) => lineKey(l.product._id, l.unitType) !== lineKey(product._id, unitType)));
   };
 
-  // Pin a line to one exact batch (null = automatic, earliest expiry first).
-  const setLineBatch = (product, unitType, batch) => {
+  // Pin a line to one exact batch - and optionally one rack position of it
+  // (null = automatic: earliest expiry first, primary rack first).
+  const setLineBatch = (product, unitType, batch, rack = null) => {
     setLines((prev) =>
-      prev.map((l) => (lineKey(l.product._id, l.unitType) === lineKey(product._id, unitType) ? { ...l, batch: batch || null } : l))
+      prev.map((l) =>
+        lineKey(l.product._id, l.unitType) === lineKey(product._id, unitType) ? { ...l, batch: batch || null, rack: batch ? rack : null } : l
+      )
     );
   };
 

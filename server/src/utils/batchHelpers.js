@@ -1,4 +1,5 @@
 import Batch from "../models/Batch.js";
+import { effectiveLocations, locationsInSync } from "./locations.js";
 
 // Creates a new lot, or tops up an existing one if this product already has
 // a batch with the same batch number (a genuine re-delivery of the same lot).
@@ -38,43 +39,96 @@ export async function upsertBatch({ product, batchNo, expiryDate, costPrice, add
   return batch;
 }
 
-// First-Expiry-First-Out allocation: deducts `neededQty` internal units from
-// this product's active batches, earliest expiry first, splitting across
-// batches if one lot doesn't have enough. Each batch decrement is a guarded
-// atomic update (race-safe against a concurrent sale touching the same lot);
-// if the running total can't be fully covered, whatever was already taken is
-// put back and null is returned so the caller can report insufficient stock.
-export async function allocateFefo(product, neededQty) {
-  const batches = await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } }).sort({ expiryDate: 1 });
+// Brings a batch's stored locations in line with its qtyRemaining (saving
+// only when they differ), so the atomic per-location updates below can rely
+// on them.
+export async function syncedBatch(batch) {
+  if (batch && !locationsInSync(batch)) {
+    batch.locations = effectiveLocations(batch);
+    await batch.save();
+  }
+  return batch;
+}
 
-  let remaining = neededQty;
-  const breakdown = [];
+export async function syncBatchById(batchId) {
+  return syncedBatch(await Batch.findById(batchId));
+}
 
-  for (const batch of batches) {
+// Atomically takes `qty` from one rack position of a batch (and from the
+// batch total). Null when that position no longer holds enough.
+function takeFromLocation(batchId, rack, qty, extra = {}) {
+  return Batch.findOneAndUpdate(
+    { _id: batchId, ...extra, qtyRemaining: { $gte: qty }, locations: { $elemMatch: { rack, qty: { $gte: qty } } } },
+    { $inc: { qtyRemaining: -qty, "locations.$.qty": -qty } },
+    { new: true }
+  );
+}
+
+// Atomically puts `qty` back onto one rack position of a batch.
+export async function addToLocation(batchId, rack, qty) {
+  await syncBatchById(batchId);
+  const r = await Batch.updateOne({ _id: batchId, "locations.rack": rack }, { $inc: { qtyRemaining: qty, "locations.$.qty": qty } });
+  if (!r.matchedCount) await Batch.updateOne({ _id: batchId }, { $inc: { qtyRemaining: qty }, $push: { locations: { rack, qty } } });
+}
+
+// Moves `qty` between two rack positions of one batch in a single atomic
+// update - the batch total never changes. Null if `from` lacks the stock.
+export async function moveBetweenLocations(batchId, from, to, qty) {
+  await syncBatchById(batchId);
+  await Batch.updateOne({ _id: batchId, "locations.rack": { $ne: to } }, { $push: { locations: { rack: to, qty: 0 } } });
+  return Batch.findOneAndUpdate(
+    { _id: batchId, locations: { $elemMatch: { rack: from, qty: { $gte: qty } } } },
+    { $inc: { "locations.$[f].qty": -qty, "locations.$[t].qty": qty } },
+    { new: true, arrayFilters: [{ "f.rack": from }, { "t.rack": to }] }
+  );
+}
+
+function breakdownEntry(product, batch, qty, rack) {
+  const costPricePerUnit = product.soldAs === "pack-and-loose" ? batch.costPrice / product.unitsPerPack : batch.costPrice;
+  return {
+    batch: batch._id,
+    qty,
+    costPricePerUnit: Number(costPricePerUnit.toFixed(4)),
+    batchNo: batch.batchNo,
+    expiryDate: batch.expiryDate,
+    rack,
+  };
+}
+
+// Takes up to `wanted` from a batch's positions in pick order (primary rack
+// first). Returns the breakdown entries for what it got.
+async function takeAcrossLocations(product, batch, wanted) {
+  const entries = [];
+  let remaining = wanted;
+  for (const loc of effectiveLocations(batch)) {
     if (remaining <= 0) break;
-    const take = Math.min(batch.qtyRemaining, remaining);
+    const take = Math.min(loc.qty, remaining);
     if (take <= 0) continue;
-
-    const updated = await Batch.findOneAndUpdate(
-      { _id: batch._id, qtyRemaining: { $gte: take } },
-      { $inc: { qtyRemaining: -take } },
-      { new: true }
-    );
-    if (!updated) continue; // lost a race on this lot - move on to the next batch
-
-    const costPricePerUnit =
-      product.soldAs === "pack-and-loose" ? batch.costPrice / product.unitsPerPack : batch.costPrice;
-
-    breakdown.push({
-      batch: batch._id,
-      qty: take,
-      costPricePerUnit: Number(costPricePerUnit.toFixed(4)),
-      batchNo: batch.batchNo,
-      expiryDate: batch.expiryDate,
-    });
+    const updated = await takeFromLocation(batch._id, loc.rack, take);
+    if (!updated) continue; // lost a race on this position
+    entries.push(breakdownEntry(product, updated, take, loc.rack));
     remaining -= take;
   }
+  return entries;
+}
 
+// First-Expiry-First-Out allocation: deducts `neededQty` internal units from
+// this product's batches, earliest expiry first, and within a batch from its
+// primary rack first - splitting across lots/positions when needed. Every
+// decrement is a guarded atomic update (race-safe against a concurrent sale);
+// if the total can't be covered, whatever was taken is put back and null is
+// returned so the caller can report insufficient stock.
+export async function allocateFefo(product, neededQty) {
+  const batches = await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } }).sort({ expiryDate: 1 });
+  let remaining = neededQty;
+  const breakdown = [];
+  for (const batch of batches) {
+    if (remaining <= 0) break;
+    await syncedBatch(batch);
+    const got = await takeAcrossLocations(product, batch, Math.min(batch.qtyRemaining, remaining));
+    breakdown.push(...got);
+    remaining -= got.reduce((s, e) => s + e.qty, 0);
+  }
   if (remaining > 0) {
     await reverseBreakdown(breakdown);
     return null;
@@ -82,32 +136,64 @@ export async function allocateFefo(product, neededQty) {
   return breakdown;
 }
 
-// Takes `neededQty` from one specific lot the cashier picked (same breakdown
-// shape as allocateFefo). Null if that lot doesn't belong to the product or
-// no longer has enough - nothing is ever pulled from another lot or brand.
-export async function allocateFromBatch(product, batchId, neededQty) {
-  const updated = await Batch.findOneAndUpdate(
-    { _id: batchId, product: product._id, isDeleted: { $ne: true }, qtyRemaining: { $gte: neededQty } },
-    { $inc: { qtyRemaining: -neededQty } },
-    { new: true }
-  );
-  if (!updated) return null;
-  const costPricePerUnit = product.soldAs === "pack-and-loose" ? updated.costPrice / product.unitsPerPack : updated.costPrice;
-  return [
-    {
-      batch: updated._id,
-      qty: neededQty,
-      costPricePerUnit: Number(costPricePerUnit.toFixed(4)),
-      batchNo: updated.batchNo,
-      expiryDate: updated.expiryDate,
-    },
-  ];
+// Takes `neededQty` from the one lot the cashier picked - and, when `rack` is
+// given, from that exact rack position only. Null if that lot/position
+// doesn't belong to the product or no longer has enough: stock is never
+// pulled from another position, lot or brand.
+export async function allocateFromBatch(product, batchId, neededQty, rack) {
+  const batch = await syncedBatch(await Batch.findOne({ _id: batchId, product: product._id, isDeleted: { $ne: true } }));
+  if (!batch) return null;
+  if (rack !== undefined && rack !== null) {
+    const updated = await takeFromLocation(batch._id, rack, neededQty, { product: product._id });
+    return updated ? [breakdownEntry(product, updated, neededQty, rack)] : null;
+  }
+  const got = await takeAcrossLocations(product, batch, neededQty);
+  if (got.reduce((s, e) => s + e.qty, 0) < neededQty) {
+    await reverseBreakdown(got);
+    return null;
+  }
+  return got;
 }
 
+// Puts sold/allocated stock back exactly where it came from. Entries from
+// before rack tracking (no rack) go back onto the batch's primary rack.
 export async function reverseBreakdown(breakdown) {
   for (const entry of breakdown) {
-    await Batch.updateOne({ _id: entry.batch }, { $inc: { qtyRemaining: entry.qty } });
+    if (entry.rack !== undefined && entry.rack !== null) {
+      await addToLocation(entry.batch, entry.rack, entry.qty);
+    } else {
+      await Batch.updateOne({ _id: entry.batch }, { $inc: { qtyRemaining: entry.qty } });
+      await syncBatchById(entry.batch);
+    }
   }
+}
+
+// Every product's stock by rack position, across its batches: Map of
+// productId -> [{ rack, qty }] (largest first). `batches` are Batch docs.
+export function locationsByProduct(batches) {
+  const byProduct = new Map();
+  for (const b of batches) {
+    if (!(b.qtyRemaining > 0)) continue;
+    const key = String(b.product?._id || b.product);
+    const m = byProduct.get(key) || new Map();
+    for (const l of effectiveLocations(b)) m.set(l.rack, (m.get(l.rack) || 0) + l.qty);
+    byProduct.set(key, m);
+  }
+  const out = new Map();
+  for (const [k, m] of byProduct) out.set(k, [...m.entries()].map(([rack, qty]) => ({ rack, qty })).sort((a, b) => b.qty - a.qty));
+  return out;
+}
+
+// Keeps Product.rack (the primary / "pick here" location shown on tiles)
+// pointing at a position that actually holds its stock.
+export async function refreshProductRack(product) {
+  const batches = await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } });
+  const locs = locationsByProduct(batches).get(String(product._id)) || [];
+  if (locs.length && !locs.some((l) => l.rack === (product.rack || ""))) {
+    product.rack = locs[0].rack;
+    await product.save();
+  }
+  return locs;
 }
 
 // The expiry date this product would actually be sold against next (FEFO

@@ -144,13 +144,16 @@ export default function ManageRacksModal({ racks, productCounts, initialLetter =
                           type="number"
                           min="1"
                           max="999"
-                          disabled={!allowed.edit}
+                          disabled={!allowed.edit || Boolean(rack.binsPerRow)}
+                          title={rack.binsPerRow ? "This rack has a shelf/row/bin layout - change it in Rack Center → Layout" : undefined}
                           aria-label={`Positions on Rack ${rack.letter}`}
                           value={draft}
                           onChange={(e) => setEdits((d) => ({ ...d, [rack.letter]: e.target.value }))}
                           className="w-20 rounded-lg border border-border bg-surface px-2 py-1 text-sm font-semibold text-text focus:border-primary focus:outline-none"
                         />
-                        <span className="text-xs text-muted">positions</span>
+                        <span className="text-xs text-muted">
+                          positions{rack.binsPerRow ? ` · ${rack.shelves} shelves × ${rack.rowsPerShelf} rows × ${rack.binsPerRow} bins` : ""}
+                        </span>
                         {changed && allowed.edit && (
                           <button
                             type="button"

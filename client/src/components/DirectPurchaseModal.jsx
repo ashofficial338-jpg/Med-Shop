@@ -3,6 +3,7 @@ import { listProducts, listCategories } from "../api/products";
 import { createDirectPurchase, listUnregisteredSuppliers } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
+import PurchaseRateHint from "./PurchaseRateHint";
 import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
 
 const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
@@ -66,8 +67,15 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
 
   const productById = (id) => products.find((p) => p._id === id);
 
+  // Typing a purchase price marks it as the user's own rate, so a looked-up
+  // previous rate never overwrites it.
   const setLine = (idx, key, value) => {
-    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, [key]: value } : l)));
+    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, [key]: value, ...(key === "costPrice" ? { costTouched: true } : {}) } : l)));
+  };
+
+  // Pre-fill with the previous purchase rate unless a rate was typed already.
+  const suggestCost = (idx, productId, rate) => {
+    setLines((ls) => ls.map((l, i) => (i === idx && l.product === productId && !l.costTouched ? { ...l, costPrice: String(rate) } : l)));
   };
 
   // Picking an existing product pre-fills its current selling price and rack.
@@ -75,7 +83,9 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
     const p = productById(id);
     setLines((ls) =>
       ls.map((l, i) =>
-        i === idx ? { ...l, product: id, sellingPrice: p ? String(p.packRate ?? "") : "", rack: validPosition(p?.rack) || l.rack } : l
+        i === idx
+          ? { ...l, product: id, costPrice: "", costTouched: false, sellingPrice: p ? String(p.packRate ?? "") : "", rack: validPosition(p?.rack) || l.rack }
+          : l
       )
     );
   };
@@ -335,6 +345,15 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
                   labelClassName={labelCls}
                 />
               </div>
+              {!line.isNew && (
+                <PurchaseRateHint
+                  productId={line.product}
+                  supplierName={mode === "unregistered" ? supplierName : ""}
+                  noSupplier={mode === "none"}
+                  costPrice={line.costPrice}
+                  onSuggest={(rate) => suggestCost(idx, line.product, rate)}
+                />
+              )}
               <div className="mt-2 flex items-center justify-between text-xs text-muted">
                 <span>Line: ₹{lineAmount(line).toFixed(2)} + GST ₹{lineGst(line).toFixed(2)}</span>
                 {lines.length > 1 && (

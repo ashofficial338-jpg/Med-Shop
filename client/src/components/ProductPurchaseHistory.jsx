@@ -54,6 +54,7 @@ export default function ProductPurchaseHistory({ productId, reloadKey }) {
                 </span>
                 <span className="shrink-0 text-right font-mono text-text">
                   {s.qtyPacks} @ avg {money(s.avgPrice)}
+                  <span className="block text-[11px] text-muted">last {money(s.lastPrice)}</span>
                 </span>
               </div>
             ))}
@@ -62,7 +63,9 @@ export default function ProductPurchaseHistory({ productId, reloadKey }) {
             {lines.map((l, i) => (
               <li key={`${l.purchaseId}:${i}`}>
                 {new Date(l.date).toLocaleDateString()} · {l.supplier}
-                {TYPE_LABEL[l.supplierType]} · {l.invoiceNo} · {l.qtyPacks} × {money(l.costPrice)} · batch {l.batchNo}
+                {TYPE_LABEL[l.supplierType]} · {l.invoiceNo} · {l.qtyPacks} × {money(l.costPrice)}
+                {l.previousCostPrice != null && l.previousCostPrice !== l.costPrice ? ` (was ${money(l.previousCostPrice)})` : ""} · batch {l.batchNo}
+                {l.rack ? ` · ${l.rack}` : ""}
               </li>
             ))}
           </ul>

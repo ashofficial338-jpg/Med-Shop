@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { effectiveLocations, locationsInSync } from "../utils/locations.js";
 
 // One row per physical lot/delivery of a product. Replaces the old single
 // batchNo/expiryDate/costPrice fields that used to live directly on Product
@@ -46,6 +47,21 @@ const batchSchema = new mongoose.Schema(
       maxlength: 20,
       default: "",
     },
+    // Where this batch's stock physically is, possibly split across several
+    // rack positions (same brand + batch on more than one shelf). Always adds
+    // up to qtyRemaining - kept true by the pre-save hook below and by the
+    // atomic sale/transfer updates in batchHelpers.js. `rack` above is the
+    // primary location (where it was first shelved / is picked from first).
+    locations: {
+      type: [
+        {
+          rack: { type: String, trim: true, uppercase: true, maxlength: 20, default: "" },
+          qty: { type: Number, min: 0, required: true },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
     receivedAt: {
       type: Date,
       required: true,
@@ -65,7 +81,15 @@ const batchSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Any save that changed qtyRemaining without saying where (manual adjust,
+// batch edit, write-off...) is squared up here: extra stock goes onto the
+// primary rack, removed stock comes off the primary rack first.
+batchSchema.pre("save", function () {
+  if (!locationsInSync(this)) this.locations = effectiveLocations(this);
+});
+
 batchSchema.index({ product: 1, batchNo: 1 }, { unique: true });
+batchSchema.index({ "locations.rack": 1 });
 batchSchema.index({ product: 1, qtyRemaining: 1, expiryDate: 1 });
 
 export default mongoose.model("Batch", batchSchema);

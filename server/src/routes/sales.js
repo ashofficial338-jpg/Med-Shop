@@ -10,6 +10,8 @@ import { saleLineInternalQty, generateBillNo, buildBillText } from "../utils/sal
 import { streamBillPdf } from "../utils/billPdf.js";
 import { allocateFefo, allocateFromBatch, reverseBreakdown, earliestActiveBatch, landLegacyReturn } from "../utils/batchHelpers.js";
 import Batch from "../models/Batch.js";
+import { effectiveLocations } from "../utils/locations.js";
+import { cleanRack } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
@@ -179,14 +181,24 @@ router.post("/", async (req, res) => {
       const amount = Number((qty * rate).toFixed(2));
       const gstAmount = Number(((amount * product.gstPercent) / 100).toFixed(2));
 
+      const unitName = product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit;
       if (pickedBatch && pickedBatch.qtyRemaining < internalQty) {
-        return res.status(400).json({ message: `Only ${pickedBatch.qtyRemaining} ${product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit} left in batch ${pickedBatch.batchNo} of ${product.name}.` });
+        return res.status(400).json({ message: `Only ${pickedBatch.qtyRemaining} ${unitName} left in batch ${pickedBatch.batchNo} of ${product.name}.` });
+      }
+      // An exact rack position may be picked too (only with a batch).
+      const pickedRack = pickedBatch && item.rack !== undefined && item.rack !== null ? cleanRack(item.rack) : null;
+      if (pickedRack !== null) {
+        const here = effectiveLocations(pickedBatch).find((l) => l.rack === pickedRack)?.qty || 0;
+        if (here < internalQty) {
+          return res.status(400).json({ message: `Only ${here} ${unitName} of ${product.name} batch ${pickedBatch.batchNo} on ${pickedRack || "No Rack"}.` });
+        }
       }
 
       resolved.push({
         product,
         internalQty,
         batchId: pickedBatch?._id || null,
+        rack: pickedRack,
         line: {
           product: product._id,
           name: product.name,
@@ -208,7 +220,7 @@ router.post("/", async (req, res) => {
     // lot(s) it came from. If anything fails partway, everything already
     // reserved for earlier lines - both the product total and batch qtys - is put back.
     const settled = [];
-    for (const { product, internalQty, line, batchId } of resolved) {
+    for (const { product, internalQty, line, batchId, rack } of resolved) {
       const updated = await Product.findOneAndUpdate(
         { _id: product._id, qty: { $gte: internalQty } },
         { $inc: { qty: -internalQty } },
@@ -223,7 +235,7 @@ router.post("/", async (req, res) => {
         return res.status(400).json({ message: `Only ${fresh.qty} ${product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit} of ${product.name} available in stock.` });
       }
 
-      const breakdown = batchId ? await allocateFromBatch(product, batchId, internalQty) : await allocateFefo(product, internalQty);
+      const breakdown = batchId ? await allocateFromBatch(product, batchId, internalQty, rack) : await allocateFefo(product, internalQty);
       if (!breakdown) {
         if (batchId) {
           // The picked lot sold out meanwhile - undo and say so.
@@ -232,7 +244,7 @@ router.post("/", async (req, res) => {
             await Product.updateOne({ _id: s.product._id }, { $inc: { qty: s.internalQty } });
             await reverseBreakdown(s.breakdown);
           }
-          return res.status(400).json({ message: `The selected batch of ${product.name} doesn't have enough stock left.` });
+          return res.status(400).json({ message: `The selected batch${rack !== null ? "/rack" : ""} of ${product.name} doesn't have enough stock left.` });
         }
         // Product-level total said there was enough, but the batch records
         // disagree (data drift) - undo this line and everything before it.
@@ -295,6 +307,7 @@ router.post("/", async (req, res) => {
           batch: b.batch,
           type: "sale",
           qtyChange: -b.qty,
+          rack: b.rack,
           reason: `Sale ${billNo}`,
           refId: sale._id,
           performedBy: req.user._id,
@@ -331,6 +344,7 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
           batch: b.batch,
           type: "void-reversal",
           qtyChange: b.qty,
+          rack: b.rack,
           reason: `Void of ${sale.billNo}: ${reason.trim()}`,
           refId: sale._id,
           performedBy: req.user._id,

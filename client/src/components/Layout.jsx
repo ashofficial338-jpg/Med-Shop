@@ -23,6 +23,7 @@ const ADMIN_NAV = [
     items: [
       { to: "/products", label: "Products", icon: "pill" },
       { to: "/racks", label: "Rack Finder", icon: "rack" },
+      { to: "/rack-center", label: "Rack Center", icon: "boxes" },
       { to: "/stock", label: "Inventory", icon: "boxes" },
       { to: "/bills", label: "Sales", icon: "receipt" },
       { to: "/purchases", label: "Purchases", icon: "truck" },
@@ -70,6 +71,7 @@ const STAFF_NAV = [
     items: [
       { to: "/products", label: "Products", icon: "pill" },
       { to: "/racks", label: "Rack Finder", icon: "rack" },
+      { to: "/rack-center", label: "Rack Center", icon: "boxes" },
       { to: "/checkout", label: "Orders", icon: "cart", badge: "cart" },
       { to: "/bills", label: "My Bills", icon: "receipt" },
     ],

@@ -35,3 +35,54 @@ export function validPosition(code) {
 export function isRackChoice(value) {
   return value === NO_RACK || Boolean(validPosition(value));
 }
+
+// Mirrors server/src/utils/rack.js: a rack's shelf x row x bin layout.
+export function rackLayout(rack) {
+  const shelves = rack.shelves || 1;
+  const rows = rack.rowsPerShelf || 1;
+  const bins = rack.binsPerRow || Math.ceil(rack.positions / (shelves * rows));
+  return { shelves, rows, bins };
+}
+
+// { shelf, row, bin, label } for a position code; rack may be undefined.
+export function describePosition(code, rack) {
+  if (!code) return { code: "", short: "No Rack", label: "No Rack", shelf: null, row: null, bin: null };
+  const m = POSITION_PATTERN.exec(code);
+  if (!m || !rack) return { code, short: code, label: code, shelf: null, row: null, bin: null };
+  const { rows, bins } = rackLayout(rack);
+  const idx = Number(m[2]) - 1;
+  const bin = (idx % bins) + 1;
+  const row = (Math.floor(idx / bins) % rows) + 1;
+  const shelf = Math.floor(idx / (bins * rows)) + 1;
+  return { code, shelf, row, bin, short: `S${shelf} R${row} B${bin}`, label: `Rack ${m[1]} · Shelf ${shelf} · Row ${row} · Bin ${bin}` };
+}
+
+// Human location for a code using a racks list ([{ letter, ... }]).
+export function locationLabel(code, racks) {
+  return describePosition(code, (racks || []).find((r) => r.letter === rackLetter(code))).label;
+}
+
+export function shelfPositions(rack, shelf) {
+  const { rows, bins } = rackLayout(rack);
+  const per = rows * bins;
+  const out = [];
+  for (let n = (shelf - 1) * per + 1; n <= Math.min(shelf * per, rack.positions); n++) out.push(positionCode(rack.letter, n));
+  return out;
+}
+
+// What a scanned / typed rack code means: "A", "A-S2", "A-014", NONE, or a
+// label URL (…?loc=A-014). Returns the canonical scope code, or null.
+export function parseRackCode(text) {
+  let raw = String(text || "").trim();
+  const fromUrl = raw.match(/[?&](?:loc|rack)=([^&#]+)/i);
+  if (fromUrl) raw = decodeURIComponent(fromUrl[1]);
+  raw = raw.toUpperCase().replace(/^RACK[\s:-]*/, "");
+  if (/^[A-Z]$/.test(raw) || /^[A-Z]-S\d{1,2}$/.test(raw) || POSITION_PATTERN.test(raw)) return raw;
+  if (raw === NO_RACK || raw === "NO RACK") return NO_RACK;
+  return null;
+}
+
+// The URL a rack label's QR code holds: opens the Rack Center scanner on it.
+export function rackScanUrl(code) {
+  return `${window.location.origin}/rack-center?loc=${encodeURIComponent(code)}`;
+}

@@ -18,6 +18,17 @@ const rackSchema = new mongoose.Schema(
       min: 1,
       max: 999,
     },
+    // Optional friendly name, e.g. "Antibiotics wall".
+    name: { type: String, trim: true, maxlength: 60, default: "" },
+    // Physical layout. Positions are numbered shelf by shelf, row by row,
+    // bin by bin, so position n always maps to one Shelf / Row / Bin (see
+    // utils/rack.js describePosition). positions = shelves x rows x bins.
+    // Older racks read as 1 shelf x 1 row x <positions> bins.
+    shelves: { type: Number, min: 1, max: 99, default: 1 },
+    rowsPerShelf: { type: Number, min: 1, max: 99, default: 1 },
+    binsPerRow: { type: Number, min: 1, max: 999, default: null },
+    // How many packs one bin holds - for capacity tracking. 0 = not tracked.
+    binCapacity: { type: Number, min: 0, max: 100000, default: 0 },
   },
   { timestamps: true }
 );

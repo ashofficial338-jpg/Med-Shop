@@ -10,6 +10,7 @@ import "express-async-errors";
 import cors from "cors";
 import morgan from "morgan";
 import { connectDB } from "./config/db.js";
+import { syncBatchLocations } from "./utils/syncBatchLocations.js";
 import authRoutes from "./routes/auth.js";
 import profileRoutes from "./routes/profile.js";
 import usersRoutes from "./routes/users.js";
@@ -115,6 +116,7 @@ if (missingEnv.length) {
 connectDB()
   .then(() => {
     app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+    syncBatchLocations().catch((e) => console.error("Rack location sync failed:", e.message));
   })
   .catch((err) => {
     console.error("Failed to connect to MongoDB:", err.message);

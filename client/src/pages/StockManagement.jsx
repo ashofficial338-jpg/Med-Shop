@@ -18,6 +18,8 @@ const LEDGER_TYPES = [
   ["manual-reduce", "Manual reduce"],
   ["void-reversal", "Void reversal"],
   ["stock-clearance", "Stock clearance (expired)"],
+  ["rack-transfer", "Rack transfer"],
+  ["stock-audit", "Stock audit"],
 ];
 
 function ExpiryGroup({ title, batches, selected, onToggle, onToggleAll, badgeCls }) {

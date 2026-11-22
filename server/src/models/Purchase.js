@@ -26,6 +26,10 @@ const purchaseItemSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    // The rate this product was last bought at (from this supplier when
+    // possible, else from anyone) when this line was saved - a snapshot for
+    // "previous vs new rate"; costPrice above is what was actually paid.
+    previousCostPrice: { type: Number, default: null },
     // Rack this line's stock was shelved on.
     rack: {
       type: String,

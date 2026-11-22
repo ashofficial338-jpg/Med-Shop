@@ -63,9 +63,13 @@ export default function ProductTile({ product, canEdit, onEdit, onOpen }) {
           <span className={`h-1.5 w-1.5 rounded-full ${avail.dot}`} />
           {avail.label}
         </span>
-        {product.rack && (
-          <span className="absolute right-2.5 top-2.5 rounded-lg bg-primary px-2 py-0.5 text-[11px] font-bold text-white shadow-sm">
-            Rack ID: {product.rack}
+        {(product.rack || product.locations?.length > 0) && (
+          <span
+            className="absolute right-2.5 top-2.5 rounded-lg bg-primary px-2 py-0.5 text-[11px] font-bold text-white shadow-sm"
+            title={(product.locations || []).map((l) => l.rack || "No Rack").join(", ")}
+          >
+            📍 {product.rack || product.locations[0]?.rack || "No Rack"}
+            {product.locations?.length > 1 ? ` +${product.locations.length - 1}` : ""}
           </span>
         )}
       </div>

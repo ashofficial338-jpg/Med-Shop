@@ -15,7 +15,23 @@ import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { buildStockReport, buildCompositionReport } from "../utils/stockReportHelpers.js";
 import Purchase from "../models/Purchase.js";
 import { DOSAGE_FORMS, RELEASE_TYPES, compositionKey, compositionLabel, productSearchFilter } from "../utils/composition.js";
-import { weightedAvgCost } from "../utils/batchHelpers.js";
+import { weightedAvgCost, locationsByProduct } from "../utils/batchHelpers.js";
+import { effectiveLocations } from "../utils/locations.js";
+
+// One ledger row per rack position a write-off came from, so each rack's
+// history shows it. costImpact is split by quantity.
+async function ledgerPerLocation(batch, base, totalQty, costImpact = 0) {
+  const locs = effectiveLocations({ ...batch.toObject(), qtyRemaining: totalQty });
+  const parts = locs.length ? locs : [{ rack: batch.rack || "", qty: totalQty }];
+  for (const l of parts) {
+    await StockLedger.create({
+      ...base,
+      qtyChange: -l.qty,
+      rack: l.rack,
+      ...(costImpact ? { costImpact: Number(((costImpact * l.qty) / totalQty).toFixed(2)) } : {}),
+    });
+  }
+}
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 
 const router = Router();
@@ -87,11 +103,14 @@ async function withBatchSummary(products) {
     { $group: { _id: "$product", nearestExpiry: { $min: "$expiryDate" }, batchCount: { $sum: 1 } } },
   ]);
   const byProduct = new Map(rows.map((r) => [String(r._id), r]));
+  // Every rack position each product's stock sits on (multi-location).
+  const locs = locationsByProduct(await Batch.find({ product: { $in: ids }, qtyRemaining: { $gt: 0 } }, "product rack locations qtyRemaining"));
   return products.map((p) => {
     const obj = p.toObject ? p.toObject() : p;
     const summary = byProduct.get(String(obj._id));
     obj.nearestExpiry = summary?.nearestExpiry || null;
     obj.batchCount = summary?.batchCount || 0;
+    obj.locations = locs.get(String(obj._id)) || [];
     return obj;
   });
 }
@@ -334,15 +353,12 @@ router.post("/stock-clearance", requireAuth, requireRole("admin"), async (req, r
     const costPerUnit = product.soldAs === "pack-and-loose" ? batch.costPrice / product.unitsPerPack : batch.costPrice;
     const costImpact = Number((qtyWrittenOff * costPerUnit).toFixed(2));
 
-    await StockLedger.create({
-      product: product._id,
-      batch: batch._id,
-      type: "stock-clearance",
-      qtyChange: -qtyWrittenOff,
-      reason: "Expired - written off",
-      performedBy: req.user._id,
-      costImpact,
-    });
+    await ledgerPerLocation(
+      batch,
+      { product: product._id, batch: batch._id, type: "stock-clearance", reason: "Expired - written off", performedBy: req.user._id },
+      qtyWrittenOff,
+      costImpact
+    );
 
     batch.qtyRemaining = 0;
     await batch.save();
@@ -358,6 +374,7 @@ router.get("/:id", requireAuth, async (req, res) => {
   const product = await Product.findById(req.params.id).populate("category", "name").populate("vendor", "name");
   if (!product) return res.status(404).json({ message: "No records found." });
   const obj = withGroup(stripCostPriceIfStaff(product, req.user.role));
+  obj.locations = locationsByProduct(await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } })).get(String(product._id)) || [];
   if (req.user.role === "admin") {
     obj.avgCostPrice = weightedAvgCost(await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } }));
   }
@@ -367,8 +384,9 @@ router.get("/:id", requireAuth, async (req, res) => {
 // Lots that can be sold right now, earliest expiry first - for picking an
 // exact batch at checkout. No cost prices, so any signed-in user may see it.
 router.get("/:id/sale-batches", requireAuth, async (req, res) => {
-  const batches = await Batch.find({ product: req.params.id, qtyRemaining: { $gt: 0 }, isDeleted: { $ne: true } }, "batchNo expiryDate qtyRemaining rack").sort({ expiryDate: 1 });
-  res.json(batches);
+  const batches = await Batch.find({ product: req.params.id, qtyRemaining: { $gt: 0 }, isDeleted: { $ne: true } }, "batchNo expiryDate qtyRemaining rack locations").sort({ expiryDate: 1 });
+  // Positions in pick order, so checkout can show staff exactly where to pick.
+  res.json(batches.map((b) => ({ _id: b._id, batchNo: b.batchNo, expiryDate: b.expiryDate, qtyRemaining: b.qtyRemaining, rack: b.rack, locations: effectiveLocations(b) })));
 });
 
 // Every purchase of this product, from any supplier (registered,
@@ -393,6 +411,8 @@ router.get("/:id/purchases", requireAuth, requireRole("admin"), async (req, res)
         vendorId: p.vendor?._id || null,
         qtyPacks: item.qtyPacks,
         costPrice: item.costPrice,
+        previousCostPrice: item.previousCostPrice ?? null,
+        rack: item.rack || "",
         lineAmount: item.lineAmount,
         batchNo: item.batchNo,
         expiryDate: item.expiryDate,
@@ -432,7 +452,7 @@ router.get("/:id/batches", requireAuth, requireAnyPermission("stock.edit", "stoc
     // A deleted batch disappears, unless stock has since come back into it (e.g. a voided sale).
     $or: [{ isDeleted: { $ne: true } }, { qtyRemaining: { $gt: 0 } }],
   }).sort({ expiryDate: 1 });
-  res.json(batches.map((b) => stripCostPriceIfStaff(b, req.user.role)));
+  res.json(batches.map((b) => ({ ...stripCostPriceIfStaff(b, req.user.role), locations: effectiveLocations(b) })));
 });
 
 async function findStockEntry(req, res) {
@@ -471,6 +491,7 @@ router.patch("/:id/batches/:batchId", requireAuth, requirePermission("stock.edit
     batch.costPrice = cost;
   }
   let delta = 0;
+  const locationsBefore = effectiveLocations(batch);
   if (b.qtyRemaining !== undefined) {
     const qty = Number(b.qtyRemaining);
     if (!Number.isInteger(qty) || qty < 0) return res.status(400).json({ message: "Please enter a valid number." });
@@ -481,8 +502,25 @@ router.patch("/:id/batches/:batchId", requireAuth, requirePermission("stock.edit
   if (b.rack !== undefined) {
     const rackError = await rackPositionError(b.rack, { required: false });
     if (rackError) return res.status(400).json({ message: rackError });
-    batch.rack = cleanRack(b.rack);
+    const newRack = cleanRack(b.rack);
+    // Changing a stock entry's rack moves all of this batch's stock there.
+    const moved = locationsBefore.filter((l) => l.rack !== newRack);
+    batch.rack = newRack;
+    batch.locations = batch.qtyRemaining > 0 ? [{ rack: newRack, qty: batch.qtyRemaining }] : [];
     product.rack = batch.rack; // the product is found where its stock was just moved to
+    for (const l of moved) {
+      await StockLedger.create({
+        product: product._id,
+        batch: batch._id,
+        type: "rack-transfer",
+        qtyChange: 0,
+        qtyMoved: l.qty,
+        rack: l.rack,
+        toRack: newRack,
+        reason: `Stock entry ${batch.batchNo} moved`,
+        performedBy: req.user._id,
+      });
+    }
   }
 
   await batch.save();
@@ -493,6 +531,7 @@ router.patch("/:id/batches/:batchId", requireAuth, requirePermission("stock.edit
       batch: batch._id,
       type: delta > 0 ? "manual-add" : "manual-reduce",
       qtyChange: delta,
+      rack: batch.rack || "",
       reason: `Stock entry ${batch.batchNo} edited`,
       performedBy: req.user._id,
     });
@@ -508,6 +547,13 @@ router.delete("/:id/batches/:batchId", requireAuth, requirePermission("stock.del
   const { product, batch } = await findStockEntry(req, res);
   if (!batch) return;
   const removed = batch.qtyRemaining;
+  if (removed > 0) {
+    await ledgerPerLocation(
+      batch,
+      { product: product._id, batch: batch._id, type: "manual-reduce", reason: `Stock entry ${batch.batchNo} deleted`, performedBy: req.user._id },
+      removed
+    );
+  }
 
   batch.qtyRemaining = 0;
   batch.isDeleted = true;
@@ -515,14 +561,6 @@ router.delete("/:id/batches/:batchId", requireAuth, requirePermission("stock.del
   if (removed > 0) {
     product.qty = Math.max(0, product.qty - removed);
     await product.save();
-    await StockLedger.create({
-      product: product._id,
-      batch: batch._id,
-      type: "manual-reduce",
-      qtyChange: -removed,
-      reason: `Stock entry ${batch.batchNo} deleted`,
-      performedBy: req.user._id,
-    });
   }
   res.json({ message: `Stock entry ${batch.batchNo} deleted.`, qtyRemoved: removed });
 });
@@ -702,8 +740,10 @@ router.patch("/:id/enable-loose", requireAuth, requirePermission("products.edit"
   try {
     const batches = await Batch.find({ product: product._id });
     for (const batch of batches) {
+      const locs = effectiveLocations(batch);
       batch.qtyReceived *= unitsPerPack;
       batch.qtyRemaining *= unitsPerPack;
+      batch.locations = locs.map((l) => ({ rack: l.rack, qty: l.qty * unitsPerPack }));
       await batch.save();
     }
 

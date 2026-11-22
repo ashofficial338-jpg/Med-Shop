@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import RequiredMark from "./RequiredMark";
 import { listRacks } from "../api/racks";
-import { NO_RACK, positionsOf, rackLetter } from "../utils/rack";
+import { NO_RACK, positionsOf, rackLetter, describePosition } from "../utils/rack";
 
 // Rack + Rack Position picker for stock-in forms. `value` is a position code
 // like "A-001", NO_RACK for the always-available "No Rack" fallback, or ""
@@ -45,7 +45,7 @@ export default function RackInput({ id, value, onChange, invalid, label = "Rack"
             <option value="">{racks === null ? "Loading…" : "Select rack…"}</option>
             <option value={NO_RACK}>No Rack</option>
             {racks?.map((r) => (
-              <option key={r.letter} value={r.letter}>Rack {r.letter}</option>
+              <option key={r.letter} value={r.letter}>Rack {r.letter}{r.name ? ` · ${r.name}` : ""}</option>
             ))}
           </select>
         </div>
@@ -65,7 +65,10 @@ export default function RackInput({ id, value, onChange, invalid, label = "Rack"
             <option value="">{isNoRack ? "Not needed" : rack ? "Select position…" : "Pick a rack first"}</option>
             {rack &&
               positionsOf(rack).map((code) => (
-                <option key={code} value={code}>{code}</option>
+                <option key={code} value={code}>
+                  {code}
+                  {rack.binsPerRow ? ` · ${describePosition(code, rack).short}` : ""}
+                </option>
               ))}
           </select>
         </div>
