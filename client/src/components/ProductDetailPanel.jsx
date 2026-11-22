@@ -7,6 +7,7 @@ import { useCart } from "../context/CartContext";
 import ProductFormModal from "./ProductFormModal";
 import BatchEditModal from "./BatchEditModal";
 import Icon from "./Icon";
+import ProductPurchaseHistory from "./ProductPurchaseHistory";
 
 function batchStatus(expiryDate) {
   const now = new Date();
@@ -215,6 +216,36 @@ export default function ProductDetailPanel({
                 <dt className="text-xs text-muted">HSN Code</dt>
                 <dd className="text-text">{product.hsnCode || "—"}</dd>
               </div>
+              {(product.genericName || product.composition) && (
+                <div className="col-span-2">
+                  <dt className="text-xs text-muted">Generic / Composition</dt>
+                  <dd className="text-text">{[product.genericName, product.composition].filter(Boolean).join(" · ")}</dd>
+                </div>
+              )}
+              {(product.dosageForm || product.releaseType) && (
+                <div>
+                  <dt className="text-xs text-muted">Dosage Form</dt>
+                  <dd className="text-text">{[product.dosageForm, product.releaseType].filter(Boolean).join(" · ")}</dd>
+                </div>
+              )}
+              {(product.manufacturer || product.brand) && (
+                <div>
+                  <dt className="text-xs text-muted">Manufacturer</dt>
+                  <dd className="text-text">{product.manufacturer || product.brand}</dd>
+                </div>
+              )}
+              {product.barcode && (
+                <div>
+                  <dt className="text-xs text-muted">Barcode</dt>
+                  <dd className="font-mono text-text">{product.barcode}</dd>
+                </div>
+              )}
+              {isAdmin && product.avgCostPrice != null && (
+                <div>
+                  <dt className="text-xs text-muted">Avg Cost (on hand)</dt>
+                  <dd className="font-mono text-text">₹{Number(product.avgCostPrice).toFixed(2)} / {product.packUnit}</dd>
+                </div>
+              )}
               <div className="col-span-2">
                 <dt className="text-xs text-muted">Stock on Hand</dt>
                 <dd className="text-text">
@@ -223,6 +254,8 @@ export default function ProductDetailPanel({
                 </dd>
               </div>
             </dl>
+
+            {isAdmin && <ProductPurchaseHistory productId={product._id} reloadKey={reloadKey} />}
 
             {showBatches && (
               <div>

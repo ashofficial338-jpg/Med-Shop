@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
 import CustomerPicker from "../components/CustomerPicker";
@@ -6,9 +6,57 @@ import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 import { createSale } from "../api/sales";
 import RequiredMark from "../components/RequiredMark";
+import { getSaleBatches } from "../api/products";
+import { makerOf } from "../utils/medicine";
+
+// Internal stock units one cart line takes (loose units for pack-and-loose products).
+const lineUnits = (line) =>
+  line.unitType === "pack" && line.product.soldAs === "pack-and-loose" ? line.qty * line.product.unitsPerPack : line.qty;
+
+function unitsLabel(product, units) {
+  if (product.soldAs === "pack-and-loose" && product.unitsPerPack) {
+    const packs = Math.floor(units / product.unitsPerPack);
+    const loose = units % product.unitsPerPack;
+    return `${packs} ${product.packUnit}${packs === 1 ? "" : "s"}${loose ? ` + ${loose} ${product.looseUnitName}` : ""}`;
+  }
+  return `${units} ${product.packUnit}${units === 1 ? "" : "s"}`;
+}
+
+// The selected brand's live stock and lots. Stock is only ever taken from
+// this exact product - from the picked batch, or earliest expiry first.
+function BrandStock({ line, batches, onPick }) {
+  const { product } = line;
+  if (!batches) return <p className="text-xs text-muted">Checking stock…</p>;
+  const total = batches.reduce((s, b) => s + b.qtyRemaining, 0);
+  const picked = batches.find((b) => b._id === line.batch);
+  const available = line.batch ? picked?.qtyRemaining || 0 : total;
+  const short = lineUnits(line) > available;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+      <span className={short ? "font-semibold text-danger" : "text-muted"}>
+        {short ? "Not enough stock: " : "Available: "}
+        {unitsLabel(product, available)}
+        {line.batch ? " in this batch" : ""}
+      </span>
+      <select
+        aria-label={`Batch for ${product.name}`}
+        value={line.batch || ""}
+        onChange={(e) => onPick(e.target.value || null)}
+        className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-xs text-text focus:border-primary focus:outline-none"
+      >
+        <option value="">Batch: auto (earliest expiry)</option>
+        {batches.map((b) => (
+          <option key={b._id} value={b._id}>
+            {b.batchNo} · exp {new Date(b.expiryDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })} · {unitsLabel(product, b.qtyRemaining)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 export default function Checkout() {
-  const { lines, updateQty, removeLine, clearCart, lineTotal } = useCart();
+  const { lines, updateQty, removeLine, setLineBatch, clearCart, lineTotal } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user.role === "admin";
@@ -21,6 +69,19 @@ export default function Checkout() {
   const [overrideReason, setOverrideReason] = useState("");
   const [needsOverride, setNeedsOverride] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [batchesByProduct, setBatchesByProduct] = useState({});
+
+  const productIds = [...new Set(lines.map((l) => l.product._id))].sort().join(",");
+  useEffect(() => {
+    if (!productIds) return;
+    let cancelled = false;
+    Promise.all(productIds.split(",").map((id) => getSaleBatches(id).then((b) => [id, b]).catch(() => [id, []]))).then((pairs) => {
+      if (!cancelled) setBatchesByProduct(Object.fromEntries(pairs));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [productIds]);
 
   if (lines.length === 0) {
     return <Navigate to="/products" replace />;
@@ -35,7 +96,14 @@ export default function Checkout() {
   const isCredit = paymentMode === "Credit";
   const receivedNow = isCredit ? Math.min(Math.max(Number(amountReceived) || 0, 0), total) : total;
   const balanceDue = Number((total - receivedNow).toFixed(2));
-  const canSubmit = !isCredit || Boolean(customer);
+  // Block payment while any line asks for more than its brand (or picked batch) has.
+  const shortLine = lines.find((l) => {
+    const batches = batchesByProduct[l.product._id];
+    if (!batches) return false;
+    const available = l.batch ? batches.find((b) => b._id === l.batch)?.qtyRemaining || 0 : batches.reduce((s, b) => s + b.qtyRemaining, 0);
+    return lineUnits(l) > available;
+  });
+  const canSubmit = (!isCredit || Boolean(customer)) && !shortLine;
 
   const submit = async (withOverride = false) => {
     if (!canSubmit) return;
@@ -46,7 +114,7 @@ export default function Checkout() {
         customer: customer?._id || null,
         paymentMode,
         discount: appliedDiscount,
-        items: lines.map((l) => ({ product: l.product._id, unitType: l.unitType, qty: l.qty })),
+        items: lines.map((l) => ({ product: l.product._id, unitType: l.unitType, qty: l.qty, ...(l.batch ? { batch: l.batch } : {}) })),
         ...(isCredit ? { amountReceived: receivedNow } : {}),
         ...(withOverride ? { overrideExpiredReason: overrideReason } : {}),
       });
@@ -72,10 +140,18 @@ export default function Checkout() {
         {lines.map((line) => (
           <div key={`${line.product._id}:${line.unitType}`} className="flex items-center justify-between gap-2 rounded-xl bg-surface p-3 shadow-sm">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-text">{line.product.name}</p>
+              <p className="truncate text-sm font-medium text-text">
+                {line.product.name}
+                {makerOf(line.product) && <span className="ml-1 text-xs font-normal text-muted">· {makerOf(line.product)}</span>}
+              </p>
               <p className="text-xs text-muted">
                 ₹{(line.unitType === "pack" ? line.product.packRate : line.product.looseRate).toFixed(2)} / {line.unitType === "pack" ? line.product.packUnit : line.product.looseUnitName}
               </p>
+              <BrandStock
+                line={line}
+                batches={batchesByProduct[line.product._id]}
+                onPick={(batchId) => setLineBatch(line.product, line.unitType, batchId)}
+              />
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -155,6 +231,12 @@ export default function Checkout() {
         )}
       </div>
 
+      {shortLine && (
+        <p className="mt-3 text-sm text-danger">
+          Not enough stock of {shortLine.product.name}
+          {shortLine.batch ? " in the selected batch" : ""}. Reduce the quantity{shortLine.batch ? " or choose another batch" : ""}.
+        </p>
+      )}
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
       {needsOverride && (

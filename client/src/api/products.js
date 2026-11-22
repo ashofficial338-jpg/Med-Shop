@@ -75,3 +75,21 @@ export function importProducts(file) {
     headers: { "Content-Type": "multipart/form-data" },
   }).then((r) => r.data);
 }
+
+// Lots that can be sold now (no cost prices) - for picking an exact batch at checkout.
+export function getSaleBatches(id) {
+  return api.get(`/products/${id}/sale-batches`).then((r) => r.data);
+}
+
+// Every purchase of one product across all suppliers, with weighted average cost.
+export function getProductPurchases(id) {
+  return api.get(`/products/${id}/purchases`).then((r) => r.data);
+}
+
+export function getCompositionReport(params) {
+  return api.get("/products/composition-report", { params }).then((r) => r.data);
+}
+
+export function exportCompositionReport(format, params) {
+  return downloadFile("/products/composition-report", { ...params, format }, reportFileName("GuganMedicals_Composition_Report", format));
+}

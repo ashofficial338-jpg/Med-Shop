@@ -2,6 +2,7 @@ import { toast } from "react-toastify";
 import { useCart } from "../context/CartContext";
 import { resolveAssetUrl } from "../api/client";
 import Icon from "./Icon";
+import { makerOf, stockLabel } from "../utils/medicine";
 
 function availability(product) {
   if (product.qty <= 0) return { label: "Out of Stock", className: "bg-danger/10 text-danger ring-1 ring-danger/15", dot: "bg-danger" };
@@ -89,7 +90,16 @@ export default function ProductTile({ product, canEdit, onEdit, onOpen }) {
         <p className="truncate text-xs text-muted">
           {product.category?.name}
           {product.strengthValue ? ` · ${product.strengthValue} ${product.strengthUnit}` : ""}
+          {product.dosageForm ? ` · ${product.dosageForm}` : ""}
+          {product.releaseType && product.releaseType !== "Immediate" ? ` · ${product.releaseType}` : ""}
         </p>
+        {(product.composition || product.genericName) && (
+          <p className="truncate text-xs text-muted" title={product.composition || product.genericName}>
+            {product.composition || product.genericName}
+          </p>
+        )}
+        {makerOf(product) && <p className="truncate text-[11px] text-muted">by {makerOf(product)}</p>}
+        <p className={`text-[11px] font-semibold ${isOut ? "text-danger" : "text-text"}`}>Stock: {stockLabel(product)}</p>
 
         {/* Spacer keeps the price/stock/button block pinned to the bottom of the
             card, so every card in a row lines up regardless of name length. */}

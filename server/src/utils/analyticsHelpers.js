@@ -14,6 +14,7 @@ import { customerOutstandingMap, vendorOutstandingMap } from "./ledgerHelpers.js
 import { withReadCache } from "./readCache.js";
 
 const NO_SUPPLIER = "none";
+const UNREGISTERED = "unregistered:";
 
 // Reports & Analytics. The headline P&L figures always come from
 // computeSummary (the dashboard's engine); everything here breaks those same
@@ -192,6 +193,7 @@ async function analyticsFor(start, end, filters, { granularity, compare = true }
   // Purchases: supplier is the purchase's own vendor; with product-level
   // filters only the matching lines count (same rule as computeSummary).
   const suppliers = new Map();
+  const unregisteredNames = new Map();
   const inputSlabs = new Map();
   for (const p of purchases) {
     if (supplier && String(p.vendor) !== supplier) continue;
@@ -210,8 +212,11 @@ async function analyticsFor(start, end, filters, { granularity, compare = true }
     if (!productFiltered) amount = p.total; // whole invoice, exactly as computeSummary counts it
     if (amount === 0 && productFiltered) continue;
     bucketFor(p.date).purchases += amount;
-    // Purchases made without a supplier are grouped under one "none" row.
-    addTo(suppliers, p.vendor ? String(p.vendor) : NO_SUPPLIER, () => ({ purchases: 0, gst: 0, invoices: 0 }), (s) => {
+    // Unregistered suppliers get a row each (by name); purchases with no
+    // supplier at all share one "none" row.
+    const supplierKey = p.vendor ? String(p.vendor) : p.supplierName ? `${UNREGISTERED}${p.supplierName.trim().toLowerCase()}` : NO_SUPPLIER;
+    if (!p.vendor && p.supplierName) unregisteredNames.set(supplierKey, p.supplierName.trim());
+    addTo(suppliers, supplierKey, () => ({ purchases: 0, gst: 0, invoices: 0 }), (s) => {
       s.purchases += amount;
       s.gst += gst;
       s.invoices += 1;
@@ -240,7 +245,7 @@ async function analyticsFor(start, end, filters, { granularity, compare = true }
   const [categoryDocs, customerDocs, vendorDocs, expiringBatches] = await Promise.all([
     Category.find({ _id: { $in: categoryIds } }, "name"),
     Customer.find({ _id: { $in: [...new Set([...customers.keys(), ...customerDue.keys()])] } }, "name phone"),
-    Vendor.find({ _id: { $in: [...new Set([...suppliers.keys(), ...vendorDue.keys()])].filter((k) => k !== NO_SUPPLIER) } }, "name phone gstNumber"),
+    Vendor.find({ _id: { $in: [...new Set([...suppliers.keys(), ...vendorDue.keys()])].filter((k) => k !== NO_SUPPLIER && !k.startsWith(UNREGISTERED)) } }, "name phone gstNumber"),
     Batch.find({ qtyRemaining: { $gt: 0 }, isDeleted: { $ne: true }, expiryDate: { $lte: new Date(Date.now() + 90 * DAY) } })
       .populate({ path: "product", select: "name productCode soldAs unitsPerPack isActive", match: { isActive: true, ...productScope(filters) } })
       .sort({ expiryDate: 1 }),
@@ -373,7 +378,8 @@ async function analyticsFor(start, end, filters, { granularity, compare = true }
       .map((id) => {
         const s = suppliers.get(id) || { purchases: 0, gst: 0, invoices: 0 };
         const v = vendorById.get(id);
-        if (id === NO_SUPPLIER) return { vendorId: null, name: "No supplier (direct purchases)", gstNumber: "", purchases: r2(s.purchases), gst: r2(s.gst), invoices: s.invoices, outstanding: 0 };
+        if (id.startsWith(UNREGISTERED)) return { vendorId: null, name: `${unregisteredNames.get(id)} (unregistered)`, gstNumber: "", purchases: r2(s.purchases), gst: r2(s.gst), invoices: s.invoices, outstanding: 0 };
+        if (id === NO_SUPPLIER) return { vendorId: null, name: "No supplier", gstNumber: "", purchases: r2(s.purchases), gst: r2(s.gst), invoices: s.invoices, outstanding: 0 };
         return { vendorId: id, name: v?.name || "Unknown supplier", gstNumber: v?.gstNumber || "", purchases: r2(s.purchases), gst: r2(s.gst), invoices: s.invoices, outstanding: vendorDue.get(id) || 0 };
       })
       .sort((a, b) => b.purchases - a.purchases || b.outstanding - a.outstanding),
@@ -516,7 +522,7 @@ export async function buildTransactions(start, end, filters = {}, { type = "", q
         date: p.date,
         type: "Purchase",
         ref: p.invoiceNo,
-        party: p.vendor ? p.vendor.name || "Unknown supplier" : p.supplierName ? `${p.supplierName} (no supplier)` : "No supplier",
+        party: p.vendor ? p.vendor.name || "Unknown supplier" : p.supplierName ? `${p.supplierName} (unregistered)` : "No supplier",
         mode: p.paymentMode,
         taxable: p.subtotal,
         gst: p.gstAmount,

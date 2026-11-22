@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { DOSAGE_FORMS, RELEASE_TYPES } from "../utils/composition.js";
 
 const productSchema = new mongoose.Schema(
   {
@@ -31,6 +32,18 @@ const productSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    // Medicine identity. `name` is the brand name (e.g. "Dolo 650"); each
+    // brand is its own product with its own stock and batches. Brands that
+    // share composition + strength + dosage form + release type form one
+    // Composition Group (see utils/composition.js) - for search and reports
+    // only, never for stock: same composition doesn't mean interchangeable.
+    genericName: { type: String, trim: true, maxlength: 150, default: "" },
+    // Active ingredient(s), e.g. "Paracetamol" or "Amoxicillin + Clavulanic Acid".
+    composition: { type: String, trim: true, maxlength: 300, default: "" },
+    dosageForm: { type: String, enum: DOSAGE_FORMS, default: "" },
+    releaseType: { type: String, enum: RELEASE_TYPES, default: "" },
+    manufacturer: { type: String, trim: true, maxlength: 120, default: "" },
+    barcode: { type: String, trim: true, maxlength: 64, default: "" },
     strengthValue: {
       type: Number,
       min: 0,
@@ -129,5 +142,7 @@ const productSchema = new mongoose.Schema(
 productSchema.index({ name: "text", productCode: "text" });
 productSchema.index({ rack: 1 });
 productSchema.index({ brand: 1 });
+productSchema.index({ barcode: 1 });
+productSchema.index({ composition: 1 });
 
 export default mongoose.model("Product", productSchema);

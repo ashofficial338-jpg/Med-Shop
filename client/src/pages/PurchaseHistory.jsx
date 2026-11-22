@@ -6,10 +6,12 @@ import { listVendors } from "../api/vendors";
 import { listCategories } from "../api/products";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import DirectPurchaseModal from "../components/DirectPurchaseModal";
+import PurchaseFormModal from "../components/PurchaseFormModal";
+import { listUnregisteredSuppliers } from "../api/purchases";
 import { compactParams } from "../utils/query";
 
 // Filters live in the URL so dashboard links open this list pre-filtered.
-const FILTER_KEYS = ["vendor", "from", "to", "category"];
+const FILTER_KEYS = ["vendor", "supplierName", "product", "from", "to", "category"];
 
 export default function PurchaseHistory() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -17,7 +19,9 @@ export default function PurchaseHistory() {
   const [vendors, setVendors] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showDirect, setShowDirect] = useState(false);
+  const [directMode, setDirectMode] = useState(null); // "unregistered" | "none" | null
+  const [supplierVendor, setSupplierVendor] = useState(null);
+  const [unregistered, setUnregistered] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
 
   const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
@@ -25,6 +29,20 @@ export default function PurchaseHistory() {
   const paramsKey = JSON.stringify(params);
 
   const setFilter = (key, value) => setSearchParams(compactParams({ ...filters, [key]: value }), { replace: true });
+  // One supplier dropdown drives two params: a registered vendor / "unregistered"
+  // / "none" go in `vendor`, a single unregistered supplier's name in `supplierName`.
+  const supplierValue = filters.supplierName ? `name:${filters.supplierName}` : filters.vendor;
+  const setSupplier = (value) =>
+    setSearchParams(
+      compactParams({ ...filters, vendor: value.startsWith("name:") ? "" : value, supplierName: value.startsWith("name:") ? value.slice(5) : "" }),
+      { replace: true }
+    );
+  const saved = () => {
+    setDirectMode(null);
+    setSupplierVendor(null);
+    setReloadKey((k) => k + 1);
+    listUnregisteredSuppliers().then(setUnregistered).catch(() => {});
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -37,6 +55,7 @@ export default function PurchaseHistory() {
   useEffect(() => {
     listVendors().then(setVendors);
     listCategories().then(setCategories).catch(() => {});
+    listUnregisteredSuppliers().then(setUnregistered).catch(() => {});
   }, []);
 
   const selectCls =
@@ -49,8 +68,25 @@ export default function PurchaseHistory() {
         <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Purchase History</h1>
         <div className="flex flex-wrap gap-2">
           <ReportDownloadButtons onExport={(format) => exportPurchases(format, params)} />
+          <select
+            aria-label="New purchase from a registered supplier"
+            value=""
+            onChange={(e) => setSupplierVendor(vendors.find((v) => v._id === e.target.value) || null)}
+            className="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-primary focus:outline-none"
+          >
+            <option value="">+ Registered Supplier…</option>
+            {vendors.filter((v) => v.isActive !== false).map((v) => (
+              <option key={v._id} value={v._id}>{v.name}</option>
+            ))}
+          </select>
           <button
-            onClick={() => setShowDirect(true)}
+            onClick={() => setDirectMode("unregistered")}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
+          >
+            Other / Unregistered Supplier
+          </button>
+          <button
+            onClick={() => setDirectMode("none")}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
           >
             Purchase Without Supplier
@@ -59,12 +95,20 @@ export default function PurchaseHistory() {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <select aria-label="Vendor" value={filters.vendor} onChange={(e) => setFilter("vendor", e.target.value)} className={selectCls}>
-          <option value="">All Vendors</option>
-          <option value="none">No Supplier (direct)</option>
-          {vendors.map((v) => (
-            <option key={v._id} value={v._id}>{v.name}</option>
-          ))}
+        <select aria-label="Supplier" value={supplierValue} onChange={(e) => setSupplier(e.target.value)} className={selectCls}>
+          <option value="">All Suppliers</option>
+          <optgroup label="Registered suppliers">
+            {vendors.map((v) => (
+              <option key={v._id} value={v._id}>{v.name}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Unregistered suppliers">
+            <option value="unregistered">All unregistered</option>
+            {unregistered.map((n) => (
+              <option key={n} value={`name:${n}`}>{n}</option>
+            ))}
+          </optgroup>
+          <option value="none">No supplier</option>
         </select>
         <select aria-label="Category" value={filters.category} onChange={(e) => setFilter("category", e.target.value)} className={selectCls}>
           <option value="">All Categories</option>
@@ -98,7 +142,9 @@ export default function PurchaseHistory() {
                 <p className="font-medium text-text">
                   {p.vendor ? p.vendor.name : p.supplierName || "No supplier"} — {p.invoiceNo}
                   {!p.vendor && (
-                    <span className="ml-2 rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-muted">Without supplier</span>
+                    <span className="ml-2 rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-muted">
+                      {p.supplierName ? "Unregistered" : "Without supplier"}
+                    </span>
                   )}
                 </p>
                 <p className="text-xs text-muted">{new Date(p.date).toLocaleDateString()} · {p.paymentMode}</p>
@@ -115,15 +161,8 @@ export default function PurchaseHistory() {
           </div>
         ))}
       </div>
-      {showDirect && (
-        <DirectPurchaseModal
-          onClose={() => setShowDirect(false)}
-          onSaved={() => {
-            setShowDirect(false);
-            setReloadKey((k) => k + 1);
-          }}
-        />
-      )}
+      {directMode && <DirectPurchaseModal initialMode={directMode} onClose={() => setDirectMode(null)} onSaved={saved} />}
+      {supplierVendor && <PurchaseFormModal vendor={supplierVendor} onClose={() => setSupplierVendor(null)} onSaved={saved} />}
     </Layout>
   );
 }

@@ -46,6 +46,13 @@ export function CartProvider({ children }) {
     setLines((prev) => prev.filter((l) => lineKey(l.product._id, l.unitType) !== lineKey(product._id, unitType)));
   };
 
+  // Pin a line to one exact batch (null = automatic, earliest expiry first).
+  const setLineBatch = (product, unitType, batch) => {
+    setLines((prev) =>
+      prev.map((l) => (lineKey(l.product._id, l.unitType) === lineKey(product._id, unitType) ? { ...l, batch: batch || null } : l))
+    );
+  };
+
   const clearCart = () => setLines([]);
 
   const lineTotal = (line) => {
@@ -58,7 +65,7 @@ export function CartProvider({ children }) {
 
   return (
     <CartContext.Provider
-      value={{ lines, addToCart, updateQty, removeLine, clearCart, cartTotal, cartCount, lineTotal }}
+      value={{ lines, addToCart, updateQty, removeLine, setLineBatch, clearCart, cartTotal, cartCount, lineTotal }}
     >
       {children}
     </CartContext.Provider>

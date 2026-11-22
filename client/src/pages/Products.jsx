@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "react-toastify";
 import { useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import ProductTile from "../components/ProductTile";
@@ -7,14 +8,42 @@ import ProductDetailPanel from "../components/ProductDetailPanel";
 import ImportModal from "../components/ImportModal";
 import CategoriesModal from "../components/CategoriesModal";
 import FloatingCartBar from "../components/FloatingCartBar";
+import CompositionReportModal from "../components/CompositionReportModal";
+import { combinedStockLabel } from "../utils/medicine";
 import { listProducts, listCategories } from "../api/products";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
 import { can } from "../utils/permissions";
 
+const GROUP_PREF_KEY = "ghm_group_by_composition";
+
+function readGroupPref() {
+  try {
+    return localStorage.getItem(GROUP_PREF_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+// Brands sharing a Composition Group, in result order. Products with no
+// composition entered stay in a flat "other" list.
+function groupByComposition(products) {
+  const groups = new Map();
+  const other = [];
+  for (const p of products) {
+    if (!p.compositionKey) {
+      other.push(p);
+      continue;
+    }
+    if (!groups.has(p.compositionKey)) groups.set(p.compositionKey, { key: p.compositionKey, label: p.compositionLabel, brands: [] });
+    groups.get(p.compositionKey).brands.push(p);
+  }
+  return { groups: [...groups.values()], other };
+}
+
 export default function Products() {
   const { user } = useAuth();
-  const { cartCount } = useCart();
+  const { cartCount, addToCart } = useCart();
   const isAdmin = user.role === "admin";
   // Add / edit / delete are admin by default, or granted per user on Roles & Permissions.
   const canAdd = can(user, "products.add");
@@ -40,6 +69,40 @@ export default function Products() {
   const [showImport, setShowImport] = useState(false);
   const [showCategories, setShowCategories] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState(urlProduct);
+  const [showCompositionReport, setShowCompositionReport] = useState(false);
+  const [grouped, setGrouped] = useState(readGroupPref);
+  const [openGroups, setOpenGroups] = useState({});
+
+  const toggleGrouped = () => {
+    const next = !grouped;
+    setGrouped(next);
+    try {
+      localStorage.setItem(GROUP_PREF_KEY, next ? "1" : "0");
+    } catch {
+      /* per-browser preference only */
+    }
+  };
+
+  const { groups, other } = useMemo(() => groupByComposition(products), [products]);
+
+  // Barcode scanners type the code then press Enter: an exact barcode match
+  // goes straight into the cart as one pack of that exact brand.
+  const handleSearchKeyDown = async (e) => {
+    if (e.key !== "Enter") return;
+    const code = query.trim();
+    if (!code) return;
+    e.preventDefault();
+    const matches = await listProducts({ q: code }).catch(() => []);
+    const hit = matches.find((p) => p.barcode && p.barcode === code);
+    if (!hit) return;
+    if (hit.qty <= 0) {
+      toast.error(`${hit.name} is out of stock.`);
+      return;
+    }
+    addToCart(hit, "pack", 1);
+    toast.success(`Scanned: added 1 ${hit.packUnit} of ${hit.name}`);
+    setQuery("");
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -77,6 +140,10 @@ export default function Products() {
     listCategories().then(setCategories);
   };
 
+  const renderTile = (p) => (
+    <ProductTile key={p._id} product={p} canEdit={canEdit} onEdit={setEditingProduct} onOpen={setSelectedProductId} />
+  );
+
   const selectCls =
     "h-11 rounded-xl border border-border bg-surface px-3.5 text-sm text-text shadow-[0_1px_2px_rgba(16,36,48,0.04)] focus:outline-none";
 
@@ -86,6 +153,14 @@ export default function Products() {
         <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Products</h1>
         {(isAdmin || canAdd) && (
           <div className="flex flex-wrap gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => setShowCompositionReport(true)}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
+              >
+                Composition Report
+              </button>
+            )}
             {isAdmin && (
               <button
                 onClick={() => setShowCategories(true)}
@@ -116,11 +191,13 @@ export default function Products() {
 
       <div className="mt-4 flex flex-wrap gap-2">
         <input
-          type="text"
-          placeholder="Search by name or code (e.g. dolo or DOL100)"
+          type="search"
+          aria-label="Search products"
+          placeholder="Brand, generic, composition, strength, or scan barcode"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className={`${selectCls} w-full max-w-xs`}
+          onKeyDown={handleSearchKeyDown}
+          className={`${selectCls} w-full max-w-sm`}
         />
         <select value={category} onChange={(e) => setCategory(e.target.value)} className={selectCls}>
           <option value="">All Categories</option>
@@ -134,6 +211,10 @@ export default function Products() {
           <option value="low">Low Stock</option>
           <option value="out">Out of Stock</option>
         </select>
+        <label className="flex h-11 cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface px-3.5 text-sm text-text">
+          <input type="checkbox" checked={grouped} onChange={toggleGrouped} className="accent-primary" />
+          Group by composition
+        </label>
       </div>
 
       <div className="mt-6 flex items-start gap-4">
@@ -161,15 +242,47 @@ export default function Products() {
               <p className="text-sm text-muted">Try a different search, category or availability filter.</p>
             </div>
           )}
-          {products.map((p) => (
-            <ProductTile
-              key={p._id}
-              product={p}
-              canEdit={canEdit}
-              onEdit={setEditingProduct}
-              onOpen={setSelectedProductId}
-            />
-          ))}
+          {(grouped ? [] : products).map(renderTile)}
+          {grouped &&
+            groups.map((g) => {
+              // Searching opens every matching group so all brands show at once.
+              const isOpen = openGroups[g.key] ?? (Boolean(query.trim()) || g.brands.length === 1);
+              const inStock = g.brands.filter((b) => b.qty > 0).length;
+              const rates = g.brands.map((b) => Number(b.packRate));
+              const lo = Math.min(...rates);
+              const hi = Math.max(...rates);
+              return (
+                <section key={g.key} className="card col-span-full overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setOpenGroups((o) => ({ ...o, [g.key]: !isOpen }))}
+                    aria-expanded={isOpen}
+                    className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left hover:bg-bg"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-display font-semibold text-text">{g.label}</span>
+                      <span className="ml-2 text-xs text-muted">
+                        {g.brands.length} brand{g.brands.length === 1 ? "" : "s"} · {inStock} in stock · ₹{lo.toFixed(2)}
+                        {hi !== lo ? `–₹${hi.toFixed(2)}` : ""}
+                      </span>
+                    </span>
+                    <span className="text-xs text-muted">
+                      Combined stock (info only): <span className="font-semibold text-text">{combinedStockLabel(g.brands)}</span>
+                      <span className="ml-2">{isOpen ? "▲" : "▼"}</span>
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3 border-t border-border p-3 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
+                      {g.brands.map(renderTile)}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          {grouped && other.length > 0 && groups.length > 0 && (
+            <p className="col-span-full mt-2 text-xs font-semibold uppercase tracking-wide text-muted">Other products</p>
+          )}
+          {grouped && other.map(renderTile)}
         </div>
 
         {selectedProductId && (
@@ -207,6 +320,16 @@ export default function Products() {
         <CategoriesModal
           onClose={() => setShowCategories(false)}
           onChanged={() => listCategories().then(setCategories)}
+        />
+      )}
+
+      {showCompositionReport && (
+        <CompositionReportModal
+          onClose={() => setShowCompositionReport(false)}
+          onOpenProduct={(id) => {
+            setShowCompositionReport(false);
+            setSelectedProductId(id);
+          }}
         />
       )}
 

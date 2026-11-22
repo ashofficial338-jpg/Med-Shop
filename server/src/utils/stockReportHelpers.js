@@ -2,6 +2,8 @@ import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
 import StockLedger from "../models/StockLedger.js";
 import { cached } from "./readCache.js";
+import { compositionKey, compositionLabel, strengthLabel } from "./composition.js";
+import { weightedAvgCost } from "./batchHelpers.js";
 
 function stockDisplay(product) {
   if (product.soldAs === "pack-and-loose" && product.unitsPerPack) {
@@ -69,6 +71,20 @@ async function stockReportFor({ category, availability, scope = {} }) {
       packRate: product.packRate,
       gstPercent: product.gstPercent,
       purchasePrice: latestBatch ? latestBatch.costPrice : null,
+      // Per pack, weighted by what's still on hand from each lot (so lots
+      // bought from different suppliers at different prices average correctly).
+      avgCostPrice: weightedAvgCost(productBatches),
+      genericName: product.genericName || "",
+      composition: product.composition || "",
+      strength: strengthLabel(product),
+      dosageForm: product.dosageForm || "",
+      releaseType: product.releaseType || "",
+      manufacturer: product.manufacturer || "",
+      barcode: product.barcode || "",
+      compositionKey: compositionKey(product),
+      compositionLabel: compositionLabel(product),
+      packUnit: product.packUnit,
+      packsOnHand: product.soldAs === "pack-and-loose" && product.unitsPerPack ? Number((product.qty / product.unitsPerPack).toFixed(2)) : product.qty,
       qty: product.qty,
       lowStockThreshold: product.lowStockThreshold,
       qtyDisplay: stockDisplay(product),
@@ -119,4 +135,45 @@ export async function inventoryValueAt(at, matches = null) {
     value += qty * costPerUnit;
   }
   return Number(value.toFixed(2));
+}
+
+// Composition report: brands sharing a Composition Group listed together with
+// a combined stock figure. Purely a read-out - each brand's own stock and
+// batches are untouched. Combined stock is given per pack unit, since a
+// Strip and a Bottle can't be added together.
+export async function buildCompositionReport({ q = "" } = {}) {
+  const { rows } = await buildStockReport({});
+  const needle = String(q).trim().toLowerCase();
+  const groups = new Map();
+  for (const r of rows) {
+    if (!r.compositionKey) continue;
+    if (!groups.has(r.compositionKey)) {
+      groups.set(r.compositionKey, { key: r.compositionKey, label: r.compositionLabel, composition: r.composition, strength: r.strength, dosageForm: r.dosageForm, releaseType: r.releaseType, brands: [] });
+    }
+    groups.get(r.compositionKey).brands.push(r);
+  }
+  const r2 = (n) => Number(n.toFixed(2));
+  const out = [...groups.values()]
+    .filter((g) => !needle || [g.label, g.composition, ...g.brands.flatMap((b) => [b.name, b.genericName, b.manufacturer])].some((t) => String(t || "").toLowerCase().includes(needle)))
+    .map((g) => {
+      const byUnit = new Map();
+      for (const b of g.brands) byUnit.set(b.packUnit, (byUnit.get(b.packUnit) || 0) + b.packsOnHand);
+      const combinedStock = [...byUnit.entries()].map(([unit, packs]) => ({ unit, packs: r2(packs) }));
+      return {
+        ...g,
+        brandCount: g.brands.length,
+        brandsInStock: g.brands.filter((b) => b.qty > 0).length,
+        combinedStock,
+        combinedStockDisplay: combinedStock.map((c) => `${c.packs} ${c.unit}${c.packs === 1 ? "" : "s"}`).join(" + ") || "0",
+        valueCost: r2(g.brands.reduce((s, b) => s + b.valueCost, 0)),
+        valueMrp: r2(g.brands.reduce((s, b) => s + b.valueMrp, 0)),
+        brands: g.brands.map((b) => ({
+          productId: b.productId, name: b.name, productCode: b.productCode, manufacturer: b.manufacturer || b.brand,
+          qtyDisplay: b.qtyDisplay, packsOnHand: b.packsOnHand, packUnit: b.packUnit, packRate: b.packRate,
+          avgCostPrice: b.avgCostPrice, nearestExpiry: b.nearestExpiry, valueCost: b.valueCost, valueMrp: b.valueMrp,
+        })),
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+  return out;
 }

@@ -8,7 +8,8 @@ import CustomerPayment from "../models/CustomerPayment.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { saleLineInternalQty, generateBillNo, buildBillText } from "../utils/saleHelpers.js";
 import { streamBillPdf } from "../utils/billPdf.js";
-import { allocateFefo, reverseBreakdown, earliestActiveBatch, landLegacyReturn } from "../utils/batchHelpers.js";
+import { allocateFefo, allocateFromBatch, reverseBreakdown, earliestActiveBatch, landLegacyReturn } from "../utils/batchHelpers.js";
+import Batch from "../models/Batch.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
@@ -155,7 +156,15 @@ router.post("/", async (req, res) => {
 
       // FEFO means the batch that's about to run out first is always the one
       // a sale would actually draw from, so that's the expiry that matters here.
-      const nextBatch = await earliestActiveBatch(product._id);
+      // A line can name the exact lot the cashier picked; otherwise FEFO.
+      let pickedBatch = null;
+      if (item.batch) {
+        pickedBatch = mongoose.isValidObjectId(item.batch)
+          ? await Batch.findOne({ _id: item.batch, product: product._id, isDeleted: { $ne: true } })
+          : null;
+        if (!pickedBatch) return res.status(400).json({ message: `The selected batch of ${product.name} is no longer available.` });
+      }
+      const nextBatch = pickedBatch || (await earliestActiveBatch(product._id));
       const isExpired = nextBatch && new Date(nextBatch.expiryDate) < now;
       if (isExpired && !(isAdmin && overrideExpiredReason)) {
         return res.status(400).json({ message: "This batch has expired and cannot be sold." });
@@ -170,9 +179,14 @@ router.post("/", async (req, res) => {
       const amount = Number((qty * rate).toFixed(2));
       const gstAmount = Number(((amount * product.gstPercent) / 100).toFixed(2));
 
+      if (pickedBatch && pickedBatch.qtyRemaining < internalQty) {
+        return res.status(400).json({ message: `Only ${pickedBatch.qtyRemaining} ${product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit} left in batch ${pickedBatch.batchNo} of ${product.name}.` });
+      }
+
       resolved.push({
         product,
         internalQty,
+        batchId: pickedBatch?._id || null,
         line: {
           product: product._id,
           name: product.name,
@@ -194,7 +208,7 @@ router.post("/", async (req, res) => {
     // lot(s) it came from. If anything fails partway, everything already
     // reserved for earlier lines - both the product total and batch qtys - is put back.
     const settled = [];
-    for (const { product, internalQty, line } of resolved) {
+    for (const { product, internalQty, line, batchId } of resolved) {
       const updated = await Product.findOneAndUpdate(
         { _id: product._id, qty: { $gte: internalQty } },
         { $inc: { qty: -internalQty } },
@@ -206,11 +220,20 @@ router.post("/", async (req, res) => {
           await reverseBreakdown(s.breakdown);
         }
         const fresh = await Product.findById(product._id);
-        return res.status(400).json({ message: `Only ${fresh.qty} ${line.unitLabel} available in stock.` });
+        return res.status(400).json({ message: `Only ${fresh.qty} ${product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit} of ${product.name} available in stock.` });
       }
 
-      const breakdown = await allocateFefo(product, internalQty);
+      const breakdown = batchId ? await allocateFromBatch(product, batchId, internalQty) : await allocateFefo(product, internalQty);
       if (!breakdown) {
+        if (batchId) {
+          // The picked lot sold out meanwhile - undo and say so.
+          await Product.updateOne({ _id: product._id }, { $inc: { qty: internalQty } });
+          for (const s of settled) {
+            await Product.updateOne({ _id: s.product._id }, { $inc: { qty: s.internalQty } });
+            await reverseBreakdown(s.breakdown);
+          }
+          return res.status(400).json({ message: `The selected batch of ${product.name} doesn't have enough stock left.` });
+        }
         // Product-level total said there was enough, but the batch records
         // disagree (data drift) - undo this line and everything before it.
         await Product.updateOne({ _id: product._id }, { $inc: { qty: internalQty } });

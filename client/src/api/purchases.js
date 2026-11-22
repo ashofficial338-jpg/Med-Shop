@@ -17,3 +17,7 @@ export function createDirectPurchase(data) {
 export function exportPurchases(format, params) {
   return downloadFile("/purchases/export", { ...params, format }, reportFileName("GuganMedicals_Purchases_Report", format));
 }
+
+export function listUnregisteredSuppliers() {
+  return api.get("/purchases/unregistered-suppliers").then((r) => r.data);
+}

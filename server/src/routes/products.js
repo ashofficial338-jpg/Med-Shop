@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { Router } from "express";
 import multer from "multer";
 import ExcelJS from "exceljs";
@@ -11,7 +12,10 @@ import { generateProductCode, resolveCategory, computeLooseRate, deriveSoldAs } 
 import { computeInternalQty as computeQty } from "../utils/stockUnits.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
 import { cleanRack, rackPositionError } from "../utils/rack.js";
-import { buildStockReport } from "../utils/stockReportHelpers.js";
+import { buildStockReport, buildCompositionReport } from "../utils/stockReportHelpers.js";
+import Purchase from "../models/Purchase.js";
+import { DOSAGE_FORMS, RELEASE_TYPES, compositionKey, compositionLabel, productSearchFilter } from "../utils/composition.js";
+import { weightedAvgCost } from "../utils/batchHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 
 const router = Router();
@@ -29,6 +33,42 @@ function stripCostPriceIfStaff(product, role) {
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Brand-level medicine details (see Product model). Strings can be cleared to "".
+const MEDICINE_TEXT_FIELDS = ["genericName", "composition", "manufacturer", "barcode"];
+function medicineFields(b) {
+  const out = {};
+  for (const f of MEDICINE_TEXT_FIELDS) if (b[f] !== undefined) out[f] = String(b[f] ?? "").trim();
+  if (b.dosageForm !== undefined) {
+    if (!DOSAGE_FORMS.includes(b.dosageForm || "")) return { error: "Please choose a valid dosage form." };
+    out.dosageForm = b.dosageForm || "";
+  }
+  if (b.releaseType !== undefined) {
+    if (!RELEASE_TYPES.includes(b.releaseType || "")) return { error: "Please choose a valid release type." };
+    out.releaseType = b.releaseType || "";
+  }
+  return { fields: out };
+}
+
+// One master product per medicine: a second product with the same name (or
+// the same barcode) is refused - more stock goes onto the existing one.
+async function duplicateProductError({ name, barcode }, excludeId = null) {
+  const notSelf = excludeId ? { _id: { $ne: excludeId } } : {};
+  if (name) {
+    const dup = await Product.findOne({ isActive: true, name: new RegExp(`^${escapeRegex(String(name).trim())}$`, "i"), ...notSelf }, "name productCode");
+    if (dup) return `"${dup.name}" already exists (${dup.productCode}). Add stock to it with a purchase instead of creating a duplicate.`;
+  }
+  if (barcode) {
+    const dup = await Product.findOne({ isActive: true, barcode, ...notSelf }, "name productCode");
+    if (dup) return `This barcode is already used by ${dup.name} (${dup.productCode}).`;
+  }
+  return null;
+}
+
+// Adds the derived Composition Group so lists can group brands together.
+function withGroup(obj) {
+  return { ...obj, compositionKey: compositionKey(obj), compositionLabel: compositionLabel(obj) };
 }
 
 function availabilityFilter(filter, availability) {
@@ -60,10 +100,10 @@ router.get("/", requireAuth, async (req, res) => {
   const { q, category, availability, vendor, rack } = req.query;
   const filter = { isActive: true };
 
-  if (q) {
-    const pattern = new RegExp(escapeRegex(q), "i");
-    filter.$or = [{ name: pattern }, { productCode: pattern }, { brand: pattern }, { rack: String(q).trim().toUpperCase() }];
-  }
+  // Brand name, generic name, composition, strength, manufacturer, code,
+  // barcode or rack - see utils/composition.js.
+  const search = productSearchFilter(q);
+  if (search) Object.assign(filter, search);
   if (category) filter.category = category;
   if (rack !== undefined) filter.rack = String(rack).trim().toUpperCase();
   if (vendor) filter.vendor = vendor;
@@ -76,7 +116,65 @@ router.get("/", requireAuth, async (req, res) => {
   }
 
   const withBatches = await withBatchSummary(products);
-  res.json(withBatches.map((p) => stripCostPriceIfStaff(p, req.user.role)));
+  res.json(withBatches.map((p) => withGroup(stripCostPriceIfStaff(p, req.user.role))));
+});
+
+// Brands grouped by Composition Group with their combined stock. Read-only:
+// individual brand stock is never merged. ?q filters groups; ?format exports.
+router.get("/composition-report", requireAuth, requireRole("admin"), async (req, res) => {
+  const { q, format } = req.query;
+  const groups = await buildCompositionReport({ q });
+  const flat = groups.flatMap((g) =>
+    g.brands.map((b, i) => ({
+      group: i === 0 ? g.label : "",
+      combined: i === 0 ? g.combinedStockDisplay : "",
+      brand: b.name,
+      code: b.productCode,
+      manufacturer: b.manufacturer,
+      stock: b.qtyDisplay,
+      rate: b.packRate,
+      avgCost: b.avgCostPrice ?? "",
+      valueCost: b.valueCost,
+      valueMrp: b.valueMrp,
+    }))
+  );
+  const subtitle = `${groups.length} composition groups · ${flat.length} brands · combined stock is informational; each brand keeps its own stock`;
+  if (format === "pdf") {
+    return streamPdfReport(res, "GuganMedicals_Composition_Report.pdf", {
+      title: "Gugan Medicals - Composition Report",
+      subtitle,
+      columns: [
+        { header: "Composition", key: "group" },
+        { header: "Combined Stock", key: "combined" },
+        { header: "Brand", key: "brand" },
+        { header: "Manufacturer", key: "manufacturer" },
+        { header: "Stock", key: "stock" },
+        { header: "Rate", key: "rate", align: "right" },
+      ],
+      rows: flat,
+    });
+  }
+  if (format === "excel") {
+    return streamExcelReport(res, "GuganMedicals_Composition_Report.xlsx", [
+      {
+        name: "Composition Report",
+        columns: [
+          { header: "Composition Group", key: "group", width: 34 },
+          { header: "Combined Stock", key: "combined", width: 20 },
+          { header: "Brand", key: "brand", width: 24 },
+          { header: "Code", key: "code", width: 12 },
+          { header: "Manufacturer", key: "manufacturer", width: 18 },
+          { header: "Stock", key: "stock", width: 20 },
+          { header: "Selling Price", key: "rate", width: 12 },
+          { header: "Avg Cost", key: "avgCost", width: 12 },
+          { header: "Value (Cost)", key: "valueCost", width: 14 },
+          { header: "Value (MRP)", key: "valueMrp", width: 14 },
+        ],
+        rows: flat,
+      },
+    ]);
+  }
+  res.json(groups);
 });
 
 // Registered before GET "/:id" - both are single-segment GET routes, and Express
@@ -208,6 +306,7 @@ router.get("/stock-report", requireAuth, requireRole("admin"), async (req, res) 
           { header: "Low Stock", key: "isLowStock", width: 12 },
           { header: "Out of Stock", key: "isOut", width: 12 },
           { header: "Nearest Expiry", key: "nearestExpiry", width: 16 },
+          { header: "Avg Cost / Pack", key: "avgCostPrice", width: 14 },
           { header: "Value (Cost)", key: "valueCost", width: 14 },
           { header: "Value (MRP)", key: "valueMrp", width: 14 },
         ],
@@ -258,7 +357,68 @@ router.post("/stock-clearance", requireAuth, requireRole("admin"), async (req, r
 router.get("/:id", requireAuth, async (req, res) => {
   const product = await Product.findById(req.params.id).populate("category", "name").populate("vendor", "name");
   if (!product) return res.status(404).json({ message: "No records found." });
-  res.json(stripCostPriceIfStaff(product, req.user.role));
+  const obj = withGroup(stripCostPriceIfStaff(product, req.user.role));
+  if (req.user.role === "admin") {
+    obj.avgCostPrice = weightedAvgCost(await Batch.find({ product: product._id, qtyRemaining: { $gt: 0 } }));
+  }
+  res.json(obj);
+});
+
+// Lots that can be sold right now, earliest expiry first - for picking an
+// exact batch at checkout. No cost prices, so any signed-in user may see it.
+router.get("/:id/sale-batches", requireAuth, async (req, res) => {
+  const batches = await Batch.find({ product: req.params.id, qtyRemaining: { $gt: 0 }, isDeleted: { $ne: true } }, "batchNo expiryDate qtyRemaining rack").sort({ expiryDate: 1 });
+  res.json(batches);
+});
+
+// Every purchase of this product, from any supplier (registered,
+// unregistered or none), plus a per-supplier summary and the weighted
+// average purchase cost - all on the one master product.
+router.get("/:id/purchases", requireAuth, requireRole("admin"), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: "No records found." });
+  const productId = new mongoose.Types.ObjectId(req.params.id);
+  const purchases = await Purchase.find({ "items.product": productId }).populate("vendor", "name").sort({ date: -1, createdAt: -1 });
+  const lines = [];
+  for (const p of purchases) {
+    const supplier = p.vendor ? p.vendor.name || "Unknown supplier" : p.supplierName || "";
+    const supplierType = p.vendor ? "registered" : p.supplierName ? "unregistered" : "none";
+    for (const item of p.items) {
+      if (String(item.product) !== String(productId)) continue;
+      lines.push({
+        purchaseId: p._id,
+        date: p.date,
+        invoiceNo: p.invoiceNo,
+        supplier: supplier || "No supplier",
+        supplierType,
+        vendorId: p.vendor?._id || null,
+        qtyPacks: item.qtyPacks,
+        costPrice: item.costPrice,
+        lineAmount: item.lineAmount,
+        batchNo: item.batchNo,
+        expiryDate: item.expiryDate,
+      });
+    }
+  }
+  const bySupplier = new Map();
+  for (const l of lines) {
+    const key = `${l.supplierType}:${l.vendorId || l.supplier.toLowerCase()}`;
+    const s = bySupplier.get(key) || { supplier: l.supplier, supplierType: l.supplierType, vendorId: l.vendorId, purchases: 0, qtyPacks: 0, amount: 0, lastPrice: l.costPrice, lastDate: l.date };
+    s.purchases += 1;
+    s.qtyPacks += l.qtyPacks;
+    s.amount += l.lineAmount;
+    bySupplier.set(key, s);
+  }
+  const r2 = (n) => Number(n.toFixed(2));
+  const totalQty = lines.reduce((s, l) => s + l.qtyPacks, 0);
+  const totalAmount = lines.reduce((s, l) => s + l.lineAmount, 0);
+  res.json({
+    lines,
+    suppliers: [...bySupplier.values()].map((s) => ({ ...s, amount: r2(s.amount), avgPrice: s.qtyPacks > 0 ? r2(s.amount / s.qtyPacks) : null })).sort((a, b) => b.qtyPacks - a.qtyPacks),
+    // Across every purchase ever made of this product.
+    avgPurchasePrice: totalQty > 0 ? r2(totalAmount / totalQty) : null,
+    // Of the stock still on hand (what inventory is valued at).
+    avgCostOnHand: weightedAvgCost(await Batch.find({ product: productId, qtyRemaining: { $gt: 0 } })),
+  });
 });
 
 // Full batch breakdown for a product - Batch No / Expiry / Qty Remaining /
@@ -387,6 +547,11 @@ router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
         return res.status(400).json({ message: "This field is required." });
       }
 
+      const medicine = medicineFields(b);
+      if (medicine.error) return res.status(400).json({ message: medicine.error });
+      const duplicate = await duplicateProductError({ name: b.name, barcode: medicine.fields.barcode });
+      if (duplicate) return res.status(409).json({ message: duplicate });
+
       const qty = computeQty({ ...b, soldAs });
       const rack = cleanRack(b.rack);
       const rackError = await rackPositionError(b.rack, { required: qty > 0 });
@@ -414,6 +579,7 @@ router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
         lowStockThreshold: b.lowStockThreshold ?? 10,
         rack,
         vendor: b.vendor || null,
+        ...medicine.fields,
       });
 
       // Opening stock: creates this product's first batch/lot, if any was entered.
@@ -434,7 +600,7 @@ router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
       }
 
       const populated = await product.populate(["category", "vendor"].map((path) => ({ path, select: "name" })));
-      res.status(201).json(stripCostPriceIfStaff(populated, req.user.role));
+      res.status(201).json(withGroup(stripCostPriceIfStaff(populated, req.user.role)));
     } catch (e) {
       if (e.name === "ValidationError") {
         return res.status(400).json({ message: Object.values(e.errors)[0].message });
@@ -463,6 +629,14 @@ router.patch("/:id", requireAuth, requirePermission("products.edit"), (req, res)
       }
       // Outside the field loop below so a brand can be cleared to "".
       if (b.brand !== undefined) product.brand = b.brand;
+      const medicine = medicineFields(b);
+      if (medicine.error) return res.status(400).json({ message: medicine.error });
+      const duplicate = await duplicateProductError(
+        { name: b.name && b.name.trim().toLowerCase() !== product.name.toLowerCase() ? b.name : null, barcode: medicine.fields.barcode },
+        product._id
+      );
+      if (duplicate) return res.status(409).json({ message: duplicate });
+      Object.assign(product, medicine.fields);
       // Handled apart from the field loop below so a rack can be cleared to "".
       if (b.rack !== undefined) {
         const rack = cleanRack(b.rack);
@@ -495,7 +669,7 @@ router.patch("/:id", requireAuth, requirePermission("products.edit"), (req, res)
 
       await product.save();
       const populated = await product.populate(["category", "vendor"].map((path) => ({ path, select: "name" })));
-      res.json(stripCostPriceIfStaff(populated, req.user.role));
+      res.json(withGroup(stripCostPriceIfStaff(populated, req.user.role)));
     } catch (e) {
       if (e.name === "ValidationError") {
         return res.status(400).json({ message: Object.values(e.errors)[0].message });
@@ -541,7 +715,7 @@ router.patch("/:id/enable-loose", requireAuth, requirePermission("products.edit"
     await product.save();
 
     const populated = await product.populate(["category", "vendor"].map((path) => ({ path, select: "name" })));
-    res.json(stripCostPriceIfStaff(populated, req.user.role));
+    res.json(withGroup(stripCostPriceIfStaff(populated, req.user.role)));
   } catch (e) {
     if (e.name === "ValidationError") {
       return res.status(400).json({ message: Object.values(e.errors)[0].message });
@@ -587,6 +761,12 @@ router.get("/import/template", requireAuth, requirePermission("products.add"), a
     { header: "Expiry Date (YYYY-MM-DD)", key: "expiryDate", width: 20 },
     { header: "Low Stock Threshold", key: "lowStockThreshold", width: 18 },
     { header: "Rack", key: "rack", width: 12 }, // required - a rack position like A-001; every imported row adds stock
+    { header: "Generic Name", key: "genericName", width: 20 },
+    { header: "Composition", key: "composition", width: 26 },
+    { header: `Dosage Form (${DOSAGE_FORMS.filter(Boolean).join("/")})`, key: "dosageForm", width: 30 },
+    { header: `Release Type (${RELEASE_TYPES.filter(Boolean).join("/")})`, key: "releaseType", width: 30 },
+    { header: "Manufacturer", key: "manufacturer", width: 18 },
+    { header: "Barcode", key: "barcode", width: 16 },
   ];
   sheet.addRow({
     name: "Dolo 650",
@@ -606,6 +786,12 @@ router.get("/import/template", requireAuth, requirePermission("products.add"), a
     expiryDate: "2027-06-30",
     lowStockThreshold: 10,
     rack: "D-001",
+    genericName: "Paracetamol",
+    composition: "Paracetamol",
+    dosageForm: "Tablet",
+    releaseType: "Immediate",
+    manufacturer: "Micro Labs",
+    barcode: "",
   });
 
   res.setHeader(
@@ -643,6 +829,18 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
     "Expiry Date (YYYY-MM-DD)": "expiryDate",
     "Low Stock Threshold": "lowStockThreshold",
     Rack: "rack",
+    "Generic Name": "genericName",
+    Composition: "composition",
+    Manufacturer: "manufacturer",
+    Barcode: "barcode",
+  };
+  // Headers that carry their allowed values in brackets match on the prefix.
+  const keyFor = (header) => {
+    if (keyMap[header]) return keyMap[header];
+    const h = String(header || "");
+    if (h.startsWith("Dosage Form")) return "dosageForm";
+    if (h.startsWith("Release Type")) return "releaseType";
+    return null;
   };
 
   const results = [];
@@ -653,7 +851,7 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
 
     const data = {};
     headerRow.forEach((header, idx) => {
-      const key = keyMap[header];
+      const key = keyFor(header);
       if (key) data[key] = row.getCell(idx).value;
     });
 
@@ -679,7 +877,11 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
       // Matched by product name alone now (batch-level top-up/creation is
       // handled by upsertBatch below), so a new batch of an existing medicine
       // no longer creates a duplicate product the way name+batch matching used to.
-      const existing = await Product.findOne({ name: new RegExp(`^${String(data.name).trim()}$`, "i") });
+      const existing = await Product.findOne({ name: new RegExp(`^${escapeRegex(String(data.name).trim())}$`, "i") });
+      const medicine = medicineFields(
+        Object.fromEntries(["genericName", "composition", "dosageForm", "releaseType", "manufacturer", "barcode"].filter((k) => data[k] != null && data[k] !== "").map((k) => [k, String(data[k]).trim()]))
+      );
+      if (medicine.error) throw new Error(medicine.error);
 
       const addQty = computeQty({
         soldAs,
@@ -701,6 +903,7 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
         existing.qty += addQty;
         if (rack) existing.rack = rack; // a blank cell keeps its current rack
         if (data.brand) existing.brand = String(data.brand).trim(); // likewise for brand
+        Object.assign(existing, medicine.fields); // and the medicine details
         // Restocking a deleted product brings it back rather than adding
         // stock to a product no list shows.
         existing.isActive = true;
@@ -727,6 +930,7 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
           hsnCode: data.hsnCode || "",
           lowStockThreshold: data.lowStockThreshold ?? 10,
           rack,
+          ...medicine.fields,
         });
         await upsertBatch({
           product: created,

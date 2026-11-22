@@ -6,6 +6,10 @@ import { useAuth } from "../context/AuthContext";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
 import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
+import { DOSAGE_FORMS, RELEASE_TYPES } from "../utils/medicine";
+
+// Medicine details - sent even when blank so clearing one sticks.
+const MEDICINE_FIELDS = ["genericName", "composition", "dosageForm", "releaseType", "manufacturer", "barcode"];
 
 const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
@@ -32,6 +36,12 @@ const emptyForm = {
   costPrice: "",
   lowStockThreshold: "10",
   rack: "",
+  genericName: "",
+  composition: "",
+  dosageForm: "",
+  releaseType: "",
+  manufacturer: "",
+  barcode: "",
 };
 
 // defaultRack presets the rack choice when adding from a rack view (e.g. "C-004" or No Rack).
@@ -82,6 +92,12 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
         costPrice: "",
         lowStockThreshold: product.lowStockThreshold ?? "10",
         rack: validPosition(product.rack),
+        genericName: product.genericName || "",
+        composition: product.composition || "",
+        dosageForm: product.dosageForm || "",
+        releaseType: product.releaseType || "",
+        manufacturer: product.manufacturer || "",
+        barcode: product.barcode || "",
       });
     }
   }, [product]);
@@ -138,7 +154,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
     const fd = new FormData();
     Object.entries(form).forEach(([k, v]) => {
       if (isEdit && (k === "unitsPerPack" || k === "looseUnitName")) return; // locked after creation
-      if (k === "rack" || k === "brand") return fd.append(k, v.trim()); // sent even when blank, so clearing it sticks
+      if (k === "rack" || k === "brand" || MEDICINE_FIELDS.includes(k)) return fd.append(k, v.trim()); // sent even when blank, so clearing it sticks
       if (v !== "" && v !== undefined && v !== null) fd.append(k, v);
     });
     if (imageFile) fd.append("image", imageFile);
@@ -203,12 +219,12 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
 
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className={labelCls}>Product Name<RequiredMark /></label>
+            <label className={labelCls}>Brand Name (Product Name)<RequiredMark /></label>
             <input type="text" maxLength={150} value={form.name} onChange={set("name")} className={inputCls} />
           </div>
 
           <div className="col-span-2">
-            <label className={labelCls}>Brand / Manufacturer</label>
+            <label className={labelCls}>Marketed By (company)</label>
             <input
               type="text"
               maxLength={80}
@@ -274,6 +290,47 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
                 <option key={u} value={u}>{u}</option>
               ))}
             </select>
+          </div>
+
+          <div className="col-span-2 mt-1 border-t border-border pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Medicine details</p>
+            <p className="text-xs text-muted">
+              Brands with the same composition, strength, dosage form and release type are grouped together in search and reports. Each brand keeps its own stock.
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>Generic Name</label>
+            <input type="text" maxLength={150} value={form.genericName} onChange={set("genericName")} placeholder="e.g. Paracetamol" className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Manufacturer</label>
+            <input type="text" maxLength={120} value={form.manufacturer} onChange={set("manufacturer")} placeholder="e.g. Micro Labs" className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Composition (active ingredients)</label>
+            <input type="text" maxLength={300} value={form.composition} onChange={set("composition")} placeholder="e.g. Paracetamol  or  Amoxicillin + Clavulanic Acid" className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Dosage Form</label>
+            <select value={form.dosageForm} onChange={set("dosageForm")} className={inputCls}>
+              <option value="">—</option>
+              {DOSAGE_FORMS.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Release Type</label>
+            <select value={form.releaseType} onChange={set("releaseType")} className={inputCls}>
+              <option value="">—</option>
+              {RELEASE_TYPES.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Barcode</label>
+            <input type="text" maxLength={64} value={form.barcode} onChange={set("barcode")} placeholder="Scan or type" className={inputCls} />
           </div>
 
           <div>

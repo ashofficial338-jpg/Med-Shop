@@ -9,9 +9,14 @@ export async function upsertBatch({ product, batchNo, expiryDate, costPrice, add
   let batch = await Batch.findOne({ product: product._id, batchNo: cleanBatchNo });
 
   if (batch) {
+    // Same lot delivered again (maybe from another supplier, at another
+    // price): blend the cost by quantity instead of overwriting it, so stock
+    // already on hand keeps being valued at what it actually cost.
+    const onHand = Math.max(batch.qtyRemaining, 0);
+    const blended = onHand + addQty > 0 ? (onHand * batch.costPrice + addQty * Number(costPrice)) / (onHand + addQty) : Number(costPrice);
     batch.qtyReceived += addQty;
     batch.qtyRemaining += addQty;
-    batch.costPrice = costPrice;
+    batch.costPrice = Number(blended.toFixed(4));
     batch.receivedAt = receivedAt || new Date();
     if (purchase) batch.purchase = purchase;
     if (rack) batch.rack = rack;
@@ -77,6 +82,28 @@ export async function allocateFefo(product, neededQty) {
   return breakdown;
 }
 
+// Takes `neededQty` from one specific lot the cashier picked (same breakdown
+// shape as allocateFefo). Null if that lot doesn't belong to the product or
+// no longer has enough - nothing is ever pulled from another lot or brand.
+export async function allocateFromBatch(product, batchId, neededQty) {
+  const updated = await Batch.findOneAndUpdate(
+    { _id: batchId, product: product._id, isDeleted: { $ne: true }, qtyRemaining: { $gte: neededQty } },
+    { $inc: { qtyRemaining: -neededQty } },
+    { new: true }
+  );
+  if (!updated) return null;
+  const costPricePerUnit = product.soldAs === "pack-and-loose" ? updated.costPrice / product.unitsPerPack : updated.costPrice;
+  return [
+    {
+      batch: updated._id,
+      qty: neededQty,
+      costPricePerUnit: Number(costPricePerUnit.toFixed(4)),
+      batchNo: updated.batchNo,
+      expiryDate: updated.expiryDate,
+    },
+  ];
+}
+
 export async function reverseBreakdown(breakdown) {
   for (const entry of breakdown) {
     await Batch.updateOne({ _id: entry.batch }, { $inc: { qtyRemaining: entry.qty } });
@@ -117,4 +144,17 @@ export async function landLegacyReturn(product, internalQty, item) {
     qtyRemaining: internalQty,
     receivedAt: new Date(),
   });
+}
+
+// Weighted average cost per pack of the stock on hand: each lot's cost
+// weighted by how much of it remains. Null when nothing is on hand.
+export function weightedAvgCost(batches) {
+  let qty = 0;
+  let value = 0;
+  for (const b of batches) {
+    if (!(b.qtyRemaining > 0) || b.isDeleted) continue;
+    qty += b.qtyRemaining;
+    value += b.qtyRemaining * b.costPrice;
+  }
+  return qty > 0 ? Number((value / qty).toFixed(2)) : null;
 }

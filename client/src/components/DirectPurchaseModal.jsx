@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { listProducts, listCategories } from "../api/products";
-import { createDirectPurchase } from "../api/purchases";
+import { createDirectPurchase, listUnregisteredSuppliers } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
 import RackInput from "./RackInput";
 import { RACK_REQUIRED_MESSAGE, validPosition, isRackChoice } from "../utils/rack";
@@ -28,9 +28,13 @@ const emptyLine = {
   rack: "",
 };
 
-// Purchase without a supplier: stock bought from a local market, another
-// shop, etc. Each line is an existing product or a new one entered inline.
-export default function DirectPurchaseModal({ onClose, onSaved }) {
+// Purchase from an unregistered supplier (typed in by name) or with no
+// supplier at all. Each line is an existing product or a new one entered
+// inline; a "new" product whose name already exists gets its stock added to
+// that existing product - one master product, many suppliers.
+export default function DirectPurchaseModal({ initialMode = "none", onClose, onSaved }) {
+  const [mode, setMode] = useState(initialMode); // "unregistered" | "none"
+  const [knownSuppliers, setKnownSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [invoiceNo, setInvoiceNo] = useState("");
@@ -45,7 +49,20 @@ export default function DirectPurchaseModal({ onClose, onSaved }) {
   useEffect(() => {
     listProducts().then(setProducts).catch(() => {});
     listCategories().then(setCategories).catch(() => {});
+    listUnregisteredSuppliers().then(setKnownSuppliers).catch(() => {});
   }, []);
+
+  const productByName = (name) => {
+    const n = name.trim().toLowerCase();
+    return n ? products.find((p) => p.name.toLowerCase() === n) : null;
+  };
+  const applyExisting = (idx, product) => {
+    setLines((ls) =>
+      ls.map((l, i) =>
+        i === idx ? { ...l, isNew: false, product: product._id, sellingPrice: String(product.packRate ?? ""), rack: validPosition(product.rack) || l.rack } : l
+      )
+    );
+  };
 
   const productById = (id) => products.find((p) => p._id === id);
 
@@ -94,7 +111,8 @@ export default function DirectPurchaseModal({ onClose, onSaved }) {
       (!loose || LOOSE_UNITS.includes(l.looseUnitName))
     );
   };
-  const isValid = Boolean(date) && lines.length > 0 && lines.every(lineValid);
+  const isValid =
+    Boolean(date) && lines.length > 0 && lines.every(lineValid) && (mode === "none" || supplierName.trim().length > 0);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -109,7 +127,7 @@ export default function DirectPurchaseModal({ onClose, onSaved }) {
     try {
       const saved = await createDirectPurchase({
         invoiceNo: invoiceNo.trim(),
-        supplierName: supplierName.trim(),
+        supplierName: mode === "unregistered" ? supplierName.trim() : "",
         date,
         paymentMode,
         items: lines.map((l) => ({
@@ -153,13 +171,39 @@ export default function DirectPurchaseModal({ onClose, onSaved }) {
       <form onSubmit={handleSubmit} className="w-full max-w-2xl space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-display text-xl font-semibold text-text">Purchase Without Supplier</h2>
-            <p className="text-xs text-muted">Stock bought directly — no supplier needed. Paid in full at purchase.</p>
+            <h2 className="font-display text-xl font-semibold text-text">
+              {mode === "unregistered" ? "Other / Unregistered Supplier" : "Purchase Without Supplier"}
+            </h2>
+            <p className="text-xs text-muted">Stock is added to the same product inventory. Paid in full at purchase.</p>
           </div>
           <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close">✕</button>
         </div>
 
+        <div className="inline-flex rounded-lg border border-border p-0.5">
+          <button type="button" onClick={() => setMode("unregistered")} className={tabCls(mode === "unregistered")}>Unregistered supplier</button>
+          <button type="button" onClick={() => setMode("none")} className={tabCls(mode === "none")}>No supplier</button>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
+          {mode === "unregistered" && (
+            <div className="col-span-2">
+              <label className={labelCls}>Supplier Name<RequiredMark /></label>
+              <input
+                type="text"
+                list="unregistered-suppliers"
+                maxLength={100}
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                placeholder="e.g. City Medical Agencies"
+                className={inputCls}
+              />
+              <datalist id="unregistered-suppliers">
+                {knownSuppliers.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
+            </div>
+          )}
           <div>
             <label className={labelCls}>Date<RequiredMark /></label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
@@ -167,10 +211,6 @@ export default function DirectPurchaseModal({ onClose, onSaved }) {
           <div>
             <label className={labelCls}>Bill / Ref No (optional)</label>
             <input type="text" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="Auto-generated if blank" className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Bought From (optional)</label>
-            <input type="text" maxLength={100} value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="e.g. Local market" className={inputCls} />
           </div>
           <div>
             <label className={labelCls}>Payment Mode</label>
@@ -201,6 +241,14 @@ export default function DirectPurchaseModal({ onClose, onSaved }) {
                   <div className="col-span-2">
                     <label className={labelCls}>Product Name<RequiredMark /></label>
                     <input type="text" maxLength={150} value={line.name} onChange={(e) => setLine(idx, "name", e.target.value)} className={inputCls} />
+                    {productByName(line.name) && (
+                      <p className="mt-1 text-xs text-warning">
+                        {productByName(line.name).name} ({productByName(line.name).productCode}) already exists — stock will be added to it, not duplicated.{" "}
+                        <button type="button" onClick={() => applyExisting(idx, productByName(line.name))} className="font-semibold text-primary hover:underline">
+                          Use existing
+                        </button>
+                      </p>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <label className={labelCls}>Category<RequiredMark /></label>

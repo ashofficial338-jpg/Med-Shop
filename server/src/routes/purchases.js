@@ -24,20 +24,27 @@ const GST_VALUES = [0, 5, 12, 18, 28];
 // A purchase without a supplier has nobody to owe, so it's always paid up front.
 const DIRECT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
-// Who a purchase was bought from, for lists and exports.
+// Who a purchase was bought from, for lists and exports: a registered
+// vendor, an unregistered supplier typed in by name, or nobody.
 export function purchasePartyName(p) {
   if (p.vendor) return p.vendor.name || "Unknown supplier";
-  return p.supplierName ? `${p.supplierName} (no supplier)` : "No supplier";
+  return p.supplierName ? `${p.supplierName} (unregistered)` : "No supplier";
 }
+
+const escapeRegex = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Shared by the list and its export. `category` keeps purchases that include
 // at least one product from that category (used by dashboard links).
 async function buildPurchaseFilter(req) {
-  const { vendor, from, to, category } = req.query;
+  const { vendor, from, to, category, product, supplierName } = req.query;
   const filter = {};
-  // "none" lists the purchases made without a supplier.
-  if (vendor === "none") filter.vendor = null;
-  else if (vendor) filter.vendor = vendor;
+  // vendor: a registered vendor's id, "unregistered" (any typed-in supplier)
+  // or "none" (no supplier at all). supplierName narrows to one unregistered supplier.
+  if (vendor === "none") Object.assign(filter, { vendor: null, supplierName: { $in: ["", null] } });
+  else if (vendor === "unregistered") Object.assign(filter, { vendor: null, supplierName: { $nin: ["", null] } });
+  else if (vendor && mongoose.isValidObjectId(vendor)) filter.vendor = vendor;
+  if (supplierName) Object.assign(filter, { vendor: null, supplierName: new RegExp(`^${escapeRegex(String(supplierName).trim())}$`, "i") });
+  if (product && mongoose.isValidObjectId(product)) filter["items.product"] = product;
   const range = dayRange(from, to);
   if (range) filter.date = range;
   if (category && mongoose.isValidObjectId(category)) {
@@ -91,6 +98,14 @@ async function stockInPurchase(purchase, lines, date, userId) {
   await purchase.save();
 }
 
+// Names of unregistered suppliers used so far, for filters and autocomplete.
+router.get("/unregistered-suppliers", async (req, res) => {
+  const names = await Purchase.distinct("supplierName", { vendor: null, supplierName: { $nin: ["", null] } });
+  const seen = new Map();
+  for (const n of names) if (!seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), n);
+  res.json([...seen.values()].sort((a, b) => a.localeCompare(b)));
+});
+
 router.get("/", async (req, res) => {
   const filter = await buildPurchaseFilter(req);
   const purchases = await Purchase.find(filter)
@@ -123,7 +138,7 @@ router.get("/export", async (req, res) => {
   if (format === "pdf") {
     return streamPdfReport(res, "GuganMedicals_Purchases_Report.pdf", {
       title: "Gugan Medicals - Purchases Report",
-      subtitle: `${periodLabel(from, to)}${vendor ? ` · Vendor: ${vendor === "none" ? "No supplier" : purchases[0]?.vendor?.name || "selected vendor"}` : ""} · Total: Rs. ${rows.reduce((s, r) => s + r.total, 0).toFixed(2)}`,
+      subtitle: `${periodLabel(from, to)}${vendor || req.query.supplierName ? ` · Supplier: ${req.query.supplierName ? `${req.query.supplierName} (unregistered)` : vendor === "none" ? "No supplier" : vendor === "unregistered" ? "Unregistered suppliers" : purchases[0]?.vendor?.name || "selected vendor"}` : ""} · Total: Rs. ${rows.reduce((s, r) => s + r.total, 0).toFixed(2)}`,
       columns: [
         { header: "Invoice No", key: "invoiceNo" },
         { header: "Date", key: "date" },
@@ -272,10 +287,11 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Purchase without a supplier: stock bought from anywhere (local market,
-// another shop, ...). Each line is either an existing product or a brand-new
-// one described inline (name, category, pack, GST, selling price), which is
-// created here. Always paid up front, so it never touches supplier ledgers.
+// Purchase from an unregistered supplier (supplierName given) or with no
+// supplier at all. Each line is an existing product or a new one described
+// inline; a "new" product whose name matches an existing product is not
+// duplicated - the stock goes onto the existing master product. Always paid
+// up front, so it never touches supplier ledgers.
 router.post("/direct", async (req, res) => {
   const { invoiceNo, supplierName, date, items, paymentMode } = req.body;
 
@@ -337,10 +353,16 @@ router.post("/direct", async (req, res) => {
     let subtotal = 0;
     let gstAmount = 0;
 
+    const madeHere = new Map(); // lowercased name -> product created by an earlier line
     for (const { item, qtyPacks, costPrice, sellingPrice, product: existing, newProduct } of prepared) {
       const rack = cleanRack(item.rack);
       let product = existing;
       if (newProduct) {
+        product =
+          madeHere.get(newProduct.name.toLowerCase()) ||
+          (await Product.findOne({ isActive: true, name: new RegExp(`^${escapeRegex(newProduct.name)}$`, "i") }));
+      }
+      if (newProduct && !product) {
         const category = await resolveCategory(String(newProduct.category).trim());
         product = await Product.create({
           name: newProduct.name,
@@ -359,6 +381,7 @@ router.post("/direct", async (req, res) => {
           vendor: null,
         });
         createdProductIds.push(product._id);
+        madeHere.set(newProduct.name.toLowerCase(), product);
       } else if (sellingPrice !== null && sellingPrice !== product.packRate) {
         // A new selling price entered for an existing product becomes its
         // current price (saved along with the stock-in below).
