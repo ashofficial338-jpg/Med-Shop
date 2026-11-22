@@ -48,6 +48,9 @@ router.post("/", async (req, res) => {
 
     // Phone is unique, so re-adding a deleted customer restores that record
     // (keeping their bill history) instead of failing on the unique index.
+    if (existing && req.user.role !== "admin") {
+      return res.status(409).json({ message: "A removed customer has this phone number. Ask an Admin to restore them." });
+    }
     if (existing) {
       Object.assign(existing, { name: name.trim(), email: email ?? existing.email, address: address ?? existing.address, isActive: true });
       await existing.save();

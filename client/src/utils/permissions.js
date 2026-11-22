@@ -11,27 +11,25 @@ export const PERMISSIONS = [
   // Reports & Analytics: full financial figures for any period and filter.
   { key: "reports.view", label: "View reports & analytics", description: "Open Reports & Analytics: P&L, trends, GST, inventory and transaction history, any period.", group: "reports" },
   { key: "reports.export", label: "Export reports", description: "Download Reports & Analytics as PDF or Excel. Needs “View reports & analytics”.", group: "reports" },
-  // Products. Everyone can view products; these unlock changing them.
-  { key: "products.add", label: "Add products", description: "Add new products (with opening stock) and import them from Excel.", group: "products" },
-  { key: "products.edit", label: "Edit products", description: "Edit product details and move products to another rack position.", group: "products" },
-  { key: "products.delete", label: "Delete products", description: "Delete products that have no stock left.", group: "products" },
-  // Stock entries (a product's batches): edit their details or delete them.
-  { key: "stock.edit", label: "Edit stock", description: "Change a batch's number, expiry, quantity on hand or rack position.", group: "stock" },
-  { key: "stock.delete", label: "Delete stock", description: "Delete a batch, writing off whatever quantity is left in it.", group: "stock" },
-  // Rack management (Rack Finder -> Manage Racks). Everyone can view racks.
+  // Adding new entries can be granted. Editing, modifying or deleting any
+  // existing entry is Admin-only and can't be granted (see ADMIN_ONLY_KEYS).
+  { key: "products.add", label: "Add products", description: "Add new products (with opening stock) and import new products from Excel.", group: "products" },
   { key: "racks.add", label: "Add racks", description: "Add new racks (A to Z) and choose their number of positions.", group: "racks" },
-  { key: "racks.edit", label: "Edit racks", description: "Change how many positions a rack has.", group: "racks" },
-  { key: "racks.delete", label: "Delete racks", description: "Delete racks. Products on a deleted rack move to No Rack.", group: "racks" },
 ];
 
 export const DASHBOARD_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "dashboard");
 export const REPORT_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "reports");
 export const PRODUCT_PERMISSIONS =PERMISSIONS.filter((p) => p.group === "products");
-export const STOCK_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "stock");
 export const RACK_PERMISSIONS = PERMISSIONS.filter((p) => p.group === "racks");
 
 export const isAdmin = (user) => user?.role === "admin";
 
+// Editing or deleting existing entries is only ever for an Admin - other
+// users are view-only, whatever they were granted before.
+export const ADMIN_ONLY_KEYS = ["products.edit", "products.delete", "stock.edit", "stock.delete", "racks.edit", "racks.delete"];
+
 export function can(user, key) {
-  return isAdmin(user) || (user?.permissions || []).includes(key);
+  if (isAdmin(user)) return true;
+  if (ADMIN_ONLY_KEYS.includes(key)) return false;
+  return (user?.permissions || []).includes(key);
 }

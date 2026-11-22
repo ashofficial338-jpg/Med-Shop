@@ -4,25 +4,26 @@ import Layout from "../components/Layout";
 import Icon from "../components/Icon";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { DASHBOARD_PERMISSIONS, REPORT_PERMISSIONS, PRODUCT_PERMISSIONS, STOCK_PERMISSIONS, RACK_PERMISSIONS } from "../utils/permissions";
+import { DASHBOARD_PERMISSIONS, REPORT_PERMISSIONS, PRODUCT_PERMISSIONS, RACK_PERMISSIONS } from "../utils/permissions";
 
 // Options an Admin can hand out, each with its own tick box.
 const GRANT_GROUPS = [
   { title: "Reports & Analytics", suffix: "view / export", list: REPORT_PERMISSIONS },
   { title: "Products", list: PRODUCT_PERMISSIONS },
-  { title: "Stock", list: STOCK_PERMISSIONS },
   { title: "Racks", list: RACK_PERMISSIONS },
 ];
 
 const ADMIN_CAN = [
   "Everything in the app, including Users and Roles & Permissions",
+  "The only role that can edit, correct or delete any entry - their own or anyone else's",
   "Full dashboard: click any figure for details, apply filters and date ranges",
   "Download dashboard and profitability reports (Excel / PDF)",
 ];
 const STAFF_CAN = [
   "Products, orders/checkout and their own bills",
   "A view-only dashboard, if granted below - only the sections ticked",
-  "Viewing products, stock and racks; adding, editing or deleting them only if granted below",
+  "Viewing products, stock and racks; adding new products or racks only if granted below",
+  "View-only for everything already saved: they can't edit, modify or delete any entry",
   "No click-through, filters, date ranges, reports or downloads on the dashboard",
 ];
 

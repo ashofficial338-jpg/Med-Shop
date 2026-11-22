@@ -14,23 +14,22 @@ export const PERMISSIONS = [
   // Reports & Analytics: full financial figures for any period and filter.
   { key: "reports.view", label: "View reports & analytics", description: "Open Reports & Analytics: P&L, trends, GST, inventory and transaction history, any period." },
   { key: "reports.export", label: "Export reports", description: "Download Reports & Analytics as PDF or Excel. Needs “View reports & analytics”." },
-  // Products. Everyone can view products; these unlock changing them.
-  { key: "products.add", label: "Add products", description: "Add new products (with opening stock) and import them from Excel." },
-  { key: "products.edit", label: "Edit products", description: "Edit product details and move products to another rack position." },
-  { key: "products.delete", label: "Delete products", description: "Delete products that have no stock left." },
-  // Stock entries (a product's batches): edit their details or delete them.
-  { key: "stock.edit", label: "Edit stock", description: "Change a batch's number, expiry, quantity on hand or rack position." },
-  { key: "stock.delete", label: "Delete stock", description: "Delete a batch, writing off whatever quantity is left in it." },
-  // Rack management (Rack Finder -> Manage Racks). Everyone can view racks.
+  // Adding new entries can be granted. Editing, modifying or deleting any
+  // existing entry is Admin-only and can't be granted (see ADMIN_ONLY_KEYS).
+  { key: "products.add", label: "Add products", description: "Add new products (with opening stock) and import new products from Excel." },
   { key: "racks.add", label: "Add racks", description: "Add new racks (A to Z) and choose their number of positions." },
-  { key: "racks.edit", label: "Edit racks", description: "Change how many positions a rack has." },
-  { key: "racks.delete", label: "Delete racks", description: "Delete racks. Products on a deleted rack move to No Rack." },
 ];
 
 export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 
+// Editing or deleting existing entries: only an Admin, never grantable. A
+// user who was granted one of these before keeps nothing from it.
+export const ADMIN_ONLY_KEYS = ["products.edit", "products.delete", "stock.edit", "stock.delete", "racks.edit", "racks.delete"];
+
 export function hasPermission(user, key) {
-  return user?.role === "admin" || (user?.permissions || []).includes(key);
+  if (user?.role === "admin") return true;
+  if (ADMIN_ONLY_KEYS.includes(key)) return false;
+  return (user?.permissions || []).includes(key);
 }
 
 // Keeps only known keys, without duplicates.

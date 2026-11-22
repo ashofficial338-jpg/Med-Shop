@@ -5,7 +5,7 @@ import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
 import StockLedger from "../models/StockLedger.js";
 import StockAudit from "../models/StockAudit.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requirePermission } from "../utils/permissions.js";
 import { positionCode, rackLayout, describePosition, shelfPositions, parseRackCode, cleanRack, rackPositionError } from "../utils/rack.js";
 import { effectiveLocations } from "../utils/locations.js";
@@ -315,7 +315,7 @@ router.get("/locate", async (req, res) => {
 
 // Rack Transfer: move part or all of one batch from one position to
 // another. Total stock is unchanged; the move is recorded in the ledger.
-router.post("/transfer", requirePermission("stock.edit"), async (req, res) => {
+router.post("/transfer", requireRole("admin"), async (req, res) => {
   const { batch: batchId } = req.body;
   if (!mongoose.isValidObjectId(batchId)) return res.status(400).json({ message: "Please choose a batch." });
   const from = cleanRack(req.body.from);
@@ -357,7 +357,7 @@ router.post("/transfer", requirePermission("stock.edit"), async (req, res) => {
 // Stock Audit: physical counts for batches at positions in a scope. Saved
 // as a record; with apply, stock is corrected to the counts (ledger entries
 // per difference, totals updated immediately).
-router.post("/audit", requirePermission("stock.edit"), async (req, res) => {
+router.post("/audit", requireRole("admin"), async (req, res) => {
   const racks = await rackMap();
   const scope = resolveScope(req.body.scope, racks);
   if (!scope || scope.level === "all") return res.status(400).json({ message: "Choose a rack, shelf or position to audit." });
@@ -461,7 +461,7 @@ router.post("/", requirePermission("racks.add"), async (req, res) => {
 
 // Changing the layout / position count / name / capacity. Shrinking is
 // blocked while stock still sits on a position that would disappear.
-router.patch("/:letter", requirePermission("racks.edit"), async (req, res) => {
+router.patch("/:letter", requireRole("admin"), async (req, res) => {
   const rack = await Rack.findOne({ letter: String(req.params.letter).toUpperCase() });
   if (!rack) return res.status(404).json({ message: "No records found." });
   const { fields, error } = layoutFrom(req.body, rack);
@@ -482,7 +482,7 @@ router.patch("/:letter", requirePermission("racks.edit"), async (req, res) => {
 
 // Always allowed, even for the last rack: products and batch stock still on
 // it fall back to No Rack (""), recorded as transfers in the ledger.
-router.delete("/:letter", requirePermission("racks.delete"), async (req, res) => {
+router.delete("/:letter", requireRole("admin"), async (req, res) => {
   const rack = await Rack.findOne({ letter: String(req.params.letter).toUpperCase() });
   if (!rack) return res.status(404).json({ message: "No records found." });
   const re = new RegExp(`^${rack.letter}-`);

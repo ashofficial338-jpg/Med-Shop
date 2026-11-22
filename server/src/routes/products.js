@@ -6,7 +6,7 @@ import Product from "../models/Product.js";
 import Batch from "../models/Batch.js";
 import StockLedger from "../models/StockLedger.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { requirePermission, requireAnyPermission } from "../utils/permissions.js";
+import { requirePermission } from "../utils/permissions.js";
 import { uploadProductImage, uploadedImageUrl } from "../middleware/upload.js";
 import { generateProductCode, resolveCategory, computeLooseRate, deriveSoldAs } from "../utils/productHelpers.js";
 import { computeInternalQty as computeQty } from "../utils/stockUnits.js";
@@ -505,7 +505,7 @@ router.get("/:id/purchases", requireAuth, requireRole("admin"), async (req, res)
 // Received Date / Cost - used by the Product Detail panel, Stock Management,
 // and the batch pickers in Adjust Stock. Admins, plus anyone allowed to edit
 // or delete stock; cost price is only sent to admins.
-router.get("/:id/batches", requireAuth, requireAnyPermission("stock.edit", "stock.delete"), async (req, res) => {
+router.get("/:id/batches", requireAuth, requireRole("admin"), async (req, res) => {
   const batches = await Batch.find({
     product: req.params.id,
     qtyReceived: { $gt: 0 },
@@ -527,7 +527,7 @@ async function findStockEntry(req, res) {
 
 // Edit one stock entry (batch). A quantity change moves Product.qty by the
 // same amount and is recorded in the stock ledger like a manual adjustment.
-router.patch("/:id/batches/:batchId", requireAuth, requirePermission("stock.edit"), async (req, res) => {
+router.patch("/:id/batches/:batchId", requireAuth, requireRole("admin"), async (req, res) => {
   const { product, batch } = await findStockEntry(req, res);
   if (!batch) return;
   const b = req.body;
@@ -608,7 +608,7 @@ router.patch("/:id/batches/:batchId", requireAuth, requirePermission("stock.edit
 // Delete one stock entry: whatever is left in it is written off (ledger
 // entry + Product.qty), and the batch is hidden. The record itself stays,
 // since past sales and purchases point at it.
-router.delete("/:id/batches/:batchId", requireAuth, requirePermission("stock.delete"), async (req, res) => {
+router.delete("/:id/batches/:batchId", requireAuth, requireRole("admin"), async (req, res) => {
   const { product, batch } = await findStockEntry(req, res);
   if (!batch) return;
   const removed = batch.qtyRemaining;
@@ -704,7 +704,7 @@ router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
   });
 });
 
-router.patch("/:id", requireAuth, requirePermission("products.edit"), (req, res) => {
+router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
   uploadProductImage(req, res, async (err) => {
     if (err) return res.status(400).json({ message: err.message });
 
@@ -781,7 +781,7 @@ router.patch("/:id", requireAuth, requirePermission("products.edit"), (req, res)
 // on hand is rescaled by the same unitsPerPack factor to keep representing
 // the same physical stock - see the PATCH "/:id" comment above for why this
 // can't just be another editable field.
-router.patch("/:id/enable-loose", requireAuth, requirePermission("products.edit"), async (req, res) => {
+router.patch("/:id/enable-loose", requireAuth, requireRole("admin"), async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ message: "No records found." });
   if (product.soldAs === "pack-and-loose") {
@@ -823,7 +823,7 @@ router.patch("/:id/enable-loose", requireAuth, requirePermission("products.edit"
 // Soft delete: past bills, purchases and the stock ledger still reference the
 // product. Blocked while stock remains, since hiding it would silently drop
 // that stock from every report instead of recording it as a loss.
-router.delete("/:id", requireAuth, requirePermission("products.delete"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product || !product.isActive) return res.status(404).json({ message: "No records found." });
   if (product.qty > 0) {
@@ -987,6 +987,10 @@ router.post("/import", requireAuth, requirePermission("products.add"), importUpl
         qtyLooseExtra: 0,
       });
 
+      if (existing && req.user.role !== "admin") {
+        // Topping up or changing an existing product is an edit: Admin only.
+        throw new Error(`"${existing.name}" already exists - only an Admin can add stock to or change an existing product.`);
+      }
       if (existing) {
         await upsertBatch({
           product: existing,
