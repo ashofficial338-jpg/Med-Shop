@@ -70,7 +70,7 @@ const saleSchema = new mongoose.Schema(
     },
     paymentMode: {
       type: String,
-      enum: ["Cash", "Card", "UPI", "Other", "Credit"],
+      enum: ["Cash", "Card", "UPI", "Bank Transfer", "Other", "Credit"],
       default: "Cash",
     },
     // Only ever mutated by creating a CustomerPayment (see ledgerHelpers.js) -
@@ -99,6 +99,10 @@ const saleSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // Set when this bill was made by a Sales Entry (routes/salesEntries.js).
+    // Such a bill is changed only through its entry, so the two always agree;
+    // it carries the entry's SALES number and has no saved files.
+    salesEntry: { type: mongoose.Schema.Types.ObjectId, ref: "SalesEntry", default: null },
   },
   { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );

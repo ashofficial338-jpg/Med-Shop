@@ -84,7 +84,7 @@ router.get("/options", async (req, res) => {
     brands: brands.sort((a, b) => a.localeCompare(b)),
     suppliers,
     products,
-    paymentModes: ["Cash", "UPI", "Card", "Credit", "Other"],
+    paymentModes: ["Cash", "UPI", "Card", "Bank Transfer", "Credit", "Other"],
     transactionTypes: TRANSACTION_TYPES,
     sections: SECTIONS.map((key) => ({ key, label: EXCEL_SHEETS[key] })),
     templates: Object.entries(TEMPLATE_TITLES).map(([key, title]) => ({ key, title })),

@@ -23,6 +23,11 @@ export function updateSalesEntry(id, data) {
   return api.put(`/sales-entries/${id}`, data).then((r) => r.data);
 }
 
+// Deletes the entry and its bill (stock put back, payments removed).
+export function deleteSalesEntry(id) {
+  return api.delete(`/sales-entries/${id}`).then((r) => r.data);
+}
+
 // Downloads SALES-001.pdf / SALES-001.xlsx on request (never made on Save).
 export function downloadSalesEntryFile(entry, format) {
   return downloadFile(`/sales-entries/${entry._id}/file.${format}`, {}, `${entry.archiveNo}.${format}`);

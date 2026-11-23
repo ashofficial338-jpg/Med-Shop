@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
+import { useLiveRefresh } from "../context/LiveSync";
 import { getDayBookSummary, recordDayBookAdjustment, exportDayBook, listDayBookAdjustments, deleteDayBookAdjustment } from "../api/daybook";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 
 const TYPES = [
   { key: "cash", label: "Cash", type: "Cash" },
   { key: "upi", label: "UPI", type: "UPI" },
+  { key: "card", label: "Card", type: "Card" },
+  { key: "bank", label: "Bank Transfer", type: "Bank Transfer" },
   { key: "credit", label: "Credit (Receivables)", type: "Credit" },
 ];
 
@@ -144,6 +147,12 @@ export default function DayBook() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
+  // Sales, Sales Entries, purchases, expenses and payments by anyone move
+  // these balances: refresh quietly.
+  useLiveRefresh(["daybook", "sales", "purchases", "expenses", "customers"], () => {
+    getDayBookSummary(date).then(setData).catch(() => {});
+  });
+
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -162,7 +171,7 @@ export default function DayBook() {
       {loading && <p className="mt-6 text-sm text-muted">Loading…</p>}
 
       {!loading && data && (
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {TYPES.map((t) => (
             <BalanceCard key={t.key} label={t.label} type={t.type} date={date} data={data[t.key]} onAdjusted={load} />
           ))}

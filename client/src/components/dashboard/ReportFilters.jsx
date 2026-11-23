@@ -150,7 +150,7 @@ export function DateFilter({ range, onChange }) {
   );
 }
 
-export const PAYMENT_MODES = ["Cash", "UPI", "Card", "Credit", "Other"];
+export const PAYMENT_MODES = ["Cash", "UPI", "Card", "Bank Transfer", "Credit", "Other"];
 
 // Dashboard-style filters kept in the URL (?from&to&category&paymentMode), so
 // they survive a refresh, can be shared as a link, and are still applied when

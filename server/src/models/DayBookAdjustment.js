@@ -9,7 +9,7 @@ const dayBookAdjustmentSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["Cash", "UPI", "Credit"],
+      enum: ["Cash", "UPI", "Card", "Bank Transfer", "Credit"],
       required: true,
     },
     date: { type: Date, required: true },

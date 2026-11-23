@@ -6,13 +6,15 @@ import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../api/client";
 import ProductPicker from "../components/ProductPicker";
-import { createSalesEntry, getSalesEntry, getSalesEntryMeta, updateSalesEntry } from "../api/salesEntries";
+import { createSalesEntry, deleteSalesEntry, getSalesEntry, getSalesEntryMeta, updateSalesEntry } from "../api/salesEntries";
 import { calcInvoice, GST_RATES, PAYMENT_MODES } from "../utils/salesEntryCalc";
 import { useLiveRefresh } from "../context/LiveSync";
 
-// Sales Entry: a simple form to type in a sale and save it to the database.
-// Nothing else happens on Save - no stock change, no PDF/Excel files. The
-// invoice number (SALES-001, ...) is given by the server when saving. A
+// Sales Entry: the main place sales are typed in. Saving it also records
+// the sale everywhere - stock goes down, a credit sale goes on the customer's
+// ledger, and Bill History, Day Book, Dashboard and Reports include it (see
+// server routes/salesEntries.js). No PDF/Excel is made on Save. The invoice
+// number (SALES-001, ...) is given by the server when saving. A
 // product name that isn't in the Product List yet is added to it on Save
 // (with its HSN, unit and GST) - see components/ProductPicker.jsx.
 //
@@ -28,13 +30,16 @@ const todayIso = () => {
 const isoInIndia = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 let keySeq = 0;
-const blankRow = () => ({ key: ++keySeq, product: null, name: "", hsnCode: "", unit: "", qty: "1", rate: "", gstPercent: 12 });
-const blankForm = () => ({ customerName: "", invoiceDate: todayIso(), paymentMode: "Cash", items: [blankRow()] });
+const blankRow = () => ({ key: ++keySeq, product: null, name: "", hsnCode: "", unit: "", qty: "1", rate: "", discountPercent: "", gstPercent: 12 });
+const blankForm = () => ({ customerName: "", mobile: "", address: "", invoiceDate: todayIso(), paymentMode: "Cash", amountReceived: "", items: [blankRow()] });
 const isBlankRow = (r) => !r.name.trim() && !Number(r.rate);
 
 function formFromEntry(e) {
   return {
     customerName: e.customer?.name || "",
+    mobile: e.customer?.mobile || "",
+    address: e.customer?.address || "",
+    amountReceived: e.paymentMode === "Credit" && e.amountReceived ? String(e.amountReceived) : "",
     invoiceDate: isoInIndia(e.invoiceDate),
     paymentMode: e.paymentMode || "Cash",
     items: e.items.map((it) => ({
@@ -45,6 +50,7 @@ function formFromEntry(e) {
       unit: it.unit && it.unit !== "Nos" ? it.unit : "",
       qty: String(it.qty),
       rate: String(it.rate),
+      discountPercent: it.discountPercent ? String(it.discountPercent) : "",
       gstPercent: it.gstPercent,
     })),
   };
@@ -54,7 +60,7 @@ function loadDraft() {
   try {
     const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
     if (!d || !Array.isArray(d.items) || !d.items.length) return null;
-    return { customerName: d.customerName || "", invoiceDate: d.invoiceDate || todayIso(), paymentMode: PAYMENT_MODES.includes(d.paymentMode) ? d.paymentMode : "Cash", items: d.items.map((r) => ({ ...blankRow(), ...r, key: ++keySeq })) };
+    return { customerName: d.customerName || "", mobile: d.mobile || "", address: d.address || "", amountReceived: d.amountReceived || "", invoiceDate: d.invoiceDate || todayIso(), paymentMode: PAYMENT_MODES.includes(d.paymentMode) ? d.paymentMode : "Cash", items: d.items.map((r) => ({ ...blankRow(), ...r, key: ++keySeq })) };
   } catch {
     return null;
   }
@@ -173,18 +179,15 @@ function SalesEntryForm({ id }) {
     if (saving || readOnly) return;
     const body = {
       invoiceDate: form.invoiceDate,
-      customer: { ...(entry?.customer || {}), name: form.customerName },
+      customer: { ...(entry?.customer || {}), name: form.customerName, mobile: form.mobile, address: form.address },
       paymentMode: form.paymentMode,
+      amountReceived: form.paymentMode === "Credit" ? form.amountReceived : undefined,
       // Refused if someone else saved this entry after it was opened.
       expectedUpdatedAt: entry?.updatedAt,
       interState: entry?.interState,
       items: form.items
         .filter((r) => !isBlankRow(r))
-        .map((r) => {
-          // Keep a discount an older entry had (the form has no discount box).
-          const old = entry?.items?.find((it) => it.name === r.name) || {};
-          return { discountPercent: old.discountPercent, product: r.product, name: r.name, hsnCode: r.hsnCode, unit: r.unit, qty: r.qty, rate: r.rate, gstPercent: r.gstPercent };
-        }),
+        .map((r) => ({ product: r.product, name: r.name, hsnCode: r.hsnCode, unit: r.unit, qty: r.qty, rate: r.rate, discountPercent: r.discountPercent, gstPercent: r.gstPercent })),
     };
     setSaving(true);
     try {
@@ -222,6 +225,22 @@ function SalesEntryForm({ id }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  // Deletes the entry and its bill (Admin): stock goes back, payments removed.
+  const [deleting, setDeleting] = useState(false);
+  const removeEntry = async () => {
+    if (!entry || deleting) return;
+    if (!window.confirm(`Delete ${entry.archiveNo}? Its stock will be put back and its payments removed. This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      const out = await deleteSalesEntry(entry._id);
+      toast.success(out.message);
+      navigate("/sales-entry/history");
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+      setDeleting(false);
+    }
+  };
 
   const clearForm = () => {
     if (!form.items.every(isBlankRow) && !window.confirm("Clear this form?")) return;
@@ -315,8 +334,54 @@ function SalesEntryForm({ id }) {
             </label>
           </div>
 
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-[160px_1fr_160px]">
+            <label className="block">
+              <span className={labelCls}>Mobile (optional)</span>
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="10 digits"
+                value={form.mobile}
+                disabled={readOnly}
+                onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value.replace(/\D/g, "") }))}
+              />
+            </label>
+            <label className="block">
+              <span className={labelCls}>Address (optional)</span>
+              <input className={inputCls} maxLength={300} value={form.address} disabled={readOnly} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+            </label>
+            {form.paymentMode === "Credit" && (
+              <label className="block">
+                <span className={labelCls}>Amount Received Now</span>
+                <input
+                  className={`${inputCls} text-right`}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={form.amountReceived}
+                  disabled={readOnly}
+                  onChange={(e) => setForm((f) => ({ ...f, amountReceived: e.target.value.replace(/[^\d.]/g, "") }))}
+                />
+              </label>
+            )}
+          </div>
+          {entry && (
+            <p className="mt-3 text-xs text-muted">
+              {entry.sale ? (
+                <>
+                  Recorded as a sale (stock, ledger, Day Book, reports).{" "}
+                  <Link to={`/bills/${entry.sale}`} className="font-semibold text-primary underline">
+                    View bill
+                  </Link>
+                </>
+              ) : (
+                "Saved before Sales Entry was linked to stock and ledgers - this entry doesn't affect them."
+              )}
+            </p>
+          )}
+
           <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[820px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   <th className="w-8 pb-2">#</th>
@@ -325,6 +390,7 @@ function SalesEntryForm({ id }) {
                   <th className="w-24 pb-2 pl-2">Unit</th>
                   <th className="w-24 pb-2 pl-2">Quantity</th>
                   <th className="w-28 pb-2 pl-2">Rate (₹)</th>
+                  {admin && <th className="w-20 pb-2 pl-2">Disc %</th>}
                   <th className="w-24 pb-2 pl-2">GST</th>
                   <th className="w-32 pb-2 pl-2 text-right">Total (₹)</th>
                   {!readOnly && <th className="w-10" />}
@@ -361,11 +427,16 @@ function SalesEntryForm({ id }) {
                       <input className={inputCls} maxLength={30} placeholder="Strip" list="sales-entry-units" value={r.unit} disabled={readOnly} onChange={(e) => setRow(r.key, { unit: e.target.value })} />
                     </td>
                     <td className="py-1 align-top pl-2">
-                      <input className={`${inputCls} text-right`} inputMode="decimal" value={r.qty} disabled={readOnly} onChange={(e) => setRow(r.key, { qty: e.target.value.replace(/[^\d.]/g, "") })} />
+                      <input className={`${inputCls} text-right`} inputMode="numeric" value={r.qty} disabled={readOnly} onChange={(e) => setRow(r.key, { qty: e.target.value.replace(/\D/g, "") })} />
                     </td>
                     <td className="py-1 align-top pl-2">
                       <input className={`${inputCls} text-right`} inputMode="decimal" placeholder="0.00" value={r.rate} disabled={readOnly} onChange={(e) => setRow(r.key, { rate: e.target.value.replace(/[^\d.]/g, "") })} />
                     </td>
+                    {admin && (
+                      <td className="py-1 align-top pl-2">
+                        <input className={`${inputCls} text-right`} inputMode="decimal" placeholder="0" value={r.discountPercent} disabled={readOnly} onChange={(e) => setRow(r.key, { discountPercent: e.target.value.replace(/[^\d.]/g, "") })} />
+                      </td>
+                    )}
                     <td className="py-1 align-top pl-2">
                       <select className={inputCls} value={r.gstPercent} disabled={readOnly} onChange={(e) => setRow(r.key, { gstPercent: Number(e.target.value) })}>
                         {GST_RATES.map((g) => (
@@ -403,8 +474,13 @@ function SalesEntryForm({ id }) {
 
           <div className="mt-4 flex flex-wrap items-center justify-end gap-x-6 gap-y-1 border-t border-border pt-4 text-sm">
             <span className="text-muted">
-              Amount <span className="font-mono text-text">₹{fmt(calc.taxableTotal)}</span>
+              Subtotal <span className="font-mono text-text">₹{fmt(calc.subtotal)}</span>
             </span>
+            {calc.discountTotal > 0 && (
+              <span className="text-muted">
+                Discount <span className="font-mono text-text">−₹{fmt(calc.discountTotal)}</span>
+              </span>
+            )}
             <span className="text-muted">
               GST <span className="font-mono text-text">₹{fmt(calc.cgstTotal + calc.sgstTotal + calc.igstTotal)}</span>
             </span>
@@ -429,6 +505,17 @@ function SalesEntryForm({ id }) {
               Clear
             </button>
             <span className="text-xs text-muted">Ctrl+S saves · Enter goes to the next row</span>
+            {entry && admin && (
+              <button
+                type="button"
+                onClick={removeEntry}
+                disabled={saving || deleting}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
+              >
+                <Icon name="trash" size={16} />
+                {deleting ? "Deleting…" : "Delete Entry"}
+              </button>
+            )}
           </div>
         )}
       </div>

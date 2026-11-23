@@ -29,9 +29,8 @@ async function sumWhere(Model, match, field) {
 // Cash/UPI out = expenses paid in that mode + non-Credit purchases paid in
 // full in that mode (mirrors the sales side - see purchases.js, only a
 // Credit purchase's advance/later payments get a SupplierPayment row) +
-// SupplierPayments made in that mode. Card/Bank Transfer/Cheque/Other sit
-// outside all three tracked buckets by design - matches "Cash, UPI, Credit"
-// as asked.
+// SupplierPayments made in that mode. Card and Bank Transfer are books of
+// their own the same way; Cheque/Other sit outside every tracked book.
 async function computeFlow(type, dateRange) {
   if (type === "Credit") {
     const [inFlow, outFlow] = await Promise.all([
@@ -70,19 +69,28 @@ export async function balanceAsOf(type, date) {
   return Number((base + inFlow - outFlow).toFixed(2));
 }
 
+// The books shown in the Day Book: [key in the summary, payment mode].
+export const DAY_BOOKS = [
+  ["cash", "Cash"],
+  ["upi", "UPI"],
+  ["card", "Card"],
+  ["bank", "Bank Transfer"],
+  ["credit", "Credit"],
+];
+
 export async function dayBookSummary(date) {
   const day = startOfDay(date);
   const dayEnd = endOfDay(date);
   const prevDayEnd = new Date(day.getTime() - 1);
 
   const entries = await Promise.all(
-    ["Cash", "UPI", "Credit"].map(async (type) => {
+    DAY_BOOKS.map(async ([key, type]) => {
       const [opening, closing, { in: inFlow, out: outFlow }] = await Promise.all([
         balanceAsOf(type, prevDayEnd),
         balanceAsOf(type, day),
         computeFlow(type, { $gte: day, $lte: dayEnd }),
       ]);
-      return [type.toLowerCase(), { opening, in: inFlow, out: outFlow, closing }];
+      return [key, { opening, in: inFlow, out: outFlow, closing }];
     })
   );
   return Object.fromEntries(entries);

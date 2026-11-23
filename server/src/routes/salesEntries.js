@@ -12,10 +12,20 @@ import { SHOP } from "../utils/saleHelpers.js";
 import Product from "../models/Product.js";
 import { findOrCreateProduct, findProductByName } from "../utils/productAutoCreate.js";
 import { hasPermission } from "../utils/permissions.js";
+import Sale from "../models/Sale.js";
+import { createSaleHandler, updateSaleHandler, deleteSaleHandler } from "./sales.js";
+import { saleLineInternalQty } from "../utils/saleHelpers.js";
 
-// Sales Entry (Tally-style sales voucher) - see models/SalesEntry.js.
-// Anyone signed in can make one; staff see only their own. Editing an
-// existing entry is Admin-only, like every other edit in the app.
+// Sales Entry - the main place sales are entered (see models/SalesEntry.js).
+// Saving an entry also records the sale itself, through exactly the same
+// code POS billing uses (routes/sales.js): stock is taken (earliest expiry
+// first), a credit sale goes on the customer's ledger, and the bill feeds
+// Bill History, Day Book (Cash/UPI/Card/Bank/Credit), Dashboard, Reports and
+// their exports. That bill carries the entry's SALES number and can only be
+// changed through the entry, so the two never disagree. Editing or deleting
+// the entry edits or deletes the bill (stock is put back exactly).
+// Anyone signed in can make an entry; staff see only their own. Editing and
+// deleting are Admin-only, like every other edit in the app.
 const router = Router();
 router.use(requireAuth);
 
@@ -49,6 +59,84 @@ async function linkProducts(items, user) {
     if (isNew) created.push({ _id: product._id, name: product.name, productCode: product.productCode });
   }
   return { created };
+}
+
+// Runs a routes/sales.js handler in-process and returns { status, body }.
+async function callSaleHandler(handler, req, { id, body }) {
+  let status = 200;
+  let out = null;
+  const res = {
+    status(code) {
+      status = code;
+      return this;
+    },
+    json(b) {
+      out = b;
+      return this;
+    },
+  };
+  await handler({ user: req.user, params: { id }, query: {}, body, fromSalesEntry: {} }, res);
+  return { status, body: out };
+}
+
+// The customer in the Customers list for this entry: matched by mobile,
+// else by name, else added. No name and no mobile = walk-in (none).
+async function resolveCustomer(c) {
+  if (!c.name && !c.mobile) return null;
+  let doc = c.mobile ? await Customer.findOne({ phone: c.mobile }) : null;
+  if (!doc && c.name) doc = await Customer.findOne({ isActive: true, name: new RegExp(`^${escapeRe(c.name)}$`, "i") });
+  if (doc) {
+    let changed = false;
+    if (!doc.isActive) (doc.isActive = true), (changed = true);
+    if (c.mobile && !doc.phone) (doc.phone = c.mobile), (changed = true);
+    if (c.address && !doc.address) (doc.address = c.address), (changed = true);
+    if (c.name && !doc.name) (doc.name = c.name), (changed = true);
+    if (changed) await doc.save();
+    return doc;
+  }
+  return Customer.create({ name: c.name, phone: c.mobile || undefined, address: c.address });
+}
+
+// The entry's lines as POS sale lines, after checking quantities and stock
+// (POS rules: whole packs, enough stock). `previous` = lines the bill already
+// holds (their stock goes back before an edit takes it again).
+async function saleLines(items, created, previous = []) {
+  const lines = [];
+  const need = new Map();
+  for (const it of items) {
+    const product = await Product.findById(it.product);
+    if (!Number.isInteger(it.qty)) return { error: `${it.name}: enter the quantity in whole ${product?.packUnit || "packs"}.` };
+    const key = String(product._id);
+    const n = (need.get(key)?.qty || 0) + saleLineInternalQty(product, "pack", it.qty);
+    need.set(key, { product, qty: n, name: it.name });
+    lines.push({ product: product._id, unitType: "pack", qty: it.qty, rate: it.rate, gstPercent: it.gstPercent, gstAmount: Number((it.cgst + it.sgst + it.igst).toFixed(2)) });
+  }
+  for (const { product, qty } of need.values()) {
+    const held = previous.filter((p) => String(p.product) === String(product._id)).reduce((s, p) => s + (p.internalQtyDeducted || 0), 0);
+    const available = product.qty + held;
+    if (qty > available) {
+      const perPack = product.soldAs === "pack-and-loose" ? product.unitsPerPack : 1;
+      const packs = Math.floor(available / perPack);
+      const isNew = created.some((c) => String(c._id) === String(product._id));
+      return {
+        error: isNew
+          ? `${product.name} was just added to the Product List, but it has no stock yet. Record a purchase for it, then save this entry again.`
+          : `Only ${packs} ${product.packUnit} of ${product.name} in stock.`,
+      };
+    }
+  }
+  return { lines };
+}
+
+// Puts the bill on the entry's date when that isn't today (createdAt drives
+// the day book, reports and dashboard).
+async function datedSale(saleId, invoiceDate) {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const day = invoiceDate.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const sale = await Sale.findById(saleId, "createdAt");
+  const saleDay = sale?.createdAt.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  if (!sale || saleDay === day) return;
+  await Sale.collection.updateOne({ _id: sale._id }, { $set: { createdAt: day === today ? new Date() : invoiceDate } });
 }
 
 // "2026-11-23" -> noon India time that day, so the date reads the same in
@@ -129,6 +217,8 @@ function buildEntry(body) {
       grandTotal: calc.grandTotal,
       amountInWords: calc.amountInWords,
       paymentMode,
+      // Part paid now on a credit sale; the rest is the customer's balance.
+      amountReceived: paymentMode === "Credit" ? Math.min(Math.max(Number(body.amountReceived) || 0, 0), calc.grandTotal) : calc.grandTotal,
       notes: String(body.notes || "").trim().slice(0, 500),
     },
   };
@@ -261,14 +351,49 @@ router.get("/:id/file.:format(pdf|xlsx)", async (req, res) => {
   res.send(body);
 });
 
+const staffDiscountError = (data, user) =>
+  user.role !== "admin" && data.discountTotal > 0 ? "Only an Admin can give a discount. Clear the Disc % boxes, or ask an Admin." : null;
+
+// The POS bill for an entry's data (customer, lines, payment).
+function saleBody(data, customer, lines) {
+  return {
+    customer: customer ? String(customer._id) : null,
+    items: lines,
+    paymentMode: data.paymentMode,
+    discount: data.discountTotal,
+    amountReceived: data.paymentMode === "Credit" ? data.amountReceived : undefined,
+  };
+}
+
 router.post("/", async (req, res) => {
   const { error, data } = buildEntry(req.body);
   if (error) return res.status(400).json({ message: error });
+  const discountError = staffDiscountError(data, req.user);
+  if (discountError) return res.status(400).json({ message: discountError });
   const linked = await linkProducts(data.items, req.user);
   if (linked.error) return res.status(400).json({ message: linked.error });
-  const archiveNo = formatArchiveNo(prefix, await nextSequence(counter));
-  const entry = await SalesEntry.create({ ...data, archiveNo, createdBy: req.user._id });
-  res.status(201).json({ ...entry.toObject(), createdProducts: linked.created });
+  const checked = await saleLines(data.items, linked.created);
+  if (checked.error) return res.status(400).json({ message: checked.error, createdProducts: linked.created });
+  const customer = await resolveCustomer(data.customer);
+
+  // 1. The sale itself (stock, ledger, payments) - the POS code path.
+  //    archivedAt is set so the Invoice Saver never makes files for it.
+  const made = await callSaleHandler(createSaleHandler, req, { body: saleBody(data, customer, checked.lines) });
+  if (made.status !== 201) return res.status(made.status).json({ message: made.body?.message || "Something went wrong. Please try again." });
+  const saleId = made.body._id;
+
+  // 2. The entry, numbered only once the sale went through (no gaps).
+  let entry;
+  try {
+    const archiveNo = formatArchiveNo(prefix, await nextSequence(counter));
+    entry = await SalesEntry.create({ ...data, archiveNo, sale: saleId, customerRef: customer?._id || null, createdBy: req.user._id });
+  } catch (e) {
+    await callSaleHandler(deleteSaleHandler, req, { id: saleId }); // undo: stock goes back
+    throw e;
+  }
+  await Sale.updateOne({ _id: saleId }, { $set: { archiveNo: entry.archiveNo, archivedAt: new Date(), salesEntry: entry._id } });
+  await datedSale(saleId, entry.invoiceDate);
+  res.status(201).json({ ...entry.toObject(), billNo: made.body.billNo, createdProducts: linked.created });
 });
 
 // Corrects a saved entry (Admin). The invoice number stays the same.
@@ -283,10 +408,35 @@ router.put("/:id", requireRole("admin"), async (req, res) => {
   if (error) return res.status(400).json({ message: error });
   const linked = await linkProducts(data.items, req.user);
   if (linked.error) return res.status(400).json({ message: linked.error });
-  entry.set({ ...data, editedAt: new Date(), editedBy: req.user._id });
+  const customer = await resolveCustomer(data.customer);
+
+  // The bill is corrected first (stock put back and taken again, ledger and
+  // payments updated). If that fails, nothing changes.
+  if (entry.sale) {
+    const bill = await Sale.findById(entry.sale);
+    const checked = await saleLines(data.items, linked.created, bill?.items || []);
+    if (checked.error) return res.status(400).json({ message: checked.error });
+    const done = await callSaleHandler(updateSaleHandler, req, { id: String(entry.sale), body: saleBody(data, customer, checked.lines) });
+    if (done.status !== 200) return res.status(done.status).json({ message: done.body?.message || "Something went wrong. Please try again." });
+    await datedSale(entry.sale, data.invoiceDate);
+  }
+  entry.set({ ...data, customerRef: customer?._id || null, editedAt: new Date(), editedBy: req.user._id });
   await entry.save();
   const saved = await SalesEntry.findById(entry._id).populate("createdBy", "username").populate("editedBy", "username");
   res.json({ ...saved.toObject(), createdProducts: linked.created });
+});
+
+// Deletes an entry (Admin) together with its bill: stock goes back where it
+// came from and its payments/ledger lines are removed.
+router.delete("/:id", requireRole("admin"), async (req, res) => {
+  const entry = await findEntry(req, res);
+  if (!entry) return;
+  if (entry.sale && (await Sale.exists({ _id: entry.sale }))) {
+    const done = await callSaleHandler(deleteSaleHandler, req, { id: String(entry.sale) });
+    if (done.status !== 200) return res.status(done.status).json({ message: done.body?.message || "Something went wrong. Please try again." });
+  }
+  await SalesEntry.deleteOne({ _id: entry._id });
+  res.json({ message: `${entry.archiveNo} deleted. Its stock was put back and its payments removed.` });
 });
 
 export default router;

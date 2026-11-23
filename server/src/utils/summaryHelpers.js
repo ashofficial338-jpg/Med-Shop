@@ -15,7 +15,7 @@ import { cached, withReadCache } from "./readCache.js";
 // every PDF/Excel export built from them - so a figure never differs between
 // what's on screen and what's downloaded.
 
-export const PAYMENT_MODES = ["Cash", "Card", "UPI", "Other", "Credit"];
+export const PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank Transfer", "Other", "Credit"];
 
 export function resolveRange(req) {
   const { from, to } = req.query;

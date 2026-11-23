@@ -128,6 +128,9 @@ export default function BillHistory() {
                 {s.paymentStatus === "void" && (
                   <span className="ml-2 rounded-full bg-danger/15 px-2 py-0.5 text-xs font-semibold text-danger">VOID</span>
                 )}
+                {s.salesEntry && (
+                  <span className="ml-2 rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-semibold text-secondary">SALES ENTRY {s.archiveNo}</span>
+                )}
                 {s.editedAt && (
                   <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">EDITED</span>
                 )}

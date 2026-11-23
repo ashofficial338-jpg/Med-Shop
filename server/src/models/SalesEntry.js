@@ -60,6 +60,12 @@ const salesEntrySchema = new mongoose.Schema(
     amountInWords: { type: String, default: "" },
     paymentMode: { type: String, enum: ["Cash", "UPI", "Card", "Bank Transfer", "Credit"], default: "Cash" },
     notes: { type: String, trim: true, default: "", maxlength: 500 },
+    // Paid now (all of it, except on a credit sale).
+    amountReceived: { type: Number, default: 0 },
+    // The POS bill this entry made (stock, ledger, payments, reports) and the
+    // customer it's on. Entries saved before sales were linked have none.
+    sale: { type: mongoose.Schema.Types.ObjectId, ref: "Sale", default: null },
+    customerRef: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     editedAt: { type: Date, default: null },
     editedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },

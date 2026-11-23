@@ -1,7 +1,7 @@
 import { Router } from "express";
 import DayBookAdjustment from "../models/DayBookAdjustment.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { dayBookSummary } from "../utils/dayBookHelpers.js";
+import { dayBookSummary, DAY_BOOKS } from "../utils/dayBookHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 
 const router = Router();
@@ -18,11 +18,7 @@ router.get("/export", async (req, res) => {
   const dateLabel = date.toISOString().slice(0, 10);
   const summary = await dayBookSummary(date);
 
-  const rows = [
-    { type: "Cash", ...summary.cash },
-    { type: "UPI", ...summary.upi },
-    { type: "Credit", ...summary.credit },
-  ];
+  const rows = DAY_BOOKS.map(([key, type]) => ({ type, ...summary[key] }));
 
   if (req.query.format === "pdf") {
     return streamPdfReport(res, `GuganMedicals_DayBook_${dateLabel}.pdf`, {
@@ -75,7 +71,7 @@ router.post("/adjustments", async (req, res) => {
   const { balance, note } = req.body;
   const type = req.body.type || "Cash";
   const date = req.body.date || new Date().toISOString().slice(0, 10);
-  if (!["Cash", "UPI", "Credit"].includes(type)) return res.status(400).json({ message: "Please choose Cash, UPI or Credit." });
+  if (!DAY_BOOKS.some(([, t]) => t === type)) return res.status(400).json({ message: "Please choose Cash, UPI, Card, Bank Transfer or Credit." });
   if (balance === undefined || balance === null || balance === "" || !(Number(balance) >= 0)) {
     return res.status(400).json({ message: "Enter the balance to record." });
   }
