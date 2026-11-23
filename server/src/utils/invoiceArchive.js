@@ -86,7 +86,7 @@ export async function markInvoiceChanged(kind, id, change) {
 
 export function loadInvoice(kind, id) {
   if (kind === "sales") {
-    return Sale.findById(id).populate("customer", "name phone").populate("createdBy", "username");
+    return Sale.findById(id).populate("customer", "name phone address").populate("createdBy", "username");
   }
   return Purchase.findById(id).populate("vendor", "name").populate("items.product", "name productCode packUnit");
 }
@@ -107,14 +107,27 @@ const money = (n) => Number(n || 0).toFixed(2);
 const day = (d) => (d ? new Date(d).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : "");
 const purchaseSupplier = (p) => p.vendor?.name || p.supplierName || "Direct purchase";
 const productName = (item) => item.product?.name || "(deleted product)";
+// Batch / expiry of a sale line (a line can come from more than one batch).
+const saleBatches = (i) => [...new Set((i.batchBreakdown || []).map((b) => b.batchNo).filter(Boolean))].join(", ");
+const saleExpiry = (i) => [...new Set((i.batchBreakdown || []).filter((b) => b.expiryDate).map((b) => day(b.expiryDate)))].join(", ");
+
+// Test invoices (tools/sample-sales) carry `sampleData: true` and are
+// stamped so they can never be mistaken for a real bill. Real invoices never
+// have this flag.
+const SAMPLE_BANNER = "SAMPLE DATA - NOT A REAL INVOICE";
 
 // ---- PDF ----
 
 export function invoicePdf(kind, invoice) {
   return pdfToBuffer((doc) => {
+    if (invoice.sampleData) {
+      doc.font("Courier-Bold").fontSize(14).fillColor("#C0392B").text(SAMPLE_BANNER, { align: "center" });
+      doc.moveDown(0.3);
+    }
     doc.font("Courier-Bold").fontSize(10).fillColor("#133331");
     if (kind === "sales") {
       doc.text(`Invoice No: ${archiveFileName(invoice)}`, { lineGap: 2 });
+      if (invoice.customer?.address) doc.font("Courier").fontSize(8).text(`Customer Address: ${invoice.customer.address}`, { lineGap: 2 });
       doc.font("Courier").fontSize(8);
       doc.text(buildBillText(invoice), { lineGap: 1 });
       return;
@@ -171,6 +184,7 @@ export async function invoiceXlsx(kind, invoice) {
   wb.creator = SHOP.name;
   const ws = wb.addWorksheet(archiveFileName(invoice));
   const header = (rows) => {
+    if (invoice.sampleData) ws.addRow([SAMPLE_BANNER]).font = { bold: true, size: 14, color: { argb: "FFC0392B" } };
     ws.addRow([`${SHOP.name} - ${kind === "sales" ? "Sales" : "Purchase"} Invoice`]).font = { bold: true, size: 14 };
     for (const [k, v] of rows) {
       const r = ws.addRow([k, v ?? ""]);
@@ -178,7 +192,9 @@ export async function invoiceXlsx(kind, invoice) {
     }
     ws.addRow([]);
   };
+  let lastCol = 7;
   const table = (cols, items) => {
+    lastCol = cols.length;
     const head = ws.addRow(cols.map((c) => c.header));
     head.font = { bold: true };
     head.eachCell((c) => (c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE6F1EF" } }));
@@ -188,9 +204,9 @@ export async function invoiceXlsx(kind, invoice) {
   };
   const totals = (rows) => {
     for (const [k, v] of rows) {
-      const r = ws.addRow(["", "", "", "", "", k, Number(Number(v || 0).toFixed(2))]);
-      r.getCell(6).font = { bold: true };
-      r.getCell(7).numFmt = "0.00";
+      const r = ws.addRow([...Array(lastCol - 2).fill(""), k, Number(Number(v || 0).toFixed(2))]);
+      r.getCell(lastCol - 1).font = { bold: true };
+      r.getCell(lastCol).numFmt = "0.00";
     }
   };
 
@@ -202,6 +218,7 @@ export async function invoiceXlsx(kind, invoice) {
       ["Date", day(invoice.createdAt)],
       ["Customer", invoice.customer?.name || "Walk-in"],
       ["Phone", invoice.customer?.phone || ""],
+      ...(invoice.customer?.address ? [["Address", invoice.customer.address]] : []),
       ["Payment Mode", invoice.paymentMode],
       ["Status", invoice.paymentStatus === "void" ? `VOID${invoice.voidReason ? ` - ${invoice.voidReason}` : ""}` : "Completed"],
       ["Billed By", invoice.createdBy?.username || ""],
@@ -210,6 +227,8 @@ export async function invoiceXlsx(kind, invoice) {
       [
         { header: "Item", width: 34, value: (i) => i.name },
         { header: "HSN", width: 12, value: (i) => i.hsnCode || "" },
+        { header: "Batch", width: 12, value: saleBatches },
+        { header: "Expiry", width: 12, value: saleExpiry },
         { header: "Qty", width: 8, value: (i) => i.qty },
         { header: "Unit", width: 10, value: (i) => i.unitLabel },
         { header: "Rate", width: 12, value: (i) => i.rate },
