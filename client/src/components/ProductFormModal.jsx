@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createProduct, updateProduct, listCategories, enableLooseSelling } from "../api/products";
 import { resolveAssetUrl } from "../api/client";
 import { listVendors } from "../api/vendors";
@@ -15,6 +15,15 @@ const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
 const GST_VALUES = [0, 5, 12, 18, 28];
 const STRENGTH_UNITS = ["mg", "mcg", "ml", "g"];
+
+// What a dosage form usually comes packed and sold loose in - used to fill
+// those fields for a new product until the user picks them.
+const PACK_FOR_FORM = {
+  Tablet: "Strip", Capsule: "Strip", Syrup: "Bottle", Suspension: "Bottle", Solution: "Bottle", Drops: "Bottle",
+  Lotion: "Bottle", Injection: "Vial", Cream: "Tube", Ointment: "Tube", Gel: "Tube", Powder: "Jar", Sachet: "Piece",
+  Inhaler: "Piece", Spray: "Bottle", Suppository: "Strip",
+};
+const LOOSE_FOR_FORM = { Tablet: "Tablet", Capsule: "Capsule", Syrup: "ml", Suspension: "ml", Solution: "ml", Drops: "ml" };
 
 const emptyForm = {
   name: "",
@@ -113,9 +122,30 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
       ? (Number(form.packRate) / Number(form.unitsPerPack)).toFixed(2)
       : null;
 
+  // Fields the user has set themselves - auto-fill never overwrites those.
+  const touched = useRef(new Set());
+
   const set = (key) => (e) => {
     const value = e.target.value;
-    setForm((f) => ({ ...f, [key]: value }));
+    touched.current.add(key);
+    setForm((f) => {
+      const next = { ...f, [key]: value };
+      if (isEdit) return next;
+      const mine = (k) => touched.current.has(k);
+      // Dosage form -> usual pack unit and loose unit.
+      if (key === "dosageForm") {
+        if (!mine("packUnit") && PACK_FOR_FORM[value]) next.packUnit = PACK_FOR_FORM[value];
+        if (!mine("looseUnitName") && LOOSE_FOR_FORM[value]) next.looseUnitName = LOOSE_FOR_FORM[value];
+      }
+      // A pack that splits needs a loose unit: take it from the dosage form.
+      if (key === "unitsPerPack" && Number(value) > 1 && !next.looseUnitName && LOOSE_FOR_FORM[next.dosageForm]) {
+        next.looseUnitName = LOOSE_FOR_FORM[next.dosageForm];
+      }
+      // A single-ingredient generic is its composition (used to group
+      // alternative brands), so it's copied until composition is typed.
+      if (key === "genericName" && !mine("composition")) next.composition = value;
+      return next;
+    });
   };
 
   const handleImageChange = (e) => {

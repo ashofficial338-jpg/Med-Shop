@@ -31,14 +31,43 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
       return;
     }
     setSearching(true);
+    // `cancelled` drops an older, slower search so it can't overwrite the
+    // results for what's typed now; a failed search ends "Searching…".
+    let cancelled = false;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      const results = await searchCustomers(query.trim());
-      setMatches(results);
-      setSearching(false);
+      try {
+        const results = await searchCustomers(query.trim());
+        if (!cancelled) setMatches(results);
+      } catch {
+        if (!cancelled) setMatches([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
     }, 300);
-    return () => clearTimeout(debounceRef.current);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounceRef.current);
+    };
   }, [query, selected]);
+
+  const choose = (c) => {
+    onSelect(c);
+    setQuery("");
+    setMatches([]);
+  };
+
+  // Enter in the search box: a customer whose phone is exactly what was
+  // typed, else the only / first match, else open "add new customer".
+  const onSearchKeyDown = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const term = query.trim();
+    if (!term || searching) return;
+    const exact = matches.find((c) => c.phone === term);
+    if (exact || matches.length > 0) choose(exact || matches[0]);
+    else openAddForm();
+  };
 
   const openAddForm = () => {
     const isPhoneLike = /^\d+$/.test(query.trim());
@@ -48,21 +77,45 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
     setShowAddForm(true);
   };
 
+  // Name or phone is enough (the server names a phone-only customer); a
+  // phone that is given must be 10 digits.
+  const canCreate = (newName.trim() !== "" || newPhone !== "") && (newPhone === "" || PHONE_RE.test(newPhone));
+
   const handleCreate = async () => {
-    if (!newName.trim() || !PHONE_RE.test(newPhone)) return;
+    if (saving) return;
+    if (!canCreate) {
+      setError(newPhone !== "" ? "Enter a 10-digit phone number, or leave it blank." : "Enter the customer's name or phone number.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
       const customer = await createCustomer({ name: newName.trim(), phone: newPhone });
-      onSelect(customer);
+      choose(customer);
       setShowAddForm(false);
-      setQuery("");
-      setMatches([]);
     } catch (err) {
+      // Already a customer with this phone: just pick them - no need to
+      // type anything again.
+      if (err.response?.status === 409 && newPhone) {
+        const found = await searchCustomers(newPhone).catch(() => []);
+        const existing = found.find((c) => c.phone === newPhone);
+        if (existing) {
+          choose(existing);
+          setShowAddForm(false);
+          return;
+        }
+      }
       setError(err.response?.data?.message || "Something went wrong. Please try again.");
     } finally {
       setSaving(false);
     }
+  };
+
+  // Enter in the new-customer fields saves (and never submits a parent form).
+  const onCreateKeyDown = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    handleCreate();
   };
 
   const toggleHistory = async () => {
@@ -73,9 +126,15 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
     setHistoryOpen(true);
     if (history) return;
     setLoadingHistory(true);
-    const data = await getCustomer(selected._id);
-    setHistory(data.bills);
-    setLoadingHistory(false);
+    try {
+      const data = await getCustomer(selected._id);
+      setHistory(data.bills || []);
+    } catch {
+      setHistory(null);
+      setHistoryOpen(false);
+    } finally {
+      setLoadingHistory(false);
+    }
   };
 
   if (selected) {
@@ -140,6 +199,7 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
           setQuery(e.target.value);
           setShowAddForm(false);
         }}
+        onKeyDown={onSearchKeyDown}
         className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
       />
 
@@ -151,11 +211,7 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
               <button
                 key={c._id}
                 type="button"
-                onClick={() => {
-                  onSelect(c);
-                  setQuery("");
-                  setMatches([]);
-                }}
+                onClick={() => choose(c)}
                 className="block w-full px-3 py-2 text-left text-sm text-text hover:bg-bg"
               >
                 {c.name} · {c.phone}
@@ -185,6 +241,7 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
                 autoFocus
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={onCreateKeyDown}
                 className="mt-0.5 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text"
               />
             </div>
@@ -194,7 +251,8 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
                 type="tel"
                 maxLength={10}
                 value={newPhone}
-                onChange={(e) => setNewPhone(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => setNewPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                onKeyDown={onCreateKeyDown}
                 className="mt-0.5 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text"
               />
             </div>

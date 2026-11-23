@@ -8,6 +8,8 @@ import RackInput from "./RackInput";
 import PurchaseRateHint from "./PurchaseRateHint";
 import { validPosition } from "../utils/rack";
 import { ScannedBillBanner, ScannedLineHint } from "./ScannedBillNotes";
+import { todayLocal } from "../utils/date";
+import { enterMovesToNextField, useFocusNewLine } from "../utils/formKeys";
 
 // `name` is what's typed in the product box. A name not in the Product List
 // is added to it on Save, with the new-product GST / HSN / unit below.
@@ -19,7 +21,7 @@ const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 export default function PurchaseFormModal({ vendor, onClose, onSaved, initialData }) {
   const [products, setProducts] = useState([]);
   const [invoiceNo, setInvoiceNo] = useState(initialData?.invoiceNo || "");
-  const [date, setDate] = useState(initialData?.date || new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(initialData?.date || todayLocal());
   const [tdsAmount, setTdsAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Credit");
   const [amountPaid, setAmountPaid] = useState("");
@@ -29,6 +31,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
       : [{ ...emptyLine }]
   );
   const [error, setError] = useState("");
+  const linesRef = useFocusNewLine(lines.length);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -137,7 +140,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-8">
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
+      <form onSubmit={handleSubmit} onKeyDown={enterMovesToNextField} className="w-full max-w-2xl space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-xl font-semibold text-text">New Purchase — {vendor.name}</h2>
           <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close">✕</button>
@@ -156,7 +159,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
           </div>
         </div>
 
-        <div className="space-y-3">
+        <div ref={linesRef} className="space-y-3">
           {lines.map((line, idx) => (
             <div key={idx} className="rounded-xl border border-border p-3">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">

@@ -30,7 +30,8 @@ const publicUser = (user) => ({
 });
 
 router.get("/", async (req, res) => {
-  const q = (req.query.q || "").trim();
+  // Escaped, so typing "(", "+" or "*" searches for it instead of erroring.
+  const q = String(req.query.q || "").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const filter = q
     ? {
         $or: [

@@ -3,6 +3,7 @@ import Layout from "../components/Layout";
 import { useLiveRefresh } from "../context/LiveSync";
 import { getDayBookSummary, recordDayBookAdjustment, exportDayBook, listDayBookAdjustments, deleteDayBookAdjustment } from "../api/daybook";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
+import { todayLocal } from "../utils/date";
 
 const TYPES = [
   { key: "cash", label: "Cash", type: "Cash" },
@@ -128,7 +129,7 @@ function Corrections({ date, reloadKey, onChanged }) {
 }
 
 export default function DayBook() {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocal());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
@@ -136,10 +137,10 @@ export default function DayBook() {
   const load = () => {
     setLoading(true);
     setReloadKey((k) => k + 1);
-    getDayBookSummary(date).then((d) => {
-      setData(d);
-      setLoading(false);
-    });
+    getDayBookSummary(date)
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {

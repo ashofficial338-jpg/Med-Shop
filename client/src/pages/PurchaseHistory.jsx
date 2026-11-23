@@ -70,11 +70,16 @@ export default function PurchaseHistory() {
   };
 
   useEffect(() => {
+    // Only the latest filters' answer is shown (typing fires several).
+    let cancelled = false;
     setLoading(true);
-    listPurchases(JSON.parse(paramsKey)).then((data) => {
-      setPurchases(data);
-      setLoading(false);
-    });
+    listPurchases(JSON.parse(paramsKey))
+      .then((data) => !cancelled && setPurchases(data))
+      .catch(() => {})
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
   }, [paramsKey, reloadKey]);
 
   // Purchases saved/edited by anyone appear without a refresh.
@@ -83,7 +88,7 @@ export default function PurchaseHistory() {
   });
 
   useEffect(() => {
-    listVendors().then(setVendors);
+    listVendors().then(setVendors).catch(() => {});
     listCategories().then(setCategories).catch(() => {});
     listUnregisteredSuppliers().then(setUnregistered).catch(() => {});
   }, []);

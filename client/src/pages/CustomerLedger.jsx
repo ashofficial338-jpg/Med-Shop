@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { getCustomerLedger, recordCustomerPayment, exportCustomerLedger, deleteCustomerPayment } from "../api/customers";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
+import { todayLocal } from "../utils/date";
 
 export default function CustomerLedger() {
   const { id } = useParams();
@@ -10,7 +11,7 @@ export default function CustomerLedger() {
   const [loading, setLoading] = useState(true);
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState("Cash");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocal());
   const [note, setNote] = useState("");
   const [saleId, setSaleId] = useState("");
   const [error, setError] = useState("");
@@ -29,10 +30,10 @@ export default function CustomerLedger() {
 
   const load = () => {
     setLoading(true);
-    getCustomerLedger(id).then((d) => {
-      setData(d);
-      setLoading(false);
-    });
+    getCustomerLedger(id)
+      .then(setData)
+      .catch((err) => setError(err.response?.data?.message || "Could not load the ledger. Please try again."))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -71,7 +72,7 @@ export default function CustomerLedger() {
   if (loading || !data) {
     return (
       <Layout>
-        <p className="text-sm text-muted">Loading…</p>
+        <p className="text-sm text-muted">{!loading && error ? error : "Loading…"}</p>
       </Layout>
     );
   }
@@ -115,7 +116,20 @@ export default function CustomerLedger() {
             <option>Other</option>
           </select>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
-          <select value={saleId} onChange={(e) => setSaleId(e.target.value)} className={inputCls}>
+          <select
+            value={saleId}
+            onChange={(e) => {
+              const picked = openSales.find((x) => x._id === e.target.value);
+              const prev = openSales.find((x) => x._id === saleId);
+              setSaleId(e.target.value);
+              // Picking a bill fills its balance due, unless an amount of the
+              // user's own is already typed.
+              if (picked && (amount === "" || (prev && Number(amount) === Number(prev.balanceDue.toFixed(2))))) {
+                setAmount(picked.balanceDue.toFixed(2));
+              }
+            }}
+            className={inputCls}
+          >
             <option value="">On account (oldest bill first)</option>
             {openSales.map((s) => (
               <option key={s._id} value={s._id}>

@@ -55,10 +55,11 @@ export default function RolesPermissions() {
   const [savingId, setSavingId] = useState(null);
 
   const load = () =>
-    api.get("/users").then(({ data }) => {
-      setUsers(data);
-      setLoading(false);
-    });
+    api
+      .get("/users")
+      .then(({ data }) => setUsers(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
 
   useEffect(() => {
     load();

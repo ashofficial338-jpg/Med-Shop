@@ -7,6 +7,8 @@ import RackInput from "./RackInput";
 import PurchaseRateHint from "./PurchaseRateHint";
 import { validPosition } from "../utils/rack";
 import { ScannedBillBanner, ScannedLineHint } from "./ScannedBillNotes";
+import { todayLocal } from "../utils/date";
+import { enterMovesToNextField, useFocusNewLine } from "../utils/formKeys";
 
 const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
@@ -44,12 +46,13 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
   const [categories, setCategories] = useState([]);
   const [invoiceNo, setInvoiceNo] = useState(initialData?.invoiceNo || "");
   const [supplierName, setSupplierName] = useState(initialData?.supplierName || "");
-  const [date, setDate] = useState(initialData?.date || new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(initialData?.date || todayLocal());
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [lines, setLines] = useState(() =>
     initialData?.lines?.length ? initialData.lines.map((l) => ({ ...emptyLine, ...l })) : [{ ...emptyLine }]
   );
   const [error, setError] = useState("");
+  const linesRef = useFocusNewLine(lines.length);
   const [saving, setSaving] = useState(false);
 
   // Products added or changed by anyone are pickable right away.
@@ -190,7 +193,7 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-8">
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
+      <form onSubmit={handleSubmit} onKeyDown={enterMovesToNextField} className="w-full max-w-2xl space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-display text-xl font-semibold text-text">
@@ -252,7 +255,7 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
           ))}
         </datalist>
 
-        <div className="space-y-3">
+        <div ref={linesRef} className="space-y-3">
           {lines.map((line, idx) => (
             <div key={idx} className="rounded-xl border border-border p-3">
               <div className="mb-2 inline-flex rounded-lg border border-border p-0.5">

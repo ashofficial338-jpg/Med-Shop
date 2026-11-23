@@ -15,11 +15,15 @@ function VendorProducts({ vendorId }) {
   const [q, setQ] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    listProducts({ vendor: vendorId, q: q || undefined }).then((data) => {
-      setProducts(data);
-      setLoading(false);
-    });
+    listProducts({ vendor: vendorId, q: q || undefined })
+      .then((data) => !cancelled && setProducts(data))
+      .catch(() => {})
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
   }, [vendorId, q]);
 
   return (
@@ -57,10 +61,10 @@ export default function Vendors() {
 
   const load = (q = "") => {
     setLoading(true);
-    listVendors(q ? { q } : {}).then((data) => {
-      setVendors(data);
-      setLoading(false);
-    });
+    listVendors(q ? { q } : {})
+      .then(setVendors)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {

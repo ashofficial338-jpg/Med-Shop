@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveRefresh } from "../context/LiveSync";
 import { toast } from "react-toastify";
 import { useSearchParams } from "react-router-dom";
@@ -127,8 +127,19 @@ export default function Products() {
     return params;
   };
 
+  // Typed text (search box, price range) is sent once typing pauses, not on
+  // every keystroke; only the newest request's answer is ever shown.
+  const [typed, setTyped] = useState({ query, minPrice, maxPrice });
+  useEffect(() => {
+    const t = setTimeout(() => setTyped({ query, minPrice, maxPrice }), 250);
+    return () => clearTimeout(t);
+  }, [query, minPrice, maxPrice]);
+  const requestSeq = useRef(0);
+
   const load = useCallback(() => {
     setLoading(true);
+    const seq = ++requestSeq.current;
+    const { query, minPrice, maxPrice } = typed;
     const params = {};
     if (query) params.q = query;
     if (category) params.category = category;
@@ -139,22 +150,29 @@ export default function Products() {
     if (maxPrice !== "") params.maxPrice = maxPrice;
     if (status) params.status = status;
     listProducts(params)
-      .then(setProducts)
+      .then((list) => {
+        if (seq === requestSeq.current) setProducts(list);
+      })
       .catch((err) => {
         // A 401 is handled centrally (session-expired modal); anything else
         // is shown here instead of leaving the page loading forever.
-        if (err.response?.status !== 401) toast.error(getErrorMessage(err, "Could not load products."));
+        if (seq === requestSeq.current && err.response?.status !== 401) toast.error(getErrorMessage(err, "Could not load products."));
       })
-      .finally(() => setLoading(false));
-  }, [query, category, availability, brand, dosageForm, minPrice, maxPrice, status]);
+      .finally(() => {
+        if (seq === requestSeq.current) setLoading(false);
+      });
+  }, [typed, category, availability, brand, dosageForm, status]);
 
   useEffect(() => {
     load();
   }, [load]);
   // Products added/edited by anyone (or stock moved) show up without a refresh.
   useLiveRefresh(["products", "categories"], () => {
+    const seq = ++requestSeq.current;
     listProducts(liveParams())
-      .then(setProducts)
+      .then((list) => {
+        if (seq === requestSeq.current) setProducts(list);
+      })
       .catch(() => {});
   });
 

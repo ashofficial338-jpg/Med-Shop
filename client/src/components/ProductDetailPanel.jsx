@@ -59,17 +59,21 @@ export default function ProductDetailPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getProduct(productId).then((data) => {
-      if (cancelled) return;
-      setProduct(data);
-      setLoading(false);
-      setPackQty(1);
-      setLooseQty(1);
-    });
+    getProduct(productId)
+      .then((data) => {
+        if (cancelled) return;
+        setProduct(data);
+        setPackQty(1);
+        setLooseQty(1);
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setLoading(false));
     if (showBatches) {
-      getProductBatches(productId).then((data) => {
-        if (!cancelled) setBatches(data);
-      });
+      getProductBatches(productId)
+        .then((data) => {
+          if (!cancelled) setBatches(data);
+        })
+        .catch(() => {});
     }
     return () => {
       cancelled = true;

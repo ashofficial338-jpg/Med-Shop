@@ -4,6 +4,7 @@ import { checkDuplicatePurchase } from "../api/purchases";
 import { ACCEPT, MAX_FILE_MB, MAX_PDF_PAGES, extractBillText, isPdf, validateBillFile } from "../utils/invoiceOcr";
 import { bestMatch, parseInvoiceText } from "../utils/invoiceParser";
 import { validPosition } from "../utils/rack";
+import { todayLocal } from "../utils/date";
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const money = (n) => (n == null ? "—" : `₹${Number(n).toFixed(2)}`);
@@ -86,7 +87,7 @@ export default function InvoiceUploadModal({ vendors, onClose, onContinue }) {
       setSupplierName(parsed.supplierName || "");
       setTarget(vendor ? vendor._id : parsed.supplierName ? "unregistered" : "none");
       setInvoiceNo(parsed.invoiceNo || "");
-      setDate(parsed.invoiceDate || new Date().toISOString().slice(0, 10));
+      setDate(parsed.invoiceDate || todayLocal());
       lookForDuplicates(parsed.invoiceNo, parsed.invoiceDate, parsed.total);
     } catch (e) {
       if (e?.name !== "AbortError") {

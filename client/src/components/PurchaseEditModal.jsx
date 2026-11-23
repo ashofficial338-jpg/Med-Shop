@@ -3,6 +3,7 @@ import { listProducts } from "../api/products";
 import { listVendors } from "../api/vendors";
 import { getPurchase, updatePurchase } from "../api/purchases";
 import RackInput from "./RackInput";
+import { enterMovesToNextField, useFocusNewLine } from "../utils/formKeys";
 
 const DIRECT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
@@ -24,6 +25,7 @@ export default function PurchaseEditModal({ purchaseId, onClose, onSaved }) {
   const [amountPaid, setAmountPaid] = useState("");
   const [lines, setLines] = useState([]);
   const [error, setError] = useState("");
+  const linesRef = useFocusNewLine(lines.length);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -111,7 +113,7 @@ export default function PurchaseEditModal({ purchaseId, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-8">
-      <form onSubmit={submit} className="w-full max-w-2xl space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
+      <form onSubmit={submit} onKeyDown={enterMovesToNextField} className="w-full max-w-2xl space-y-4 rounded-2xl bg-surface p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-xl font-semibold text-text">Edit Purchase{purchase ? ` — ${purchase.invoiceNo}` : ""}</h2>
           <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close">✕</button>
@@ -148,7 +150,7 @@ export default function PurchaseEditModal({ purchaseId, onClose, onSaved }) {
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div ref={linesRef} className="space-y-3">
               {lines.map((line, idx) => (
                 <div key={idx} className="rounded-xl border border-border p-3">
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">

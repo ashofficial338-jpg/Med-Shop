@@ -31,11 +31,16 @@ export default function BillHistory() {
   };
 
   useEffect(() => {
+    // Only the latest filters' answer is shown (typing fires several).
+    let cancelled = false;
     setLoading(true);
-    listSales(JSON.parse(paramsKey)).then((data) => {
-      setSales(data);
-      setLoading(false);
-    });
+    listSales(JSON.parse(paramsKey))
+      .then((data) => !cancelled && setSales(data))
+      .catch(() => {})
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
   }, [paramsKey]);
 
   // Bills made/edited by anyone appear without a refresh.

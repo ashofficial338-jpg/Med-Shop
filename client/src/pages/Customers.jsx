@@ -26,10 +26,10 @@ export default function Customers() {
 
   const load = (q = "") => {
     setLoading(true);
-    searchCustomers(q).then((data) => {
-      setCustomers(data);
-      setLoading(false);
-    });
+    searchCustomers(q)
+      .then(setCustomers)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {

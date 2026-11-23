@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import { listExpenses, createExpense, deleteExpense, exportExpenses } from "../api/expenses";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
+import { todayLocal } from "../utils/date";
 
 // Interest/Taxes/Depreciation/Amortization are the dashboard's EBITDA add-backs.
 // Depreciation/Amortization aren't money paid out, so the server always saves
@@ -25,7 +26,7 @@ export default function Expenses() {
   const [category, setCategory] = useState("Rent");
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Cash");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocal());
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -41,10 +42,10 @@ export default function Expenses() {
 
   const load = () => {
     setLoading(true);
-    listExpenses(buildParams()).then((data) => {
-      setExpenses(data);
-      setLoading(false);
-    });
+    listExpenses(buildParams())
+      .then(setExpenses)
+      .catch((err) => toast.error(err.response?.data?.message || "Could not load expenses."))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {

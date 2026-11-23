@@ -23,7 +23,9 @@ router.get("/", async (req, res) => {
   // every single-word-named customer from the directory. Only filter once
   // there's real search text.
   if (q && q.trim()) {
-    filter.$or = [{ name: new RegExp(q.trim(), "i") }, { phone: new RegExp(q.trim(), "i") }];
+    // Escaped, so typing "(", "+" or "*" searches for it instead of erroring.
+    const re = new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [{ name: re }, { phone: re }];
   }
   const customers = await Customer.find(filter).sort({ name: 1 }).limit(20);
 

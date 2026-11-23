@@ -16,7 +16,9 @@ router.get("/", async (req, res) => {
   const { q } = req.query;
   const filter = { isActive: true };
   if (q) {
-    filter.$or = [{ name: new RegExp(q, "i") }, { phone: new RegExp(q, "i") }];
+    // Escaped, so typing "(", "+" or "*" searches for it instead of erroring.
+    const re = new RegExp(String(q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [{ name: re }, { phone: re }];
   }
   const vendors = await Vendor.find(filter).sort({ name: 1 });
   const outstandingMap = await vendorOutstandingMap();
