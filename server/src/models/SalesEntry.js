@@ -66,6 +66,9 @@ const salesEntrySchema = new mongoose.Schema(
     // customer it's on. Entries saved before sales were linked have none.
     sale: { type: mongoose.Schema.Types.ObjectId, ref: "Sale", default: null },
     customerRef: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null },
+    // The "Invoice Ref" of an entry imported from Excel - an imported ref is
+    // never imported again (duplicate protection).
+    importRef: { type: String, default: undefined },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     editedAt: { type: Date, default: null },
     editedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
@@ -82,5 +85,6 @@ salesEntrySchema.index({ archiveNo: 1 }, { unique: true });
 salesEntrySchema.index({ invoiceDate: -1, createdAt: -1 });
 salesEntrySchema.index({ archivedAt: 1, createdAt: 1 });
 salesEntrySchema.index({ "customer.name": 1 });
+salesEntrySchema.index({ importRef: 1 }, { sparse: true });
 
 export default mongoose.model("SalesEntry", salesEntrySchema);

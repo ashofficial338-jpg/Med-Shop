@@ -43,3 +43,20 @@ export function deleteSalesEntry(id) {
 export function downloadSalesEntryFile(entry, format) {
   return downloadFile(`/sales-entries/${entry._id}/file.${format}`, {}, `${entry.archiveNo}.${format}`);
 }
+
+// ---- Excel template / upload ----
+export function downloadSalesEntryTemplate() {
+  return downloadFile("/sales-entries/import/template", {}, "Sales_Entry_Template.xlsx");
+}
+
+// Reads the file and returns a preview - nothing is saved.
+export function previewSalesEntryImport(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post("/sales-entries/import/preview", fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
+}
+
+// Saves the invoices confirmed in the preview.
+export function importSalesEntries(invoices) {
+  return api.post("/sales-entries/import", { invoices }).then((r) => r.data);
+}

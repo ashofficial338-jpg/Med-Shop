@@ -15,12 +15,13 @@ const saleItemSchema = new mongoose.Schema(
       required: true,
     },
     unitLabel: { type: String, required: true }, // e.g. "Strip" or "Tablet", snapshot for the printed bill
-    qty: { type: Number, required: true, min: 1 },
+    // Above 0 (checked by the routes); can be a part pack on a Sales Entry.
+    qty: { type: Number, required: true, min: 0 },
     rate: { type: Number, required: true }, // snapshot of packRate/looseRate at sale time
     gstPercent: { type: Number, required: true }, // snapshot
     amount: { type: Number, required: true }, // qty * rate
     gstAmount: { type: Number, required: true },
-    internalQtyDeducted: { type: Number, required: true }, // exact stock units taken, sum of batchBreakdown qtys
+    internalQtyDeducted: { type: Number, required: true }, // exact stock units taken, sum of batchBreakdown qtys (0 = sold without stock, Sales Entry)
     costAmount: { type: Number, required: true }, // cost basis for this line at sale time, sum of batchBreakdown costs
     // Which batch(es) this line's stock actually came from (FEFO can split a
     // line across more than one lot) - void reversal restores exactly these,

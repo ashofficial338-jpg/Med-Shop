@@ -13,8 +13,12 @@ import Product from "../models/Product.js";
 import { findOrCreateProduct, findProductByName } from "../utils/productAutoCreate.js";
 import { hasPermission } from "../utils/permissions.js";
 import Sale from "../models/Sale.js";
+import CustomerPayment from "../models/CustomerPayment.js";
 import { createSaleHandler, updateSaleHandler, deleteSaleHandler } from "./sales.js";
 import { saleLineInternalQty } from "../utils/saleHelpers.js";
+import { earliestActiveBatch } from "../utils/batchHelpers.js";
+import multer from "multer";
+import { buildTemplate, readUpload } from "../utils/salesEntryExcel.js";
 
 // Sales Entry - the main place sales are entered (see models/SalesEntry.js).
 // Saving an entry also records the sale itself, through exactly the same
@@ -24,6 +28,9 @@ import { saleLineInternalQty } from "../utils/saleHelpers.js";
 // their exports. That bill carries the entry's SALES number and can only be
 // changed through the entry, so the two never disagree. Editing or deleting
 // the entry edits or deletes the bill (stock is put back exactly).
+// Stock is never required: a line is taken from stock only when enough of it
+// is recorded (whole units, next batch not expired); any other line is sold
+// without touching stock, so Sales Entry works even if stock isn't kept.
 // Anyone signed in can make an entry; staff see only their own. Editing and
 // deleting are Admin-only, like every other edit in the app.
 const router = Router();
@@ -97,36 +104,38 @@ async function resolveCustomer(c) {
   return Customer.create({ name: c.name, phone: c.mobile || undefined, address: c.address });
 }
 
-// The entry's lines as POS sale lines, after checking quantities and stock
-// (POS rules: whole packs, enough stock). `previous` = lines the bill already
-// holds (their stock goes back before an edit takes it again).
-async function saleLines(items, created, previous = []) {
+// The entry's lines as POS sale lines. A product's lines are taken from
+// stock when enough is recorded for all of them (whole units, next batch not
+// expired); otherwise they're sold without touching stock (noStock). Never
+// fails - stock is optional. `previous` = lines the bill already holds
+// (their stock goes back before an edit takes it again).
+// Returns { lines, untracked: [product names sold without stock] }.
+async function saleLines(items, previous = []) {
   const lines = [];
   const need = new Map();
   for (const it of items) {
     const product = await Product.findById(it.product);
-    if (!Number.isInteger(it.qty)) return { error: `${it.name}: enter the quantity in whole ${product?.packUnit || "packs"}.` };
     const key = String(product._id);
-    const n = (need.get(key)?.qty || 0) + saleLineInternalQty(product, "pack", it.qty);
-    need.set(key, { product, qty: n, name: it.name });
+    const entry = need.get(key) || { product, qty: 0 };
+    entry.qty += saleLineInternalQty(product, "pack", it.qty);
+    need.set(key, entry);
     lines.push({ product: product._id, unitType: "pack", qty: it.qty, rate: it.rate, gstPercent: it.gstPercent, gstAmount: Number((it.cgst + it.sgst + it.igst).toFixed(2)) });
   }
+  const untracked = new Set();
+  const now = new Date();
   for (const { product, qty } of need.values()) {
     const held = previous.filter((p) => String(p.product) === String(product._id)).reduce((s, p) => s + (p.internalQtyDeducted || 0), 0);
-    const available = product.qty + held;
-    if (qty > available) {
-      const perPack = product.soldAs === "pack-and-loose" ? product.unitsPerPack : 1;
-      const packs = Math.floor(available / perPack);
-      const isNew = created.some((c) => String(c._id) === String(product._id));
-      return {
-        error: isNew
-          ? `${product.name} was just added to the Product List, but it has no stock yet. Record a purchase for it, then try again.`
-          : `Only ${packs} ${product.packUnit} of ${product.name} in stock.`,
-      };
-    }
+    const next = await earliestActiveBatch(product._id);
+    const expired = Boolean(next?.expiryDate) && new Date(next.expiryDate) < now && !held;
+    const tracked = Number.isInteger(qty) && qty <= product.qty + held && !expired;
+    if (!tracked) untracked.add(String(product._id));
   }
-  return { lines };
+  for (const l of lines) if (untracked.has(String(l.product))) l.noStock = true;
+  const names = [...need.values()].filter((n) => untracked.has(String(n.product._id))).map((n) => n.product.name);
+  return { lines, untracked: names };
 }
+
+const stockNote = (names) => (names.length ? `Stock not changed for ${names.join(", ")} (not enough stock recorded).` : "");
 
 // Puts the bill on the entry's date when that isn't today (createdAt drives
 // the day book, reports and dashboard).
@@ -136,7 +145,10 @@ async function datedSale(saleId, invoiceDate) {
   const sale = await Sale.findById(saleId, "createdAt");
   const saleDay = sale?.createdAt.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
   if (!sale || saleDay === day) return;
-  await Sale.collection.updateOne({ _id: sale._id }, { $set: { createdAt: day === today ? new Date() : invoiceDate } });
+  const when = day === today ? new Date() : invoiceDate;
+  await Sale.collection.updateOne({ _id: sale._id }, { $set: { createdAt: when } });
+  // Money received with the sale belongs to the same day (Day Book, ledger).
+  await CustomerPayment.updateMany({ sale: sale._id, note: "Received at billing" }, { $set: { date: when } });
 }
 
 // "2026-11-23" -> noon India time that day, so the date reads the same in
@@ -370,35 +382,128 @@ function saleBody(data, customer, lines) {
   };
 }
 
-router.post("/", async (req, res) => {
-  const { error, data } = buildEntry(req.body);
-  if (error) return res.status(400).json({ message: error });
+// Saves one entry from a form/import body: the bill first (POS code path;
+// archivedAt set so the Invoice Saver makes no files), then the entry,
+// numbered only once the bill went through (no gaps in the series).
+// Returns { status, body }.
+async function createEntry(reqBody, req, extra = {}) {
+  const { error, data } = buildEntry(reqBody);
+  if (error) return { status: 400, body: { message: error } };
   const discountError = staffDiscountError(data, req.user);
-  if (discountError) return res.status(400).json({ message: discountError });
+  if (discountError) return { status: 400, body: { message: discountError } };
   const linked = await linkProducts(data.items, req.user);
-  if (linked.error) return res.status(400).json({ message: linked.error });
-  const checked = await saleLines(data.items, linked.created);
-  if (checked.error) return res.status(400).json({ message: checked.error, createdProducts: linked.created });
+  if (linked.error) return { status: 400, body: { message: linked.error } };
+  const checked = await saleLines(data.items);
   const customer = await resolveCustomer(data.customer);
 
-  // 1. The sale itself (stock, ledger, payments) - the POS code path.
-  //    archivedAt is set so the Invoice Saver never makes files for it.
   const made = await callSaleHandler(createSaleHandler, req, { body: saleBody(data, customer, checked.lines) });
-  if (made.status !== 201) return res.status(made.status).json({ message: made.body?.message || "Something went wrong. Please try again." });
+  if (made.status !== 201) return { status: made.status, body: { message: made.body?.message || "Something went wrong. Please try again." } };
   const saleId = made.body._id;
 
-  // 2. The entry, numbered only once the sale went through (no gaps).
   let entry;
   try {
     const archiveNo = formatArchiveNo(prefix, await nextSequence(counter));
-    entry = await SalesEntry.create({ ...data, archiveNo, sale: saleId, customerRef: customer?._id || null, createdBy: req.user._id });
+    entry = await SalesEntry.create({ ...data, ...extra, archiveNo, sale: saleId, customerRef: customer?._id || null, createdBy: req.user._id });
   } catch (e) {
     await callSaleHandler(deleteSaleHandler, req, { id: saleId }); // undo: stock goes back
     throw e;
   }
   await Sale.updateOne({ _id: saleId }, { $set: { archiveNo: entry.archiveNo, archivedAt: new Date(), salesEntry: entry._id } });
   await datedSale(saleId, entry.invoiceDate);
-  res.status(201).json({ ...entry.toObject(), billNo: made.body.billNo, createdProducts: linked.created });
+  return {
+    status: 201,
+    body: { ...entry.toObject(), billNo: made.body.billNo, createdProducts: linked.created, stockNote: stockNote(checked.untracked) },
+  };
+}
+
+router.post("/", async (req, res) => {
+  const out = await createEntry(req.body, req);
+  res.status(out.status).json(out.body);
+});
+
+// ---- Excel: template, preview, import ----
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+router.get("/import/template", async (req, res) => {
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", 'attachment; filename="Sales_Entry_Template.xlsx"');
+  res.send(await buildTemplate());
+});
+
+// Checks one import invoice without saving: errors (it can't be saved),
+// warnings (it can, but look first), and what it will do.
+async function checkImportInvoice(inv, req, seenRefs) {
+  const errors = [...(inv.errors || [])];
+  const warnings = [];
+  const ref = String(inv.ref || "").trim();
+  if (ref) {
+    const key = ref.toLowerCase();
+    if (seenRefs.has(key)) errors.push(`Invoice Ref ${ref} appears twice in this file with other rows in between - keep each invoice's rows under one ref.`);
+    seenRefs.add(key);
+    const done = await SalesEntry.findOne({ importRef: new RegExp(`^${escapeRe(ref)}$`, "i") }, "archiveNo");
+    if (done) errors.push(`Already imported as ${done.archiveNo} (Invoice Ref ${ref}) - skipped so it isn't saved twice.`);
+  }
+  let totals = null;
+  if (!errors.length) {
+    const { error, data } = buildEntry(inv.body);
+    if (error) errors.push(error);
+    else {
+      const discountError = staffDiscountError(data, req.user);
+      if (discountError) errors.push(discountError);
+      totals = { subtotal: data.subtotal, discount: data.discountTotal, gst: Number((data.cgstTotal + data.sgstTotal + data.igstTotal).toFixed(2)), grandTotal: data.grandTotal };
+      // Same day, customer and total as a saved entry: probably the same sale.
+      const twin = await SalesEntry.findOne({ invoiceDate: data.invoiceDate, "customer.name": data.customer.name, grandTotal: data.grandTotal }, "archiveNo");
+      if (twin) warnings.push(`Looks like ${twin.archiveNo} (same date, customer and total). Untick it if it's the same sale.`);
+      const all = await Product.find({ isActive: true }, "name").lean();
+      const fresh = [];
+      for (const it of data.items) if (!(await findProductByName(it.name, all))) fresh.push(it.name);
+      if (fresh.length) {
+        if (!hasPermission(req.user, "products.add")) errors.push(`Not in the Product List: ${fresh.join(", ")} - you don't have permission to add products.`);
+        else warnings.push(`New product${fresh.length > 1 ? "s" : ""} added to the Product List: ${[...new Set(fresh)].join(", ")}.`);
+      }
+    }
+  }
+  return { ref, rows: inv.rows, body: inv.body, errors, warnings, totals, ok: errors.length === 0 };
+}
+
+// Reads an uploaded file and returns a preview. Nothing is saved.
+router.post("/import/preview", upload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: "Choose the filled-in Sales Entry Excel file." });
+  const read = await readUpload(req.file.buffer);
+  if (read.error) return res.status(400).json({ message: read.error });
+  const seen = new Set();
+  const invoices = [];
+  for (const inv of read.invoices) invoices.push(await checkImportInvoice(inv, req, seen));
+  res.json({ invoices, ready: invoices.filter((i) => i.ok).length, withErrors: invoices.filter((i) => !i.ok).length });
+});
+
+// Saves the invoices the user confirmed in the preview. Each is checked again
+// (duplicates included) and saved on its own; the reply lists every result.
+router.post("/import", async (req, res) => {
+  const list = Array.isArray(req.body.invoices) ? req.body.invoices.slice(0, 500) : [];
+  if (!list.length) return res.status(400).json({ message: "Nothing to import." });
+  const seen = new Set();
+  const results = [];
+  for (const inv of list) {
+    const check = await checkImportInvoice({ ref: inv.ref, rows: inv.rows, body: inv.body, errors: [] }, req, seen);
+    if (!check.ok) {
+      results.push({ ref: check.ref, ok: false, message: check.errors.join(" ") });
+      continue;
+    }
+    try {
+      const out = await createEntry(inv.body, req, { importRef: check.ref });
+      results.push(
+        out.status === 201
+          ? { ref: check.ref, ok: true, _id: out.body._id, archiveNo: out.body.archiveNo, grandTotal: out.body.grandTotal, stockNote: out.body.stockNote }
+          : { ref: check.ref, ok: false, message: out.body.message }
+      );
+    } catch (e) {
+      console.error(e);
+      results.push({ ref: check.ref, ok: false, message: "Something went wrong." });
+    }
+  }
+  res.json({ saved: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, results });
 });
 
 // Older entries (saved before Sales Entry recorded sales) have no bill, so
@@ -429,8 +534,7 @@ async function linkOldEntry(entry, req) {
   if (error) return { ok: false, message: error };
   const linked = await linkProducts(data.items, req.user);
   if (linked.error) return { ok: false, message: linked.error };
-  const checked = await saleLines(data.items, linked.created);
-  if (checked.error) return { ok: false, message: checked.error };
+  const checked = await saleLines(data.items);
   const customer = await resolveCustomer(data.customer);
   const made = await callSaleHandler(createSaleHandler, req, { body: saleBody(data, customer, checked.lines) });
   if (made.status !== 201) return { ok: false, message: made.body?.message || "Something went wrong." };
@@ -444,7 +548,8 @@ async function linkOldEntry(entry, req) {
   }
   await Sale.updateOne({ _id: saleId }, { $set: { archiveNo: entry.archiveNo, archivedAt: new Date(), salesEntry: entry._id } });
   await datedSale(saleId, entry.invoiceDate);
-  return { ok: true, message: `Linked as bill ${made.body.billNo}.` };
+  const note = stockNote(checked.untracked);
+  return { ok: true, message: `Linked as bill ${made.body.billNo}.${note ? ` ${note}` : ""}` };
 }
 
 // Links every older entry, oldest first. Each is linked or skipped on its
@@ -484,13 +589,14 @@ router.put("/:id", requireRole("admin"), async (req, res) => {
   const linked = await linkProducts(data.items, req.user);
   if (linked.error) return res.status(400).json({ message: linked.error });
   const customer = await resolveCustomer(data.customer);
+  let note = "";
 
   // The bill is corrected first (stock put back and taken again, ledger and
   // payments updated). If that fails, nothing changes.
   if (entry.sale) {
     const bill = await Sale.findById(entry.sale);
-    const checked = await saleLines(data.items, linked.created, bill?.items || []);
-    if (checked.error) return res.status(400).json({ message: checked.error });
+    const checked = await saleLines(data.items, bill?.items || []);
+    note = stockNote(checked.untracked);
     const done = await callSaleHandler(updateSaleHandler, req, { id: String(entry.sale), body: saleBody(data, customer, checked.lines) });
     if (done.status !== 200) return res.status(done.status).json({ message: done.body?.message || "Something went wrong. Please try again." });
     await datedSale(entry.sale, data.invoiceDate);
@@ -498,7 +604,7 @@ router.put("/:id", requireRole("admin"), async (req, res) => {
   entry.set({ ...data, customerRef: customer?._id || null, editedAt: new Date(), editedBy: req.user._id });
   await entry.save();
   const saved = await SalesEntry.findById(entry._id).populate("createdBy", "username").populate("editedBy", "username");
-  res.json({ ...saved.toObject(), createdProducts: linked.created });
+  res.json({ ...saved.toObject(), createdProducts: linked.created, stockNote: note });
 });
 
 // Deletes an entry (Admin) together with its bill: stock goes back where it
@@ -511,7 +617,7 @@ router.delete("/:id", requireRole("admin"), async (req, res) => {
     if (done.status !== 200) return res.status(done.status).json({ message: done.body?.message || "Something went wrong. Please try again." });
   }
   await SalesEntry.deleteOne({ _id: entry._id });
-  res.json({ message: `${entry.archiveNo} deleted. Its stock was put back and its payments removed.` });
+  res.json({ message: `${entry.archiveNo} deleted. Any stock it took was put back and its payments removed.` });
 });
 
 export default router;

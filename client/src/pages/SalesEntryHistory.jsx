@@ -8,6 +8,8 @@ import { toast } from "react-toastify";
 import { downloadSalesEntryFile, linkAllSalesEntries, listSalesEntries, unlinkedSalesEntryCount } from "../api/salesEntries";
 import { PAYMENT_MODES } from "../utils/salesEntryCalc";
 import { useLiveRefresh } from "../context/LiveSync";
+import SalesEntryImportModal from "../components/SalesEntryImportModal";
+import { downloadSalesEntryTemplate } from "../api/salesEntries";
 import { compactParams } from "../utils/query";
 
 // Sales History: every saved Sales Entry, newest first. Search by invoice
@@ -74,6 +76,7 @@ export default function SalesEntryHistory() {
     }
   };
 
+  const [showImport, setShowImport] = useState(false);
   const [busy, setBusy] = useState("");
   const download = async (e, format) => {
     setBusy(`${e._id}${format}`);
@@ -92,13 +95,28 @@ export default function SalesEntryHistory() {
 
   return (
     <Layout>
+      {showImport && <SalesEntryImportModal onClose={() => setShowImport(false)} />}
       <div className="mx-auto max-w-4xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Sales History</h1>
-          <Link to="/sales-entry" className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-dark">
-            <Icon name="plus" size={16} />
-            New Sales Entry
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => downloadSalesEntryTemplate().catch((err) => toast.error(getErrorMessage(err)))}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text hover:bg-bg"
+            >
+              <Icon name="download" size={16} />
+              Excel Template
+            </button>
+            <button type="button" onClick={() => setShowImport(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text hover:bg-bg">
+              <Icon name="plus" size={16} />
+              Upload Excel
+            </button>
+            <Link to="/sales-entry" className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-dark">
+              <Icon name="plus" size={16} />
+              New Sales Entry
+            </Link>
+          </div>
         </div>
 
         {admin && unlinked > 0 && (

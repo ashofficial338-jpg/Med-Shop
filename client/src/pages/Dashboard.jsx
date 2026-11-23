@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import SalesOverview from "../components/dashboard/SalesOverview";
 import { useLiveRefresh } from "../context/LiveSync";
 import { Link } from "react-router-dom";
 import Layout, { STORE_NAME } from "../components/Layout";
@@ -204,6 +205,7 @@ export default function Dashboard() {
           {shows("dashboard.sales") && (
           <section className="space-y-4">
             <SectionTitle icon="receipt">Sales &amp; GST</SectionTitle>
+            <SalesOverview data={summary.salesOverview} links={links} />
             <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <StatTile label="Sales Count" value={summary.salesCount} isCount icon="receipt" tone="violet" to={links.sales} />
               <StatTile label="Output GST" value={summary.outputGst} icon="arrowRight" tone="blue" note="GST collected on sales" to={links.sales} />

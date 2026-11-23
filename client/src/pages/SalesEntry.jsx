@@ -6,6 +6,8 @@ import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../api/client";
 import ProductPicker from "../components/ProductPicker";
+import SalesEntryImportModal from "../components/SalesEntryImportModal";
+import { downloadSalesEntryTemplate } from "../api/salesEntries";
 import { createSalesEntry, deleteSalesEntry, linkSalesEntry, getSalesEntry, getSalesEntryMeta, updateSalesEntry } from "../api/salesEntries";
 import { calcInvoice, GST_RATES, PAYMENT_MODES } from "../utils/salesEntryCalc";
 import { useLiveRefresh } from "../context/LiveSync";
@@ -97,6 +99,7 @@ function SalesEntryForm({ id }) {
   const [entry, setEntry] = useState(null); // saved entry being edited/viewed
   const [form, setForm] = useState(() => (id ? blankForm() : loadDraft() || blankForm()));
   const [saving, setSaving] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [lastSaved, setLastSaved] = useState(null); // { archiveNo, _id, edited }
   const [loadError, setLoadError] = useState("");
   const nameRefs = useRef({});
@@ -197,6 +200,7 @@ function SalesEntryForm({ id }) {
         setForm(formFromEntry(saved));
         setLastSaved({ archiveNo: saved.archiveNo, _id: saved._id, edited: true });
         toast.success(`${saved.archiveNo} updated successfully.`);
+        if (saved.stockNote) toast.info(saved.stockNote, { autoClose: 6000 });
         announceNewProducts(saved.createdProducts);
       } else {
         const saved = await createSalesEntry(body);
@@ -204,6 +208,7 @@ function SalesEntryForm({ id }) {
         setForm(blankForm());
         setLastSaved({ archiveNo: saved.archiveNo, _id: saved._id, edited: false });
         toast.success(`Sales entry ${saved.archiveNo} saved successfully.`);
+        if (saved.stockNote) toast.info(saved.stockNote, { autoClose: 6000 });
         announceNewProducts(saved.createdProducts);
         loadNextNo();
       }
@@ -230,7 +235,7 @@ function SalesEntryForm({ id }) {
   const [deleting, setDeleting] = useState(false);
   const removeEntry = async () => {
     if (!entry || deleting) return;
-    if (!window.confirm(`Delete ${entry.archiveNo}? Its stock will be put back and its payments removed. This can't be undone.`)) return;
+    if (!window.confirm(`Delete ${entry.archiveNo}? Any stock it took will be put back and its payments removed. This can't be undone.`)) return;
     setDeleting(true);
     try {
       const out = await deleteSalesEntry(entry._id);
@@ -284,10 +289,34 @@ function SalesEntryForm({ id }) {
 
   return (
     <Layout>
+      {showImport && (
+        <SalesEntryImportModal
+          onClose={() => {
+            setShowImport(false);
+            loadNextNo();
+          }}
+        />
+      )}
       <div className="mx-auto max-w-4xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">{id ? (readOnly ? "Sales Entry" : "Edit Sales Entry") : "Sales Entry"}</h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {!id && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => downloadSalesEntryTemplate().catch((err) => toast.error(getErrorMessage(err)))}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text hover:bg-bg"
+                >
+                  <Icon name="download" size={16} />
+                  Download Excel Template
+                </button>
+                <button type="button" onClick={() => setShowImport(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text hover:bg-bg">
+                  <Icon name="plus" size={16} />
+                  Upload Excel
+                </button>
+              </>
+            )}
             {id && (
               <Link to="/sales-entry" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text hover:bg-bg">
                 <Icon name="plus" size={16} />
@@ -452,7 +481,7 @@ function SalesEntryForm({ id }) {
                       <input className={inputCls} maxLength={30} placeholder="Strip" list="sales-entry-units" value={r.unit} disabled={readOnly} onChange={(e) => setRow(r.key, { unit: e.target.value })} />
                     </td>
                     <td className="py-1 align-top pl-2">
-                      <input className={`${inputCls} text-right`} inputMode="numeric" value={r.qty} disabled={readOnly} onChange={(e) => setRow(r.key, { qty: e.target.value.replace(/\D/g, "") })} />
+                      <input className={`${inputCls} text-right`} inputMode="decimal" value={r.qty} disabled={readOnly} onChange={(e) => setRow(r.key, { qty: e.target.value.replace(/[^\d.]/g, "") })} />
                     </td>
                     <td className="py-1 align-top pl-2">
                       <input className={`${inputCls} text-right`} inputMode="decimal" placeholder="0.00" value={r.rate} disabled={readOnly} onChange={(e) => setRow(r.key, { rate: e.target.value.replace(/[^\d.]/g, "") })} />

@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { computeSummary, describeFilters, resolveFilters, resolveRange } from "../utils/summaryHelpers.js";
 import { dayBookSummary } from "../utils/dayBookHelpers.js";
+import { salesOverview } from "../utils/salesOverview.js";
 import { hasPermission, requirePermission } from "../utils/permissions.js";
 
 // Admins get the full, interactive dashboard (filters, date ranges, exports,
@@ -23,7 +24,7 @@ const SECTION_FIELDS = {
     "grossMarginPct", "netMarginPct", "investment", "allocatedExpenses", "unallocatedExpenses", "roiPct", "interest",
     "taxes", "depreciation", "amortization", "ebitda", "ebitdaMarginPct", "productProfitability", "totalPurchases", "salesCount",
   ],
-  "dashboard.sales": ["outputGst", "inputGst", "netGst", "salesCount", "salesTrend", "revenueByCategory", "fastMovers"],
+  "dashboard.sales": ["outputGst", "inputGst", "netGst", "salesCount", "salesTrend", "revenueByCategory", "fastMovers", "salesOverview"],
   "dashboard.stock": [
     "cogs", "openingInventory", "closingInventory", "averageInventory", "inventoryTurnover", "totalStockValue", "lowStock", "expiringSoon",
   ],
@@ -37,10 +38,12 @@ router.get("/summary", requirePermission("dashboard.view"), async (req, res) => 
   // controls (and anything they send) are admin-only.
   const { start, end } = interactive ? resolveRange(req) : resolveRange({ query: {} });
   // The P&L summary and today's cash position don't depend on each other.
-  const [summary, today] = await Promise.all([
+  const [summary, today, overview] = await Promise.all([
     computeSummary(start, end, interactive ? resolveFilters(req) : {}),
     dayBookSummary(new Date()),
+    salesOverview(start, end),
   ]);
+  summary.salesOverview = overview;
 
   // Today's cash position (the Day Book's figures) - "right now", not range-bound.
   summary.cashToday = today;

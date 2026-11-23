@@ -146,6 +146,8 @@ router.get("/:id/pdf", async (req, res) => {
 // handlers directly with req.fromSalesEntry set: the rate, GST and discount
 // typed on the entry are then used instead of the product's own, and the
 // bill carries the entry's SALES number. Plain API requests can't set it.
+// A Sales Entry line can also be marked noStock: it's sold without touching
+// stock (no stock recorded for it), so it has no batches and no cost.
 const linkedEntryMessage = (sale) =>
   `This bill was made from Sales Entry ${sale.archiveNo || ""}. Edit or delete it from Sales Entry so both stay the same.`;
 
@@ -189,7 +191,8 @@ export async function createSaleHandler(req, res) {
           : null;
         if (!pickedBatch) return res.status(400).json({ message: `The selected batch of ${product.name} is no longer available.` });
       }
-      const nextBatch = pickedBatch || (await earliestActiveBatch(product._id));
+      const noStock = Boolean(req.fromSalesEntry && item.noStock);
+      const nextBatch = noStock ? null : pickedBatch || (await earliestActiveBatch(product._id));
       const isExpired = Boolean(nextBatch?.expiryDate) && new Date(nextBatch.expiryDate) < now;
       // An admin can knowingly sell expired stock; the reason note is optional.
       const overriding = isAdmin && (req.body.overrideExpired === true || Boolean(overrideExpiredReason));
@@ -222,6 +225,7 @@ export async function createSaleHandler(req, res) {
       }
 
       resolved.push({
+        noStock,
         product,
         internalQty,
         batchId: pickedBatch?._id || null,
@@ -247,7 +251,13 @@ export async function createSaleHandler(req, res) {
     // lot(s) it came from. If anything fails partway, everything already
     // reserved for earlier lines - both the product total and batch qtys - is put back.
     const settled = [];
-    for (const { product, internalQty, line, batchId, rack } of resolved) {
+    for (const { product, internalQty, line, batchId, rack, noStock } of resolved) {
+      if (noStock) {
+        line.internalQtyDeducted = 0;
+        line.costAmount = 0;
+        line.batchBreakdown = [];
+        continue;
+      }
       const updated = await Product.findOneAndUpdate(
         { _id: product._id, qty: { $gte: internalQty } },
         { $inc: { qty: -internalQty } },
@@ -372,7 +382,8 @@ export async function updateSaleHandler(req, res) {
   if (!sale) return res.status(404).json({ message: "No records found." });
   if (sale.salesEntry && !req.fromSalesEntry) return res.status(400).json({ message: linkedEntryMessage(sale) });
   if (sale.paymentStatus === "void") return res.status(400).json({ message: "A voided bill can't be edited." });
-  if (sale.items.some((i) => !i.batchBreakdown || i.batchBreakdown.length === 0)) {
+  // (Lines sold without stock - internalQtyDeducted 0 - have no batches by design.)
+  if (sale.items.some((i) => (!i.batchBreakdown || i.batchBreakdown.length === 0) && i.internalQtyDeducted > 0)) {
     return res.status(400).json({ message: "This bill was made before batch tracking and can't be edited. Void it and bill again instead." });
   }
   if (!Array.isArray(items) || items.length === 0) {
@@ -424,6 +435,7 @@ export async function updateSaleHandler(req, res) {
     const gstPercent = req.fromSalesEntry && item.gstPercent != null ? Number(item.gstPercent) : original ? original.gstPercent : product.gstPercent;
     const amount = round2(qty * rate);
     resolved.push({
+      noStock: Boolean(req.fromSalesEntry && item.noStock),
       product,
       internalQty: saleLineInternalQty(product, item.unitType, qty),
       line: {
@@ -536,6 +548,12 @@ export async function updateSaleHandler(req, res) {
     await restoreOriginal();
     const settled = [];
     for (const r of resolved) {
+      if (r.noStock) {
+        r.line.internalQtyDeducted = 0;
+        r.line.costAmount = 0;
+        r.line.batchBreakdown = [];
+        continue;
+      }
       const out = await takeLine(r.product, r.internalQty);
       if (!out.breakdown) {
         for (const s of settled) await releaseLine(s.product._id, s.internalQty, s.line.batchBreakdown);
@@ -623,6 +641,7 @@ router.put("/:id", requireRole("admin"), updateSaleHandler);
 // with `label` (e.g. "Void of GM-000012: wrong customer").
 async function returnSaleStock(sale, label, userId) {
   for (const item of sale.items) {
+    if (!(item.internalQtyDeducted > 0)) continue; // sold without stock - nothing to return
     await Product.updateOne({ _id: item.product }, { $inc: { qty: item.internalQtyDeducted } });
 
     if (item.batchBreakdown && item.batchBreakdown.length > 0) {
