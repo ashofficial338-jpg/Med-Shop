@@ -32,8 +32,9 @@ loadEnv(path.join(here, ".env"));
 
 const API_URL = (process.env.API_URL || "https://med-shop-3.onrender.com/api").replace(/\/+$/, "");
 const FOLDERS = {
-  sales: process.env.SALES_DIR || "C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\sales",
-  purchase: process.env.PURCHASE_DIR || "C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\purchase",
+  // String.raw: Windows backslashes are kept exactly as written.
+  sales: process.env.SALES_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\sales`,
+  purchase: process.env.PURCHASE_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\purchase`,
 };
 const EMAIL = process.env.SAVER_EMAIL;
 const PASSWORD = process.env.SAVER_PASSWORD;
