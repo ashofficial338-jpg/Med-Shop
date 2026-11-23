@@ -5,3 +5,6 @@ node_modules/
 docs.zip
 
 .vercel
+
+# Saved invoice copies (customer data) - kept on the shop PC / OneDrive, not in git
+reports/

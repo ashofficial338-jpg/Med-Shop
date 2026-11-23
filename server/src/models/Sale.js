@@ -82,6 +82,12 @@ const saleSchema = new mongoose.Schema(
     // Set when an admin corrects the bill after it was made (PUT /sales/:id).
     editedAt: { type: Date, default: null },
     editedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    // Archive copy saved to the shop PC (reports/<sales|purchase>/...) by
+    // tools/invoice-saver - see utils/invoiceArchive.js. archiveNo is a
+    // separate, continuous number (SALES-001 / PUR-001) used for the file
+    // names; archivedAt is set once both files are saved.
+    archiveNo: { type: String, default: undefined },
+    archivedAt: { type: Date, default: null },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -97,5 +103,8 @@ saleSchema.virtual("balanceDue").get(function () {
   const paid = this.amountPaid ?? this.total;
   return Number((this.total - paid).toFixed(2));
 });
+
+saleSchema.index({ archiveNo: 1 }, { unique: true, sparse: true });
+saleSchema.index({ archivedAt: 1, createdAt: 1 });
 
 export default mongoose.model("Sale", saleSchema);

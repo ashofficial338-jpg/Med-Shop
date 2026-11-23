@@ -100,6 +100,12 @@ const purchaseSchema = new mongoose.Schema(
     // Set when an admin corrects the purchase after it was saved.
     editedAt: { type: Date, default: null },
     editedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    // Archive copy saved to the shop PC (reports/<sales|purchase>/...) by
+    // tools/invoice-saver - see utils/invoiceArchive.js. archiveNo is a
+    // separate, continuous number (SALES-001 / PUR-001) used for the file
+    // names; archivedAt is set once both files are saved.
+    archiveNo: { type: String, default: undefined },
+    archivedAt: { type: Date, default: null },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -110,6 +116,8 @@ const purchaseSchema = new mongoose.Schema(
 );
 
 purchaseSchema.index({ vendor: 1, invoiceNo: 1 }, { unique: true });
+purchaseSchema.index({ archiveNo: 1 }, { unique: true, sparse: true });
+purchaseSchema.index({ archivedAt: 1, createdAt: 1 });
 
 // Purchases recorded before this field existed have no amountPaid - treat
 // them as fully paid rather than manufacturing historical payables out of nowhere.
