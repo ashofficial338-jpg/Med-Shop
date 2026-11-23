@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import api, { setAuthToken } from "../api/client";
+import api, { onUnauthorized, setAuthToken } from "../api/client";
 
 const AuthContext = createContext(null);
 
@@ -16,6 +16,53 @@ const read = (key) => {
     return null;
   }
 };
+const removeSaved = () => {
+  try {
+    for (const store of [localStorage, sessionStorage]) {
+      store.removeItem("ghm_token");
+      store.removeItem("ghm_user");
+    }
+  } catch {
+    // storage unavailable (private mode) - nothing saved to remove
+  }
+};
+
+// When the JWT stops being accepted, in ms since the epoch (from its `exp`
+// claim). null when the token can't be read - such a token is unusable.
+function tokenExpiresAt(token) {
+  try {
+    const part = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const { exp } = JSON.parse(atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), "=")));
+    return typeof exp === "number" ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+// A saved session is restored only if its token is still valid. "Remember
+// me" keeps it across browser restarts, but the token itself expires
+// (JWT_EXPIRES_IN on the server); restoring an expired one made every page
+// fire requests that came back 401. It's dropped here instead, so the user
+// simply lands on the login page.
+function restoreSession() {
+  const token = read("ghm_token");
+  let user = null;
+  try {
+    user = JSON.parse(read("ghm_user") || "null");
+  } catch {
+    user = null;
+  }
+  const expiresAt = token ? tokenExpiresAt(token) : null;
+  if (!token || !user || !expiresAt || expiresAt <= Date.now()) {
+    if (token || user) removeSaved();
+    return { token: null, user: null };
+  }
+  return { token, user };
+}
+
+// Longest delay setTimeout supports (~24.8 days).
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
 const storeFor = () => {
   try {
     return localStorage.getItem("ghm_token") ? localStorage : sessionStorage;
@@ -25,30 +72,26 @@ const storeFor = () => {
 };
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    const stored = read("ghm_user");
-    return stored ? JSON.parse(stored) : null;
+  const [initial] = useState(() => {
+    const session = restoreSession();
+    // Hand the token to the API client before the first render, so the
+    // first requests pages send after a refresh carry it.
+    setAuthToken(session.token);
+    return session;
   });
-  // Attach the saved token before the first render: page effects run before
-  // this provider's effects, so relying only on the effect below sent the
-  // first requests after a page refresh without it (401s, empty pages).
-  const [token, setToken] = useState(() => {
-    const saved = read("ghm_token");
-    setAuthToken(saved);
-    return saved;
-  });
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [user, setUser] = useState(initial.user);
+  const [token, setToken] = useState(initial.token);
+  // null, or why the session ended: "inactivity", "expired" or "invalid".
+  const [sessionExpiredReason, setSessionExpiredReason] = useState(null);
   const idleTimer = useRef(null);
 
-  useEffect(() => {
-    setAuthToken(token);
-  }, [token]);
-
+  // The API client is updated synchronously wherever the token changes
+  // (restore above, login, clearSession) - never in an effect. Page effects
+  // run before this provider's effects, so setting it in an effect sent the
+  // first requests after login without a token: 401 on /products,
+  // /categories and /products/filter-options, then "Session Expired".
   const clearSession = useCallback(() => {
-    for (const store of [localStorage, sessionStorage]) {
-      store.removeItem("ghm_token");
-      store.removeItem("ghm_user");
-    }
+    removeSaved();
     setToken(null);
     setUser(null);
     setAuthToken(null);
@@ -57,6 +100,8 @@ export function AuthProvider({ children }) {
   // `identifier` is an email address or a username.
   const login = useCallback(async (identifier, password, remember = true) => {
     const { data } = await api.post("/auth/login", { email: identifier, password });
+    setAuthToken(data.token);
+    setSessionExpiredReason(null);
     const store = remember ? localStorage : sessionStorage;
     (remember ? sessionStorage : localStorage).removeItem("ghm_token");
     (remember ? sessionStorage : localStorage).removeItem("ghm_user");
@@ -81,8 +126,13 @@ export function AuthProvider({ children }) {
 
   const acknowledgeSessionExpired = useCallback(() => {
     clearSession();
-    setSessionExpired(false);
+    setSessionExpiredReason(null);
   }, [clearSession]);
+
+  // The first reason wins: once the modal is up, later 401s don't change it.
+  const expireSession = useCallback((reason) => {
+    setSessionExpiredReason((current) => current || reason);
+  }, []);
 
   // Name, email, role and permissions can be changed by an Admin while this
   // user is signed in - re-read them from the server once per page load.
@@ -96,19 +146,20 @@ export function AuthProvider({ children }) {
       .catch(() => {});
   }, [token, updateUser]);
 
-  // 401 from any request (deactivated account, invalid/expired token) -> session-expired modal
+  // The server rejected the current token (expired, signed with another
+  // JWT_SECRET, or the account was deactivated) -> session-expired modal.
+  // 403 is a permission problem, not a session problem, and never signs out.
+  useEffect(() => onUnauthorized(expireSession), [expireSession]);
+
+  // Show the modal the moment the token expires, rather than waiting for the
+  // next request to fail.
   useEffect(() => {
-    const id = api.interceptors.response.use(
-      (res) => res,
-      (err) => {
-        if (err.response && err.response.status === 401 && read("ghm_token")) {
-          setSessionExpired(true);
-        }
-        return Promise.reject(err);
-      }
-    );
-    return () => api.interceptors.response.eject(id);
-  }, []);
+    if (!token) return undefined;
+    const expiresAt = tokenExpiresAt(token);
+    if (!expiresAt) return undefined;
+    const id = setTimeout(() => expireSession("expired"), Math.min(Math.max(expiresAt - Date.now(), 0), MAX_TIMEOUT_MS));
+    return () => clearTimeout(id);
+  }, [token, expireSession]);
 
   // inactivity timeout
   useEffect(() => {
@@ -116,7 +167,7 @@ export function AuthProvider({ children }) {
 
     const resetTimer = () => {
       if (idleTimer.current) clearTimeout(idleTimer.current);
-      idleTimer.current = setTimeout(() => setSessionExpired(true), INACTIVITY_LIMIT_MS);
+      idleTimer.current = setTimeout(() => expireSession("inactivity"), INACTIVITY_LIMIT_MS);
     };
 
     ACTIVITY_EVENTS.forEach((evt) => window.addEventListener(evt, resetTimer));
@@ -126,7 +177,7 @@ export function AuthProvider({ children }) {
       ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, resetTimer));
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
-  }, [token]);
+  }, [token, expireSession]);
 
   const value = {
     user,
@@ -135,7 +186,8 @@ export function AuthProvider({ children }) {
     login,
     logout,
     updateUser,
-    sessionExpired,
+    sessionExpired: Boolean(sessionExpiredReason),
+    sessionExpiredReason,
     acknowledgeSessionExpired,
   };
 

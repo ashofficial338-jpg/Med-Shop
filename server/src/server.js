@@ -113,6 +113,12 @@ if (missingEnv.length) {
   console.error(`Missing required environment variables: ${missingEnv.join(", ")}`);
   process.exit(1);
 }
+// Every token is signed with JWT_SECRET: it must stay the same across
+// deploys and restarts (set it once in the host's environment, never
+// generate it at startup), or every signed-in user gets 401s.
+if (process.env.JWT_SECRET.length < 32) {
+  console.warn("JWT_SECRET is shorter than 32 characters - use a long random value.");
+}
 
 connectDB()
   .then(() => {

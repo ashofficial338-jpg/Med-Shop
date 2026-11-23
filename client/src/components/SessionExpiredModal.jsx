@@ -1,8 +1,14 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
+const MESSAGES = {
+  inactivity: "Your session has expired due to inactivity. Please log in again.",
+  expired: "Your session has expired. Please log in again.",
+  invalid: "Your session is no longer valid. Please log in again.",
+};
+
 export default function SessionExpiredModal() {
-  const { sessionExpired, acknowledgeSessionExpired } = useAuth();
+  const { sessionExpired, sessionExpiredReason, acknowledgeSessionExpired } = useAuth();
   const navigate = useNavigate();
 
   if (!sessionExpired) return null;
@@ -17,7 +23,7 @@ export default function SessionExpiredModal() {
       <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
         <h2 className="font-display text-xl font-semibold text-text">Session Expired</h2>
         <p className="mt-2 text-sm text-muted">
-          Your session has expired due to inactivity. Please log in again.
+          {MESSAGES[sessionExpiredReason] || MESSAGES.expired}
         </p>
         <button
           onClick={handleGoToLogin}

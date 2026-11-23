@@ -15,6 +15,59 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
+// The signed-in user's JWT. It lives here, in the module, and is attached by
+// a request interceptor at the moment each request is sent - so it's on the
+// very first request after login or a page refresh, no matter which
+// component's effects run first. AuthContext is the only writer.
+let authToken = null;
+
+export function setAuthToken(token) {
+  authToken = token || null;
+}
+
+// AuthContext registers this to hear about a rejected session (401).
+let unauthorizedHandler = null;
+export function onUnauthorized(fn) {
+  unauthorizedHandler = fn;
+  return () => {
+    if (unauthorizedHandler === fn) unauthorizedHandler = null;
+  };
+}
+
+api.interceptors.request.use((config) => {
+  // Retries reuse their config, so keep the token they were first sent with.
+  if (authToken && !config.headers.has("Authorization")) {
+    config.headers.set("Authorization", `Bearer ${authToken}`);
+    config.__authToken = authToken;
+  }
+  return config;
+});
+
+// A 401 only ends the session when the request carried the token that is
+// current right now. A request sent before login, or one from a session
+// that has since been replaced or signed out, can't log the user out - so
+// there are no logout loops from stale in-flight requests.
+function handleUnauthorized(error) {
+  const config = error.config;
+  if (error.response?.status !== 401 || !config?.__authToken) return;
+  if (config.__authToken !== authToken) return;
+  unauthorizedHandler?.(error.response.data?.code === "TOKEN_EXPIRED" ? "expired" : "invalid");
+}
+
+// One readable message for any failed request, for toasts and inline errors.
+export function getErrorMessage(error, fallback = "Something went wrong. Please try again.") {
+  if (axios.isCancel(error)) return "";
+  const status = error?.response?.status;
+  const serverMessage = error?.response?.data?.message;
+  if (serverMessage && typeof serverMessage === "string") return serverMessage;
+  if (!error?.response) return "Can't reach the server. Check your connection and try again.";
+  if (status === 401) return "Your session has ended. Please sign in again.";
+  if (status === 403) return "You do not have permission to perform this action.";
+  if (status === 404) return "No records found.";
+  if (status >= 500) return "The server ran into a problem. Please try again.";
+  return fallback;
+}
+
 // Render restarts the backend on every deploy and sleeps it when idle; waking
 // it takes 30-60 seconds, during which requests fail (ECONNRESET / 502-504).
 // Reads are safe to repeat, so GETs keep retrying for about 90 seconds - long
@@ -62,6 +115,7 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    handleUnauthorized(error);
     const config = error.config;
     const status = error.response?.status;
     // `silent` requests (health pings) never retry or touch the banner.
@@ -93,14 +147,6 @@ api.interceptors.response.use(
 // going back to sleep while the app is open, and detect when it's back.
 export function pingServer() {
   return api.get("/health", { silent: true, timeout: 20_000 });
-}
-
-export function setAuthToken(token) {
-  if (token) {
-    api.defaults.headers.common.Authorization = `Bearer ${token}`;
-  } else {
-    delete api.defaults.headers.common.Authorization;
-  }
 }
 
 export function resolveAssetUrl(pathOrUrl) {

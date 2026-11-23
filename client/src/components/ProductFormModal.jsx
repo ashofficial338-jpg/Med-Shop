@@ -64,9 +64,9 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
   const [enabling, setEnabling] = useState(false);
 
   useEffect(() => {
-    listCategories().then(setCategories);
+    listCategories().then(setCategories).catch(() => {});
     // Suppliers are admin-only, so staff granted "Add/Edit products" skip this field.
-    if (isAdmin) listVendors().then(setVendors);
+    if (isAdmin) listVendors().then(setVendors).catch(() => {});
   }, [isAdmin]);
 
   useEffect(() => {

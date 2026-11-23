@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { listCategories, createCategory, deleteCategory } from "../api/products";
+import { getErrorMessage } from "../api/client";
 
 export default function CategoriesModal({ onClose, onChanged }) {
   const [categories, setCategories] = useState([]);
@@ -11,10 +12,12 @@ export default function CategoriesModal({ onClose, onChanged }) {
   const [deletingId, setDeletingId] = useState(null);
 
   const load = () =>
-    listCategories().then((data) => {
-      setCategories(data);
-      setLoading(false);
-    });
+    listCategories()
+      .then(setCategories)
+      .catch((err) => {
+        if (err.response?.status !== 401) setError(getErrorMessage(err, "Could not load categories."));
+      })
+      .finally(() => setLoading(false));
 
   useEffect(() => {
     load();

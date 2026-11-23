@@ -11,6 +11,7 @@ import FloatingCartBar from "../components/FloatingCartBar";
 import CompositionReportModal from "../components/CompositionReportModal";
 import { combinedStockLabel } from "../utils/medicine";
 import { listProducts, listCategories, getProductFilterOptions } from "../api/products";
+import { getErrorMessage } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
 import { can } from "../utils/permissions";
@@ -122,10 +123,14 @@ export default function Products() {
     if (minPrice !== "") params.minPrice = minPrice;
     if (maxPrice !== "") params.maxPrice = maxPrice;
     if (status) params.status = status;
-    listProducts(params).then((data) => {
-      setProducts(data);
-      setLoading(false);
-    });
+    listProducts(params)
+      .then(setProducts)
+      .catch((err) => {
+        // A 401 is handled centrally (session-expired modal); anything else
+        // is shown here instead of leaving the page loading forever.
+        if (err.response?.status !== 401) toast.error(getErrorMessage(err, "Could not load products."));
+      })
+      .finally(() => setLoading(false));
   }, [query, category, availability, brand, dosageForm, minPrice, maxPrice, status]);
 
   useEffect(() => {
@@ -133,7 +138,7 @@ export default function Products() {
   }, [load]);
 
   useEffect(() => {
-    listCategories().then(setCategories);
+    listCategories().then(setCategories).catch(() => {});
     getProductFilterOptions().then(setFilterOptions).catch(() => {});
   }, []);
 
@@ -161,7 +166,7 @@ export default function Products() {
     setEditingProduct(null);
     setShowAddForm(false);
     load();
-    listCategories().then(setCategories);
+    listCategories().then(setCategories).catch(() => {});
   };
 
   const renderTile = (p) => (
@@ -394,7 +399,7 @@ export default function Products() {
       {showCategories && (
         <CategoriesModal
           onClose={() => setShowCategories(false)}
-          onChanged={() => listCategories().then(setCategories)}
+          onChanged={() => listCategories().then(setCategories).catch(() => {})}
         />
       )}
 
