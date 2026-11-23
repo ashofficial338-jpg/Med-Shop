@@ -23,10 +23,9 @@ An existing file is never overwritten. Folders are created automatically.
 
 ## Sales Entry invoices
 
-Invoices made on the **Sales Entry** screen use the same SALES-xxx series as
-POS bills (one counter, so numbers never clash) and are saved in the same
-`reports\sales\...` folders, in the folder for their invoice date. Restart the
-saver after updating so it picks them up.
+Invoices made on the **Sales Entry** screen are saved in the database only -
+no PDF or Excel files are made for them. They share the SALES-xxx number
+series with POS bills, so a number is never used twice.
 
 ## Edited and voided invoices
 

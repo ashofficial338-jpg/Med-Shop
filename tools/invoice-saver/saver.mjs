@@ -1,5 +1,5 @@
 // Invoice Saver - runs on the shop PC and saves a PDF + Excel copy of every
-// sale (POS bills and Sales Entry invoices) and purchase into:
+// POS sale and purchase into:
 //   reports\sales\<Year>\<Month>\<DD-MM-YYYY>\SALES-001.pdf / .xlsx
 //   reports\purchase\<Year>\<Month>\<DD-MM-YYYY>\PUR-001.pdf / .xlsx
 //
@@ -36,10 +36,8 @@ const FOLDERS = {
   sales: process.env.SALES_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\sales`,
   purchase: process.env.PURCHASE_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\purchase`,
 };
-// Sales Entry invoices share the SALES-xxx series with POS bills, so they go
-// in the same sales folder (their numbers never clash).
-FOLDERS["sales-entry"] = FOLDERS.sales;
-const KIND_ORDER = ["sales", "sales-entry", "purchase"];
+// Sales Entry invoices are data only (no files), so they aren't listed here.
+const KIND_ORDER = ["sales", "purchase"];
 const EMAIL = process.env.SAVER_EMAIL;
 const PASSWORD = process.env.SAVER_PASSWORD;
 const POLL_SECONDS = Math.max(Number(process.env.POLL_SECONDS) || 10, 3);

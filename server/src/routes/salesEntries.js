@@ -6,7 +6,7 @@ import Counter, { nextSequence } from "../models/Counter.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { calcInvoice, GST_RATES, PAYMENT_MODES } from "../utils/salesEntryCalc.js";
 import { salesEntryPdf, salesEntryXlsx } from "../utils/salesEntryDocs.js";
-import { KINDS, formatArchiveNo, markInvoiceChanged } from "../utils/invoiceArchive.js";
+import { KINDS, formatArchiveNo } from "../utils/invoiceArchive.js";
 import { dayRange } from "../utils/queryFilters.js";
 import { SHOP } from "../utils/saleHelpers.js";
 
@@ -44,7 +44,8 @@ function buildEntry(body) {
   if (c.mobile && c.mobile.length !== 10) return { error: "Mobile number should be 10 digits." };
   if (c.name.length > 120 || c.address.length > 300) return { error: "Customer name or address is too long." };
 
-  const paymentMode = PAYMENT_MODES.includes(body.paymentMode) ? body.paymentMode : null;
+  // The simple form has no payment mode field - Cash unless one is sent.
+  const paymentMode = body.paymentMode == null || body.paymentMode === "" ? "Cash" : PAYMENT_MODES.includes(body.paymentMode) ? body.paymentMode : null;
   if (!paymentMode) return { error: "Choose a payment mode: Cash, UPI, Bank Transfer or Credit." };
   if (paymentMode === "Credit" && !c.name) return { error: "Enter the customer's name for a credit sale." };
 
@@ -239,8 +240,7 @@ router.post("/", async (req, res) => {
   res.status(201).json(entry);
 });
 
-// Corrects a saved entry (Admin). The invoice number stays the same; the
-// Invoice Saver keeps the original files and saves "SALES-001 (edited 1)".
+// Corrects a saved entry (Admin). The invoice number stays the same.
 router.put("/:id", requireRole("admin"), async (req, res) => {
   const entry = await findEntry(req, res);
   if (!entry) return;
@@ -248,7 +248,6 @@ router.put("/:id", requireRole("admin"), async (req, res) => {
   if (error) return res.status(400).json({ message: error });
   entry.set({ ...data, editedAt: new Date(), editedBy: req.user._id });
   await entry.save();
-  await markInvoiceChanged("sales-entry", entry._id, "edited");
   res.json(await SalesEntry.findById(entry._id).populate("createdBy", "username").populate("editedBy", "username"));
 });
 

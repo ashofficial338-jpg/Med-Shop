@@ -6,8 +6,8 @@
 //            taxable  = amount - discount
 //            GST      = taxable x GST% / 100, split CGST + SGST half each
 //                       (or all IGST for an inter-state supply)
-// Invoice:   grand total = taxable + all GST, rounded to the nearest rupee
-//            (the difference is shown as Round Off, as in Tally).
+// Invoice:   grand total = taxable + all GST (not rounded, so it always
+//            equals the sum of the line totals; roundOff is kept at 0).
 
 export const GST_RATES = [0, 5, 12, 18, 28];
 export const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Credit"];
@@ -41,7 +41,7 @@ export function calcInvoice(items, interState) {
   const sgstTotal = sum("sgst");
   const igstTotal = sum("igst");
   const exact = r2(taxableTotal + cgstTotal + sgstTotal + igstTotal);
-  const grandTotal = Math.round(exact);
+  const grandTotal = exact;
   return {
     lines,
     subtotal: sum("amount"),
@@ -50,7 +50,7 @@ export function calcInvoice(items, interState) {
     cgstTotal,
     sgstTotal,
     igstTotal,
-    roundOff: r2(grandTotal - exact),
+    roundOff: 0,
     grandTotal,
     amountInWords: amountInWords(grandTotal),
   };

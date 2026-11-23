@@ -23,8 +23,8 @@ export const KINDS = {
   sales: { model: Sale, prefix: "SALES", counter: "archiveSalesNo" },
   purchase: { model: Purchase, prefix: "PUR", counter: "archivePurchaseNo" },
   // Sales Entry vouchers (routes/salesEntries.js) share the SALES counter, so
-  // POS bills and Sales Entries form one series and their files (both saved
-  // in reports\sales) never clash. They're numbered when saved, not here.
+  // POS bills and Sales Entries form one series. They're numbered when saved,
+  // and no files are saved for them (see numberAndList).
   "sales-entry": { model: SalesEntry, prefix: "SALES", counter: "archiveSalesNo" },
 };
 
@@ -44,6 +44,9 @@ export function pendingInvoices(kind, limit) {
 }
 
 async function numberAndList(kind, limit) {
+  // Sales Entries are data only - no PDF/Excel files are made for them, so
+  // the saver (including one still running older code) never gets any.
+  if (kind === "sales-entry") return [];
   const { model, prefix, counter } = KINDS[kind];
   const pending = await model
     .find({ archivedAt: null }, "archiveNo archiveVersion archiveCopies archiveChange createdAt invoiceDate")
