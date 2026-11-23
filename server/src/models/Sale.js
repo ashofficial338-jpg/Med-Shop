@@ -94,6 +94,9 @@ const saleSchema = new mongoose.Schema(
     archiveVersion: { type: Number, default: 0 },
     archiveCopies: { type: Number, default: 0 },
     archiveChange: { type: String, enum: ["edited", "void"], default: "edited" },
+    // The invoice number a bill had in the Excel file it was imported from
+    // (Sales Excel upload) - stops the same invoice being imported twice.
+    importRef: { type: String, trim: true, maxlength: 60 },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -117,5 +120,7 @@ saleSchema.index({ archivedAt: 1, createdAt: 1 });
 // customer ledgers.
 saleSchema.index({ createdAt: -1 });
 saleSchema.index({ customer: 1, createdAt: -1 });
+// One bill per imported invoice number (bills entered at the counter have none).
+saleSchema.index({ importRef: 1 }, { unique: true, partialFilterExpression: { importRef: { $type: "string" } } });
 
 export default mongoose.model("Sale", saleSchema);

@@ -30,6 +30,7 @@ import daybookRoutes from "./routes/daybook.js";
 import reportsRoutes from "./routes/reports.js";
 import publicRoutes from "./routes/public.js";
 import invoiceArchiveRoutes from "./routes/invoiceArchive.js";
+import importsRoutes from "./routes/imports.js";
 import { announceChanges, eventsRoute } from "./utils/liveEvents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,7 +61,8 @@ const corsOptions = {
 app.use(cors(corsOptions));
 // Answer every preflight up front, before auth or any route can reject it.
 app.options("*", cors(corsOptions));
-app.use(express.json());
+// Large enough for an Excel upload of thousands of rows (routes/imports.js).
+app.use(express.json({ limit: "15mb" }));
 app.use(morgan("dev"));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
@@ -88,6 +90,7 @@ app.use("/api/day-book", daybookRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/invoice-archive", invoiceArchiveRoutes);
+app.use("/api/imports", importsRoutes);
 
 // In a single combined deploy this same process also serves the built React
 // app, under the same origin as the API, so no CORS setup or separate

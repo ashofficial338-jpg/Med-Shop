@@ -6,6 +6,7 @@ import { listSales, exportSales } from "../api/sales";
 import { listCategories } from "../api/products";
 import { useAuth } from "../context/AuthContext";
 import ExportButtons from "../components/ExportButtons";
+import ExcelUploadModal from "../components/ExcelUploadModal";
 import { PAYMENT_MODES } from "../components/dashboard/ReportFilters";
 import { compactParams } from "../utils/query";
 
@@ -20,6 +21,8 @@ export default function BillHistory() {
   const [sales, setSales] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [excelOpen, setExcelOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
   const params = compactParams(filters);
@@ -41,7 +44,7 @@ export default function BillHistory() {
     return () => {
       cancelled = true;
     };
-  }, [paramsKey]);
+  }, [paramsKey, reloadKey]);
 
   // Bills made/edited by anyone appear without a refresh.
   useLiveRefresh(["sales"], () => {
@@ -65,7 +68,18 @@ export default function BillHistory() {
         <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">
           {user.role === "admin" ? "Bill History" : "My Bills"}
         </h1>
-        <ExportButtons onExport={(format) => exportSales(format, params)} />
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportButtons onExport={(format) => exportSales(format, params)} />
+          {user.role === "admin" && (
+            <button
+              onClick={() => setExcelOpen(true)}
+              title="Upload many sales invoices at once from an Excel file (.xlsx or .xls)"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
+            >
+              Upload Excel
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -151,6 +165,7 @@ export default function BillHistory() {
           </button>
         ))}
       </div>
+      {excelOpen && <ExcelUploadModal kind="sales" onClose={() => setExcelOpen(false)} onSaved={() => setReloadKey((k) => k + 1)} />}
     </Layout>
   );
 }

@@ -10,6 +10,7 @@ import DirectPurchaseModal from "../components/DirectPurchaseModal";
 import PurchaseFormModal from "../components/PurchaseFormModal";
 import PurchaseEditModal from "../components/PurchaseEditModal";
 import InvoiceUploadModal from "../components/InvoiceUploadModal";
+import ExcelUploadModal from "../components/ExcelUploadModal";
 import { listUnregisteredSuppliers, deletePurchase } from "../api/purchases";
 import { toast } from "react-toastify";
 import { compactParams } from "../utils/query";
@@ -30,6 +31,7 @@ export default function PurchaseHistory() {
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [excelOpen, setExcelOpen] = useState(false);
   // Pre-fill for the purchase forms when the entry started from an uploaded bill.
   const [scanData, setScanData] = useState(null);
 
@@ -132,6 +134,13 @@ export default function PurchaseHistory() {
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark"
           >
             Upload Bill (Image / PDF)
+          </button>
+          <button
+            onClick={() => setExcelOpen(true)}
+            title="Upload many purchase invoices at once from an Excel file (.xlsx or .xls)"
+            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
+          >
+            Upload Excel
           </button>
         </div>
       </div>
@@ -266,6 +275,9 @@ export default function PurchaseHistory() {
             else setDirectMode(mode);
           }}
         />
+      )}
+      {excelOpen && (
+        <ExcelUploadModal kind="purchases" onClose={() => setExcelOpen(false)} onSaved={() => setReloadKey((k) => k + 1)} />
       )}
     </Layout>
   );

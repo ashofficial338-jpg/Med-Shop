@@ -174,6 +174,24 @@ router.post("/", async (req, res) => {
   const now = new Date();
   const resolved = [];
 
+  // Sales Excel upload (Admin): the bill keeps the file's invoice number
+  // (importRef, one bill per number), its date, and each line's rate.
+  // Bills made at the counter send none of these.
+  const importRef = isAdmin && req.body.importRef ? String(req.body.importRef).trim().slice(0, 60) : "";
+  let billDate = null;
+  if (isAdmin && req.body.date) {
+    const m = String(req.body.date).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0) : null;
+    if (!d || Number.isNaN(d.getTime()) || d.getMonth() !== Number(m[2]) - 1) return res.status(400).json({ message: "Please enter a valid bill date." });
+    if (d.getTime() > now.getTime() + 86400000) return res.status(400).json({ message: "The bill date can't be in the future." });
+    // Today's date = now; an earlier day = midday of that day (shop time).
+    const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    billDate = sameDay ? null : d;
+  }
+  if (importRef && (await Sale.exists({ importRef: new RegExp(`^${importRef.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }))) {
+    return res.status(409).json({ message: `Invoice ${importRef} has already been imported.` });
+  }
+
   try {
     for (const item of items) {
       const product = await Product.findById(item.product);
@@ -206,7 +224,9 @@ router.post("/", async (req, res) => {
       if (!(qty > 0)) return res.status(400).json({ message: "Please enter a valid number." });
 
       const internalQty = saleLineInternalQty(product, item.unitType, qty);
-      const rate = item.unitType === "pack" ? product.packRate : product.looseRate;
+      const hasRate = isAdmin && importRef && item.rate !== undefined && item.rate !== null && item.rate !== "";
+      const rate = hasRate ? round2(Number(item.rate)) : item.unitType === "pack" ? product.packRate : product.looseRate;
+      if (!(rate >= 0)) return res.status(400).json({ message: `Please enter a valid rate for ${product.name}.` });
       const unitLabel = item.unitType === "pack" ? product.packUnit : product.looseUnitName;
       const amount = Number((qty * rate).toFixed(2));
       const gstAmount = Number(((amount * product.gstPercent) / 100).toFixed(2));
@@ -313,6 +333,8 @@ router.post("/", async (req, res) => {
     try {
       billNo = await generateBillNo();
       sale = await Sale.create({
+        ...(importRef ? { importRef } : {}),
+        ...(billDate ? { createdAt: billDate } : {}),
         billNo,
         customer: customerId,
         items: resolved.map((r) => r.line),
@@ -340,6 +362,7 @@ router.post("/", async (req, res) => {
         customer: customerId,
         sale: sale._id,
         amount: amountPaid,
+        ...(billDate ? { date: billDate } : {}),
         note: "Received at billing",
         recordedBy: req.user._id,
       });
@@ -363,6 +386,9 @@ router.post("/", async (req, res) => {
     const populated = await sale.populate("customer", "name phone");
     res.status(201).json(populated);
   } catch (e) {
+    // Two uploads of the same invoice at once: the second one's stock was
+    // already put back when its bill failed to save.
+    if (e.code === 11000 && importRef) return res.status(409).json({ message: `Invoice ${importRef} has already been imported.` });
     console.error(e);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
