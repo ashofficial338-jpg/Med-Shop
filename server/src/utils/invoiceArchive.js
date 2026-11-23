@@ -2,12 +2,10 @@ import PDFDocument from "pdfkit";
 import ExcelJS from "exceljs";
 import Sale from "../models/Sale.js";
 import Purchase from "../models/Purchase.js";
-import SalesEntry from "../models/SalesEntry.js";
-import { salesEntryPdf, salesEntryXlsx } from "./salesEntryDocs.js";
 import { nextSequence } from "../models/Counter.js";
 import { buildBillText, SHOP } from "./saleHelpers.js";
 
-// Invoice archive: every sale, Sales Entry and purchase gets a PDF and an Excel copy that
+// Invoice archive: every sale and purchase gets a PDF and an Excel copy that
 // tools/invoice-saver (running on the shop PC) saves to
 //   reports/sales/<Year>/<Month>/<DD-MM-YYYY>/SALES-001.pdf|.xlsx
 //   reports/purchase/<Year>/<Month>/<DD-MM-YYYY>/PUR-001.pdf|.xlsx
@@ -22,10 +20,6 @@ import { buildBillText, SHOP } from "./saleHelpers.js";
 export const KINDS = {
   sales: { model: Sale, prefix: "SALES", counter: "archiveSalesNo" },
   purchase: { model: Purchase, prefix: "PUR", counter: "archivePurchaseNo" },
-  // Sales Entry vouchers (routes/salesEntries.js) share the SALES counter, so
-  // POS bills and Sales Entries form one series. They're numbered when saved,
-  // and no files are saved for them (see numberAndList).
-  "sales-entry": { model: SalesEntry, prefix: "SALES", counter: "archiveSalesNo" },
 };
 
 export const formatArchiveNo = (prefix, seq) => `${prefix}-${String(seq).padStart(3, "0")}`;
@@ -44,12 +38,9 @@ export function pendingInvoices(kind, limit) {
 }
 
 async function numberAndList(kind, limit) {
-  // Sales Entries are data only - no PDF/Excel files are made for them, so
-  // the saver (including one still running older code) never gets any.
-  if (kind === "sales-entry") return [];
   const { model, prefix, counter } = KINDS[kind];
   const pending = await model
-    .find({ archivedAt: null }, "archiveNo archiveVersion archiveCopies archiveChange createdAt invoiceDate")
+    .find({ archivedAt: null }, "archiveNo archiveVersion archiveCopies archiveChange createdAt")
     .sort({ createdAt: 1, _id: 1 })
     .limit(limit);
   for (const doc of pending) {
@@ -63,9 +54,7 @@ async function numberAndList(kind, limit) {
     archiveNo: d.archiveNo,
     version: d.archiveVersion || 0,
     fileName: archiveFileName(d),
-    // Saved in the folder for the day of the invoice: a Sales Entry's own
-    // invoice date, otherwise the day the bill was made.
-    createdAt: d.invoiceDate || d.createdAt,
+    createdAt: d.createdAt,
   }));
 }
 
@@ -96,7 +85,6 @@ export async function markInvoiceChanged(kind, id, change) {
 }
 
 export function loadInvoice(kind, id) {
-  if (kind === "sales-entry") return SalesEntry.findById(id);
   if (kind === "sales") {
     return Sale.findById(id).populate("customer", "name phone address").populate("createdBy", "username");
   }
@@ -131,7 +119,6 @@ const SAMPLE_BANNER = "SAMPLE DATA - NOT A REAL INVOICE";
 // ---- PDF ----
 
 export function invoicePdf(kind, invoice) {
-  if (kind === "sales-entry") return salesEntryPdf(invoice, archiveFileName(invoice));
   return pdfToBuffer((doc) => {
     if (invoice.sampleData) {
       doc.font("Courier-Bold").fontSize(14).fillColor("#C0392B").text(SAMPLE_BANNER, { align: "center" });
@@ -193,7 +180,6 @@ export function invoicePdf(kind, invoice) {
 // ---- Excel ----
 
 export async function invoiceXlsx(kind, invoice) {
-  if (kind === "sales-entry") return salesEntryXlsx(invoice, archiveFileName(invoice));
   const wb = new ExcelJS.Workbook();
   wb.creator = SHOP.name;
   const ws = wb.addWorksheet(archiveFileName(invoice));

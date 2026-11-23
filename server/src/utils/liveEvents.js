@@ -2,7 +2,7 @@ import { requireAuth } from "../middleware/auth.js";
 
 // Live updates: every signed-in screen keeps one connection open to
 // GET /api/events (Server-Sent Events). Whenever any request changes data -
-// a product added/edited, a sale, purchase or Sales Entry saved, stock moved -
+// a product added/edited, a sale or purchase saved, stock moved -
 // a short notice goes to everyone, e.g.
 //   { topics: ["purchases", "products"], resource: "purchases", id: "...", by: "<user id>" }
 // and each open screen reloads what it shows (client/src/context/LiveSync.jsx).
@@ -15,14 +15,13 @@ import { requireAuth } from "../middleware/auth.js";
 const clients = new Set();
 
 // What a change to /api/<resource> can affect. Sales, purchases and stock
-// changes move product stock; a Sales Entry or purchase can add products.
+// changes move product stock; a purchase can add products.
 const TOPICS = {
   products: ["products"],
   categories: ["categories", "products"],
   racks: ["racks", "products"],
   "stock-ledger": ["stock", "products"],
   sales: ["sales", "products", "stock", "customers", "daybook"],
-  "sales-entries": ["sales-entries", "sales", "products", "stock", "customers", "daybook"],
   purchases: ["purchases", "products", "stock", "vendors", "daybook"],
   customers: ["customers"],
   vendors: ["vendors", "products"],
@@ -54,23 +53,6 @@ export function announceChanges(req, res, next) {
     publish({ topics, resource, id: /^[0-9a-f]{24}$/i.test(id || "") ? id : null, by: req.user?._id ? String(req.user._id) : null });
   });
   next();
-}
-
-// Public diagnostic: streams four numbered ticks half a second apart, then
-// ends. No data, no login. Shows whether the host passes a stream through
-// as it's written (curl -N .../api/events/probe) or holds it back.
-export function probeRoute(req, res) {
-  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
-  res.write(`: ${" ".repeat(2048)}\n\n`);
-  let n = 0;
-  const t = setInterval(() => {
-    res.write(`data: ${++n}\n\n`);
-    if (n === 4) {
-      clearInterval(t);
-      res.end();
-    }
-  }, 500);
-  req.on("close", () => clearInterval(t));
 }
 
 export const eventsRoute = [

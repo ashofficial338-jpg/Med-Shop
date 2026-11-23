@@ -18,8 +18,7 @@ import { useAuth } from "./AuthContext";
 // fetch() is used rather than EventSource so the login token travels in a
 // header, never in the URL.
 //
-// Topics: products, categories, racks, stock, sales, sales-entries,
-// purchases, customers, vendors, expenses, daybook, users.
+// Topics: products, categories, racks, stock, sales, purchases, customers, vendors, expenses, daybook, users.
 
 // What a change to /api/<resource> affects - same as the server's list.
 const TOPICS = {
@@ -28,7 +27,6 @@ const TOPICS = {
   racks: ["racks", "products"],
   "stock-ledger": ["stock", "products"],
   sales: ["sales", "products", "stock", "customers", "daybook"],
-  "sales-entries": ["sales-entries", "sales", "products", "stock", "customers", "daybook"],
   purchases: ["purchases", "products", "stock", "vendors", "daybook"],
   customers: ["customers"],
   vendors: ["vendors", "products"],

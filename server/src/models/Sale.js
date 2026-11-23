@@ -15,13 +15,12 @@ const saleItemSchema = new mongoose.Schema(
       required: true,
     },
     unitLabel: { type: String, required: true }, // e.g. "Strip" or "Tablet", snapshot for the printed bill
-    // Above 0 (checked by the routes); can be a part pack on a Sales Entry.
-    qty: { type: Number, required: true, min: 0 },
+    qty: { type: Number, required: true, min: 1 },
     rate: { type: Number, required: true }, // snapshot of packRate/looseRate at sale time
     gstPercent: { type: Number, required: true }, // snapshot
     amount: { type: Number, required: true }, // qty * rate
     gstAmount: { type: Number, required: true },
-    internalQtyDeducted: { type: Number, required: true }, // exact stock units taken, sum of batchBreakdown qtys (0 = sold without stock, Sales Entry)
+    internalQtyDeducted: { type: Number, required: true }, // exact stock units taken, sum of batchBreakdown qtys
     costAmount: { type: Number, required: true }, // cost basis for this line at sale time, sum of batchBreakdown costs
     // Which batch(es) this line's stock actually came from (FEFO can split a
     // line across more than one lot) - void reversal restores exactly these,
@@ -71,7 +70,7 @@ const saleSchema = new mongoose.Schema(
     },
     paymentMode: {
       type: String,
-      enum: ["Cash", "Card", "UPI", "Bank Transfer", "Other", "Credit"],
+      enum: ["Cash", "Card", "UPI", "Other", "Credit"],
       default: "Cash",
     },
     // Only ever mutated by creating a CustomerPayment (see ledgerHelpers.js) -
@@ -100,10 +99,6 @@ const saleSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    // Set when this bill was made by a Sales Entry (routes/salesEntries.js).
-    // Such a bill is changed only through its entry, so the two always agree;
-    // it carries the entry's SALES number and has no saved files.
-    salesEntry: { type: mongoose.Schema.Types.ObjectId, ref: "SalesEntry", default: null },
   },
   { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );

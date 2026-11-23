@@ -75,9 +75,9 @@ export default function Dashboard() {
     load();
   }, [load]);
 
-  // Any sale (POS or Sales Entry), purchase, expense or stock change - by
+  // Any sale, purchase, expense or stock change - by
   // anyone, in any tab - refreshes the figures quietly (see LiveSync.jsx).
-  useLiveRefresh(["sales", "sales-entries", "purchases", "products", "expenses", "customers", "vendors", "stock", "daybook"], () => {
+  useLiveRefresh(["sales", "purchases", "products", "expenses", "customers", "vendors", "stock", "daybook"], () => {
     getDashboardSummary(interactive ? { from, to, category, paymentMode } : {})
       .then(received)
       .catch(() => {});
@@ -155,13 +155,6 @@ export default function Dashboard() {
         </div>
         {interactive ? (
           <div className="flex flex-wrap gap-2">
-            <Link
-              to="/sales-entry"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-white hover:bg-secondary-dark"
-            >
-              <Icon name="plus" size={16} />
-              Sales Entry
-            </Link>
             <Link
               to={withQuery("/reports", { from, to, category, paymentMode })}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-dark"

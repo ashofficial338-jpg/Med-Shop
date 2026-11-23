@@ -107,7 +107,7 @@ function settleRetry(config) {
 }
 
 // Successful saves (any non-GET request), for live updates in this browser -
-// see context/LiveSync.jsx. Called with the request's URL, e.g. "/sales-entries".
+// see context/LiveSync.jsx. Called with the request's URL, e.g. "/purchases".
 const mutationListeners = new Set();
 export function onMutation(fn) {
   mutationListeners.add(fn);

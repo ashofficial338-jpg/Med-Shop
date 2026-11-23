@@ -21,12 +21,6 @@ An existing file is never overwritten. Folders are created automatically.
 
 `node saver.mjs --once` saves everything pending and exits.
 
-## Sales Entry invoices
-
-Invoices made on the **Sales Entry** screen are saved in the database only -
-no PDF or Excel files are made for them. They share the SALES-xxx number
-series with POS bills, so a number is never used twice.
-
 ## Edited and voided invoices
 
 When a saved sale or purchase is edited or voided, a new copy is saved next to

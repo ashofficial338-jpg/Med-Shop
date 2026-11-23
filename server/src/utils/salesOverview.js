@@ -2,8 +2,7 @@ import Sale from "../models/Sale.js";
 
 // Dashboard "Sales overview": today / this month / this year (India time),
 // and for the dashboard's period: sales by payment mode, top customers, top
-// products and GST. Read straight from the bills - POS bills and Sales
-// Entries alike (every Sales Entry records a bill) - so it always matches
+// products and GST. Read straight from the bills, so it always matches
 // Bill History, Day Book and Reports. Void bills don't count.
 
 const IST_OFFSET_MS = 330 * 60 * 1000;

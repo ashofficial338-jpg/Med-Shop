@@ -142,16 +142,7 @@ router.get("/:id/pdf", async (req, res) => {
   streamBillPdf(sale, res);
 });
 
-// Also used by Sales Entry (routes/salesEntries.js), which calls these
-// handlers directly with req.fromSalesEntry set: the rate, GST and discount
-// typed on the entry are then used instead of the product's own, and the
-// bill carries the entry's SALES number. Plain API requests can't set it.
-// A Sales Entry line can also be marked noStock: it's sold without touching
-// stock (no stock recorded for it), so it has no batches and no cost.
-const linkedEntryMessage = (sale) =>
-  `This bill was made from Sales Entry ${sale.archiveNo || ""}. Edit or delete it from Sales Entry so both stay the same.`;
-
-export async function createSaleHandler(req, res) {
+router.post("/", async (req, res) => {
   const { customer, items, paymentMode, discount, overrideExpiredReason, amountReceived } = req.body;
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -191,25 +182,22 @@ export async function createSaleHandler(req, res) {
           : null;
         if (!pickedBatch) return res.status(400).json({ message: `The selected batch of ${product.name} is no longer available.` });
       }
-      const noStock = Boolean(req.fromSalesEntry && item.noStock);
-      const nextBatch = noStock ? null : pickedBatch || (await earliestActiveBatch(product._id));
+      const nextBatch = pickedBatch || (await earliestActiveBatch(product._id));
       const isExpired = Boolean(nextBatch?.expiryDate) && new Date(nextBatch.expiryDate) < now;
       // An admin can knowingly sell expired stock; the reason note is optional.
       const overriding = isAdmin && (req.body.overrideExpired === true || Boolean(overrideExpiredReason));
       if (isExpired && !overriding) {
-        return res.status(400).json({ message: `The next batch of ${product.name} has expired and cannot be sold. Clear the expired stock in Inventory first.` });
+        return res.status(400).json({ message: "This batch has expired and cannot be sold." });
       }
 
       const qty = Number(item.qty);
       if (!(qty > 0)) return res.status(400).json({ message: "Please enter a valid number." });
 
       const internalQty = saleLineInternalQty(product, item.unitType, qty);
-      const fromEntry = Boolean(req.fromSalesEntry);
-      const rate = fromEntry && item.rate != null ? Number(item.rate) : item.unitType === "pack" ? product.packRate : product.looseRate;
+      const rate = item.unitType === "pack" ? product.packRate : product.looseRate;
       const unitLabel = item.unitType === "pack" ? product.packUnit : product.looseUnitName;
       const amount = Number((qty * rate).toFixed(2));
-      const lineGstPercent = fromEntry && item.gstPercent != null ? Number(item.gstPercent) : product.gstPercent;
-      const gstAmount = fromEntry && item.gstAmount != null ? Number(Number(item.gstAmount).toFixed(2)) : Number(((amount * lineGstPercent) / 100).toFixed(2));
+      const gstAmount = Number(((amount * product.gstPercent) / 100).toFixed(2));
 
       const unitName = product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit;
       if (pickedBatch && pickedBatch.qtyRemaining < internalQty) {
@@ -225,7 +213,6 @@ export async function createSaleHandler(req, res) {
       }
 
       resolved.push({
-        noStock,
         product,
         internalQty,
         batchId: pickedBatch?._id || null,
@@ -238,7 +225,7 @@ export async function createSaleHandler(req, res) {
           unitLabel,
           qty,
           rate,
-          gstPercent: lineGstPercent,
+          gstPercent: product.gstPercent,
           amount,
           gstAmount,
         },
@@ -251,13 +238,7 @@ export async function createSaleHandler(req, res) {
     // lot(s) it came from. If anything fails partway, everything already
     // reserved for earlier lines - both the product total and batch qtys - is put back.
     const settled = [];
-    for (const { product, internalQty, line, batchId, rack, noStock } of resolved) {
-      if (noStock) {
-        line.internalQtyDeducted = 0;
-        line.costAmount = 0;
-        line.batchBreakdown = [];
-        continue;
-      }
+    for (const { product, internalQty, line, batchId, rack } of resolved) {
       const updated = await Product.findOneAndUpdate(
         { _id: product._id, qty: { $gte: internalQty } },
         { $inc: { qty: -internalQty } },
@@ -300,7 +281,7 @@ export async function createSaleHandler(req, res) {
       settled.push({ product, internalQty, breakdown, line });
     }
 
-    const isDiscountAllowed = isAdmin || Boolean(req.fromSalesEntry);
+    const isDiscountAllowed = isAdmin;
     const appliedDiscount = isDiscountAllowed ? Number(discount) || 0 : 0;
 
     const subtotal = Number(resolved.reduce((s, r) => s + r.line.amount, 0).toFixed(2));
@@ -323,7 +304,6 @@ export async function createSaleHandler(req, res) {
       paymentMode: resolvedPaymentMode,
       amountPaid,
       createdBy: req.user._id,
-      ...(req.fromSalesEntry?.saleFields || {}),
     });
 
     if (resolvedPaymentMode === "Credit" && amountPaid > 0) {
@@ -359,11 +339,9 @@ export async function createSaleHandler(req, res) {
     console.error(e);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
-}
-router.post("/", createSaleHandler);
+});
 
-
-const SALE_PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank Transfer", "Other", "Credit"];
+const SALE_PAYMENT_MODES = ["Cash", "Card", "UPI", "Other", "Credit"];
 const BILLING_RECEIPT_NOTE = "Received at billing";
 const round2 = (n) => Number(Number(n).toFixed(2));
 
@@ -375,15 +353,13 @@ const round2 = (n) => Number(Number(n).toFixed(2));
 // stays as it was. Money already collected later through the customer
 // ledger is protected: such a bill stays on Credit for the same customer and
 // its total can't drop below what was collected.
-export async function updateSaleHandler(req, res) {
+router.put("/:id", requireRole("admin"), async (req, res) => {
   const { customer, items, paymentMode, discount, amountReceived, overrideExpired } = req.body;
 
   const sale = await Sale.findById(req.params.id);
   if (!sale) return res.status(404).json({ message: "No records found." });
-  if (sale.salesEntry && !req.fromSalesEntry) return res.status(400).json({ message: linkedEntryMessage(sale) });
   if (sale.paymentStatus === "void") return res.status(400).json({ message: "A voided bill can't be edited." });
-  // (Lines sold without stock - internalQtyDeducted 0 - have no batches by design.)
-  if (sale.items.some((i) => (!i.batchBreakdown || i.batchBreakdown.length === 0) && i.internalQtyDeducted > 0)) {
+  if (sale.items.some((i) => !i.batchBreakdown || i.batchBreakdown.length === 0)) {
     return res.status(400).json({ message: "This bill was made before batch tracking and can't be edited. Void it and bill again instead." });
   }
   if (!Array.isArray(items) || items.length === 0) {
@@ -432,10 +408,9 @@ export async function updateSaleHandler(req, res) {
     const currentRate = item.unitType === "pack" ? product.packRate : product.looseRate;
     const rate = hasRate ? Number(item.rate) : original ? original.rate : currentRate;
     if (!(rate >= 0)) return res.status(400).json({ message: `Please enter a valid rate for ${product.name}.` });
-    const gstPercent = req.fromSalesEntry && item.gstPercent != null ? Number(item.gstPercent) : original ? original.gstPercent : product.gstPercent;
+    const gstPercent = original ? original.gstPercent : product.gstPercent;
     const amount = round2(qty * rate);
     resolved.push({
-      noStock: Boolean(req.fromSalesEntry && item.noStock),
       product,
       internalQty: saleLineInternalQty(product, item.unitType, qty),
       line: {
@@ -448,7 +423,7 @@ export async function updateSaleHandler(req, res) {
         rate,
         gstPercent,
         amount,
-        gstAmount: req.fromSalesEntry && item.gstAmount != null ? round2(Number(item.gstAmount)) : round2((amount * gstPercent) / 100),
+        gstAmount: round2((amount * gstPercent) / 100),
       },
     });
   }
@@ -548,12 +523,6 @@ export async function updateSaleHandler(req, res) {
     await restoreOriginal();
     const settled = [];
     for (const r of resolved) {
-      if (r.noStock) {
-        r.line.internalQtyDeducted = 0;
-        r.line.costAmount = 0;
-        r.line.batchBreakdown = [];
-        continue;
-      }
       const out = await takeLine(r.product, r.internalQty);
       if (!out.breakdown) {
         for (const s of settled) await releaseLine(s.product._id, s.internalQty, s.line.batchBreakdown);
@@ -624,8 +593,7 @@ export async function updateSaleHandler(req, res) {
       editedBy: req.user._id,
     });
     await sale.save();
-    // A Sales Entry's bill has no saved files (it's data only).
-    if (!req.fromSalesEntry) await markInvoiceChanged("sales", sale._id, "edited");
+    await markInvoiceChanged("sales", sale._id, "edited");
 
     const populated = await Sale.findById(sale._id).populate("customer", "name phone").populate("createdBy", "username");
     res.json({ ...populated.toObject(), billText: buildBillText(populated) });
@@ -633,15 +601,12 @@ export async function updateSaleHandler(req, res) {
     console.error(e);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
-}
-router.put("/:id", requireRole("admin"), updateSaleHandler);
-
+});
 
 // Puts every unit a bill took back where it came from, logging each return
 // with `label` (e.g. "Void of GM-000012: wrong customer").
 async function returnSaleStock(sale, label, userId) {
   for (const item of sale.items) {
-    if (!(item.internalQtyDeducted > 0)) continue; // sold without stock - nothing to return
     await Product.updateOne({ _id: item.product }, { $inc: { qty: item.internalQtyDeducted } });
 
     if (item.batchBreakdown && item.batchBreakdown.length > 0) {
@@ -681,7 +646,6 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
 
   const sale = await Sale.findById(req.params.id).populate("customer", "name phone").populate("createdBy", "username");
   if (!sale) return res.status(404).json({ message: "No records found." });
-  if (sale.salesEntry) return res.status(400).json({ message: linkedEntryMessage(sale) });
   if (sale.paymentStatus === "void") {
     return res.status(400).json({ message: "This bill has already been voided." });
   }
@@ -706,10 +670,9 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
 // put back first; what was received at billing goes with it. Money collected
 // later through the customer ledger has to be deleted there first, so the
 // customer's account never shows a payment for a bill that doesn't exist.
-export async function deleteSaleHandler(req, res) {
+router.delete("/:id", requireRole("admin"), async (req, res) => {
   const sale = await Sale.findById(req.params.id);
   if (!sale) return res.status(404).json({ message: "No records found." });
-  if (sale.salesEntry && !req.fromSalesEntry) return res.status(400).json({ message: linkedEntryMessage(sale) });
 
   const linked = await CustomerPayment.find({ sale: sale._id });
   const atBilling = linked.filter((p) => p.note === BILLING_RECEIPT_NOTE);
@@ -731,8 +694,6 @@ export async function deleteSaleHandler(req, res) {
     console.error(e);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
-}
-router.delete("/:id", requireRole("admin"), deleteSaleHandler);
-
+});
 
 export default router;

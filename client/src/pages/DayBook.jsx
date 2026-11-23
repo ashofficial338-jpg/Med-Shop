@@ -147,7 +147,7 @@ export default function DayBook() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  // Sales, Sales Entries, purchases, expenses and payments by anyone move
+  // Sales, purchases, expenses and payments by anyone move
   // these balances: refresh quietly.
   useLiveRefresh(["daybook", "sales", "purchases", "expenses", "customers"], () => {
     getDayBookSummary(date).then(setData).catch(() => {});

@@ -36,7 +36,6 @@ const FOLDERS = {
   sales: process.env.SALES_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\sales`,
   purchase: process.env.PURCHASE_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\purchase`,
 };
-// Sales Entry invoices are data only (no files), so they aren't listed here.
 const KIND_ORDER = ["sales", "purchase"];
 const EMAIL = process.env.SAVER_EMAIL;
 const PASSWORD = process.env.SAVER_PASSWORD;

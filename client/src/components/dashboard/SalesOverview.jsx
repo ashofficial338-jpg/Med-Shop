@@ -3,7 +3,7 @@ import { StatTile } from "./DashboardWidgets";
 
 // Dashboard "Sales overview": today / this month / this year, and for the
 // dashboard's period: sales by payment mode, top customers, top products and
-// GST. Includes POS bills and Sales Entries (server utils/salesOverview.js).
+// GST. Read from the bills (server utils/salesOverview.js).
 
 const fmt = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -81,7 +81,7 @@ export default function SalesOverview({ data, links }) {
         />
       </div>
       <p className="text-xs text-muted">
-        This period: taxable {fmt(data.gst.taxable)} + GST {fmt(data.gst.gst)} = {fmt(data.gst.total)} (POS bills and Sales Entries).
+        This period: taxable {fmt(data.gst.taxable)} + GST {fmt(data.gst.gst)} = {fmt(data.gst.total)}.
       </p>
     </div>
   );

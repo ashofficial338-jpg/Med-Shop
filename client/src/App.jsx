@@ -26,8 +26,6 @@ import StockManagement from "./pages/StockManagement";
 import RackCenter from "./pages/RackCenter";
 import ProductProfitabilityReport from "./pages/ProductProfitabilityReport";
 import RolesPermissions from "./pages/RolesPermissions";
-import SalesEntry from "./pages/SalesEntry";
-import SalesEntryHistory from "./pages/SalesEntryHistory";
 
 // Reports & Analytics is large (charts, tables, export dialog) and only some
 // users open it, so it loads on first visit instead of with the app.
@@ -162,31 +160,6 @@ export default function App() {
           element={
             <ProtectedRoute>
               <BillHistory />
-            </ProtectedRoute>
-          }
-        />
-        {/* Sales Entry (Tally-style invoice). /history is matched before /:id. */}
-        <Route
-          path="/sales-entry"
-          element={
-            <ProtectedRoute>
-              <SalesEntry />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/sales-entry/history"
-          element={
-            <ProtectedRoute>
-              <SalesEntryHistory />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/sales-entry/:id"
-          element={
-            <ProtectedRoute>
-              <SalesEntry />
             </ProtectedRoute>
           }
         />

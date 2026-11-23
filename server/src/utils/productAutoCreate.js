@@ -1,7 +1,7 @@
 import Product from "../models/Product.js";
 import { generateProductCode, resolveCategory } from "./productHelpers.js";
 
-// Products typed in on Sales Entry and Purchase Entry: an existing product is
+// Products typed in on Purchase Entry: an existing product is
 // reused, a new name is added to the Product List (Product Master) when the
 // entry is saved - no separate trip to Products needed.
 //

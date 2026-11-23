@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listProducts, similarProducts } from "../api/products";
 
-// Product name box for Sales Entry and Purchase Entry: type to see matching
+// Product name box for Purchase Entry: type to see matching
 // products from the Product List and pick one, or keep typing a new name -
 // it's added to the Product List when the entry is saved. Before that,
 // products with the same or a close name are shown, so the same item isn't
