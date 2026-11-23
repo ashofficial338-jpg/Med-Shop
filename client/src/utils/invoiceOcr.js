@@ -122,10 +122,14 @@ export async function extractBillText(file, { onProgress = () => {}, signal } = 
     onProgress({ stage: "Opening PDF…", progress: 0 });
     const pdfjs = await loadPdfjs();
     const data = new Uint8Array(await file.arrayBuffer());
+    // pdfjs v6 removed PDFDocumentProxy.destroy(); the loading task owns the
+    // document and its worker, so it is what gets destroyed when done.
+    const loadingTask = pdfjs.getDocument({ data, enableXfa: false, stopAtErrors: false });
     let doc;
     try {
-      doc = await pdfjs.getDocument({ data, enableXfa: false, stopAtErrors: false }).promise;
+      doc = await loadingTask.promise;
     } catch (e) {
+      loadingTask.destroy().catch(() => {});
       if (e?.name === "PasswordException") throw new Error("This PDF is password-protected. Please upload an unlocked copy.");
       throw new Error("This PDF couldn't be opened. It may be damaged.");
     }
@@ -152,7 +156,7 @@ export async function extractBillText(file, { onProgress = () => {}, signal } = 
         page.cleanup();
       }
     } finally {
-      doc.destroy();
+      await loadingTask.destroy().catch(() => {});
     }
   } else {
     onProgress({ stage: "Preparing image…", progress: 0 });
