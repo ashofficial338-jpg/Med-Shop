@@ -56,6 +56,23 @@ export function announceChanges(req, res, next) {
   next();
 }
 
+// Public diagnostic: streams four numbered ticks half a second apart, then
+// ends. No data, no login. Shows whether the host passes a stream through
+// as it's written (curl -N .../api/events/probe) or holds it back.
+export function probeRoute(req, res) {
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
+  res.write(`: ${" ".repeat(2048)}\n\n`);
+  let n = 0;
+  const t = setInterval(() => {
+    res.write(`data: ${++n}\n\n`);
+    if (n === 4) {
+      clearInterval(t);
+      res.end();
+    }
+  }, 500);
+  req.on("close", () => clearInterval(t));
+}
+
 export const eventsRoute = [
   requireAuth,
   (req, res) => {

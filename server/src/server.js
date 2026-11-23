@@ -31,7 +31,7 @@ import reportsRoutes from "./routes/reports.js";
 import publicRoutes from "./routes/public.js";
 import invoiceArchiveRoutes from "./routes/invoiceArchive.js";
 import salesEntriesRoutes from "./routes/salesEntries.js";
-import { announceChanges, eventsRoute } from "./utils/liveEvents.js";
+import { announceChanges, eventsRoute, probeRoute } from "./utils/liveEvents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -69,6 +69,7 @@ app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.get("/api/health", (req, res) => res.json({ status: "ok", commit: (process.env.RENDER_GIT_COMMIT || "local").slice(0, 7) }));
 
 // Live updates: the change stream, and a notice after every saved change.
+app.get("/api/events/probe", probeRoute);
 app.get("/api/events", ...eventsRoute);
 app.use("/api", announceChanges);
 
