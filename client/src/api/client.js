@@ -106,9 +106,27 @@ function settleRetry(config) {
   retrying = Math.max(0, retrying - 1);
 }
 
+// Successful saves (any non-GET request), for live updates in this browser -
+// see context/LiveSync.jsx. Called with the request's URL, e.g. "/sales-entries".
+const mutationListeners = new Set();
+export function onMutation(fn) {
+  mutationListeners.add(fn);
+  return () => mutationListeners.delete(fn);
+}
+
 api.interceptors.response.use(
   (response) => {
     settleRetry(response.config);
+    const method = (response.config?.method || "get").toLowerCase();
+    if (method !== "get" && method !== "head") {
+      for (const fn of mutationListeners) {
+        try {
+          fn(response.config.url);
+        } catch {
+          /* a listener's problem never breaks the request */
+        }
+      }
+    }
     // "failed" is cleared by reloading the page data, not by an unrelated
     // request getting through - see ConnectionStatus.
     if (connection === "waking" && retrying === 0) setConnection("ok");

@@ -15,6 +15,9 @@ import { cached, withReadCache } from "./readCache.js";
 // every PDF/Excel export built from them - so a figure never differs between
 // what's on screen and what's downloaded.
 
+// yyyy-mm-dd of the shop's calendar day (process TZ - see tz.js), not UTC's.
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export const PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank Transfer", "Other", "Credit"];
 
 export function resolveRange(req) {
@@ -160,7 +163,7 @@ async function buildSummary(start, end, filters) {
   // pick out individual lines; per-line figures add back up to the bill totals.
   for (const sale of sales) {
     const modeMatches = !paymentMode || sale.paymentMode === paymentMode;
-    const day = sale.createdAt.toISOString().slice(0, 10);
+    const day = localDay(sale.createdAt);
     let saleMatched = false;
 
     for (const item of sale.items) {
@@ -224,7 +227,7 @@ async function buildSummary(start, end, filters) {
   const shopExpenses = totalExpenses * expenseShare;
 
   for (const e of expenses) {
-    const day = e.date.toISOString().slice(0, 10);
+    const day = localDay(e.date);
     const bucket = dailyTotals.get(day) || { date: day, revenue: 0, expense: 0, profit: 0 };
     bucket.expense += e.amount * expenseShare;
     dailyTotals.set(day, bucket);

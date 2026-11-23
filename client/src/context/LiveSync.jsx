@@ -1,40 +1,83 @@
-import { createContext, useContext, useEffect, useRef } from "react";
-import { API_URL } from "../api/client";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { API_URL, onMutation } from "../api/client";
 import { useAuth } from "./AuthContext";
 
-// Live updates. While signed in, one connection stays open to the server's
-// change stream (GET /api/events - see server/src/utils/liveEvents.js). When
-// anyone saves a change, screens showing that kind of data reload it by
-// themselves:
+// Live updates. Screens subscribe with
 //
-//   useLiveRefresh(["products"], () => reloadMyList());
+//   useLiveRefresh(["sales"], () => reloadMyData());
+//
+// and reload whenever that kind of data changes. Changes arrive four ways,
+// so a screen is never left stale:
+//  1. The server's change stream (GET /api/events - server/src/utils/
+//     liveEvents.js): saves by anyone, on any device.
+//  2. Saves made in this browser: announced at once to this tab and every
+//     other open tab (BroadcastChannel), without waiting for the server.
+//  3. Coming back to the tab / window: every screen reloads.
+//  4. While the change stream is down (server asleep or restarting on Render,
+//     network blip): every screen reloads every 30 seconds until it's back.
+// fetch() is used rather than EventSource so the login token travels in a
+// header, never in the URL.
 //
 // Topics: products, categories, racks, stock, sales, sales-entries,
 // purchases, customers, vendors, expenses, daybook, users.
-// After a dropped connection, or when a tab comes back after a while in the
-// background, every screen reloads once, so nothing missed meanwhile is lost.
-// fetch() is used rather than EventSource so the login token travels in a
-// header, never in the URL.
+
+// What a change to /api/<resource> affects - same as the server's list.
+const TOPICS = {
+  products: ["products"],
+  categories: ["categories", "products"],
+  racks: ["racks", "products"],
+  "stock-ledger": ["stock", "products"],
+  sales: ["sales", "products", "stock", "customers", "daybook"],
+  "sales-entries": ["sales-entries", "sales", "products", "stock", "customers", "daybook"],
+  purchases: ["purchases", "products", "stock", "vendors", "daybook"],
+  customers: ["customers"],
+  vendors: ["vendors", "products"],
+  expenses: ["expenses", "daybook"],
+  "day-book": ["daybook"],
+  users: ["users"],
+};
 
 const LiveSyncContext = createContext(null);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const POLL_MS = 30_000;
 
 export function LiveSyncProvider({ children }) {
   const { token } = useAuth();
   const listeners = useRef(new Set());
+  const [connected, setConnected] = useState(false);
 
+  // Hands an event to every screen listening for one of its topics
+  // (topics: null = everything).
+  const emitRef = useRef((evt) => {
+    for (const l of listeners.current) {
+      if (!evt.topics || l.topics.some((t) => evt.topics.includes(t))) l.fire(evt);
+    }
+  });
+
+  // 2. Saves made in this browser (this tab + other tabs).
+  useEffect(() => {
+    const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel("ghm-live") : null;
+    if (channel) channel.onmessage = (m) => emitRef.current(m.data);
+    const off = onMutation((url) => {
+      const [resource, id] = String(url || "").split("?")[0].replace(/^\/+/, "").split("/");
+      const topics = TOPICS[resource];
+      if (!topics) return;
+      const evt = { topics, resource, id: /^[0-9a-f]{24}$/i.test(id || "") ? id : null, local: true };
+      emitRef.current(evt);
+      channel?.postMessage(evt);
+    });
+    return () => {
+      off();
+      channel?.close();
+    };
+  }, []);
+
+  // 1. The server's change stream.
   useEffect(() => {
     if (!token) return undefined;
     const ctrl = new AbortController();
     let stopped = false;
     let connectedBefore = false;
-    let hiddenAt = null;
-
-    const emit = (evt) => {
-      for (const l of listeners.current) {
-        if (!evt.topics || l.topics.some((t) => evt.topics.includes(t))) l.fire(evt);
-      }
-    };
 
     const handle = (raw) => {
       const data = raw
@@ -50,12 +93,13 @@ export function LiveSyncProvider({ children }) {
         return;
       }
       if (evt.hello) {
+        setConnected(true);
         // (Re)connected: after a gap, everything may be out of date.
-        if (connectedBefore) emit({ topics: null, catchUp: true });
+        if (connectedBefore) emitRef.current({ topics: null, catchUp: true });
         connectedBefore = true;
         return;
       }
-      emit(evt);
+      emitRef.current(evt);
     };
 
     (async () => {
@@ -85,32 +129,54 @@ export function LiveSyncProvider({ children }) {
         } catch {
           if (stopped) return;
         }
+        setConnected(false);
         // Server restarting/asleep (Render) or network blip: try again soon.
         attempt += 1;
         await sleep(Math.min(30_000, 2_000 * attempt));
       }
     })();
 
-    const onVisibility = () => {
-      if (document.hidden) hiddenAt = Date.now();
-      else if (hiddenAt && Date.now() - hiddenAt > 60_000) emit({ topics: null, catchUp: true });
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
     return () => {
       stopped = true;
       ctrl.abort();
-      document.removeEventListener("visibilitychange", onVisibility);
+      setConnected(false);
     };
   }, [token]);
 
-  return <LiveSyncContext.Provider value={listeners}>{children}</LiveSyncContext.Provider>;
+  // 3. Back to this tab/window: reload (at most every 5 seconds).
+  useEffect(() => {
+    if (!token) return undefined;
+    let last = Date.now();
+    const catchUp = () => {
+      if (document.hidden || Date.now() - last < 5_000) return;
+      last = Date.now();
+      emitRef.current({ topics: null, catchUp: true });
+    };
+    document.addEventListener("visibilitychange", catchUp);
+    window.addEventListener("focus", catchUp);
+    return () => {
+      document.removeEventListener("visibilitychange", catchUp);
+      window.removeEventListener("focus", catchUp);
+    };
+  }, [token]);
+
+  // 4. Change stream down: reload every 30 seconds while the tab is visible.
+  useEffect(() => {
+    if (!token || connected) return undefined;
+    const t = setInterval(() => {
+      if (!document.hidden) emitRef.current({ topics: null, catchUp: true });
+    }, POLL_MS);
+    return () => clearInterval(t);
+  }, [token, connected]);
+
+  return <LiveSyncContext.Provider value={{ listeners, connected }}>{children}</LiveSyncContext.Provider>;
 }
 
 // Calls `onChange(event)` when data of one of `topics` changes anywhere.
 // Bursts (e.g. a purchase touching many products) are merged into one call.
 export function useLiveRefresh(topics, onChange) {
-  const listeners = useContext(LiveSyncContext);
+  const ctx = useContext(LiveSyncContext);
+  const listeners = ctx?.listeners;
   const fn = useRef(onChange);
   useEffect(() => {
     fn.current = onChange;
@@ -135,4 +201,9 @@ export function useLiveRefresh(topics, onChange) {
       listeners.current.delete(listener);
     };
   }, [listeners, key]);
+}
+
+// true while the server's change stream is connected.
+export function useLiveConnected() {
+  return Boolean(useContext(LiveSyncContext)?.connected);
 }

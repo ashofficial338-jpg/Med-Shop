@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import SalesOverview from "../components/dashboard/SalesOverview";
-import { useLiveRefresh } from "../context/LiveSync";
+import { useLiveConnected, useLiveRefresh } from "../context/LiveSync";
 import { Link } from "react-router-dom";
 import Layout, { STORE_NAME } from "../components/Layout";
 import Icon from "../components/Icon";
@@ -55,11 +55,18 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const { from, to, category, paymentMode } = filters;
 
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const live = useLiveConnected();
+  const received = (data) => {
+    setSummary(data);
+    setUpdatedAt(new Date());
+  };
+
   const load = useCallback(() => {
     setLoading(true);
     setError("");
     getDashboardSummary(interactive ? { from, to, category, paymentMode } : {})
-      .then(setSummary)
+      .then(received)
       .catch(() => setError("Couldn't load the dashboard. Check your connection and try again."))
       .finally(() => setLoading(false));
   }, [interactive, from, to, category, paymentMode]);
@@ -68,10 +75,11 @@ export default function Dashboard() {
     load();
   }, [load]);
 
-  // Any sale, purchase, expense or stock change: refresh the figures quietly.
+  // Any sale (POS or Sales Entry), purchase, expense or stock change - by
+  // anyone, in any tab - refreshes the figures quietly (see LiveSync.jsx).
   useLiveRefresh(["sales", "sales-entries", "purchases", "products", "expenses", "customers", "vendors", "stock", "daybook"], () => {
     getDashboardSummary(interactive ? { from, to, category, paymentMode } : {})
-      .then(setSummary)
+      .then(received)
       .catch(() => {});
   });
 
@@ -85,6 +93,9 @@ export default function Dashboard() {
     ? [
         { type: "Cash", in: todayBalances.cash.in, out: todayBalances.cash.out },
         { type: "UPI", in: todayBalances.upi.in, out: todayBalances.upi.out },
+        // Card and Bank Transfer books (older backends don't send them).
+        ...(todayBalances.card ? [{ type: "Card", in: todayBalances.card.in, out: todayBalances.card.out }] : []),
+        ...(todayBalances.bank ? [{ type: "Bank", in: todayBalances.bank.in, out: todayBalances.bank.out }] : []),
         { type: "Credit", in: todayBalances.credit.in, out: todayBalances.credit.out },
       ]
     : [];
@@ -135,6 +146,12 @@ export default function Dashboard() {
               ? `Profit, sales, cash and stock at a glance — ${periodLabel}. Click any figure to see the records behind it.`
               : "View-only summary of the last 30 days. Details, filters and downloads are available to Admins."}
           </p>
+          {updatedAt && (
+            <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-muted" role="status">
+              <span className={`h-2 w-2 rounded-full ${live ? "bg-success" : "bg-warning"}`} />
+              {live ? "Live" : "Reconnecting - refreshing every 30 seconds"} · updated {updatedAt.toLocaleTimeString()}
+            </p>
+          )}
         </div>
         {interactive ? (
           <div className="flex flex-wrap gap-2">
@@ -224,9 +241,11 @@ export default function Dashboard() {
             <section className="space-y-4">
               <SectionTitle icon="wallet">Cash Position</SectionTitle>
               <div className="grid gap-6 lg:grid-cols-3">
-                <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-1">
+                <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-1">
                   <StatTile label="Cash Today" value={todayBalances.cash.closing} icon="wallet" tone="success" to={links.dayBook} />
                   <StatTile label="UPI Today" value={todayBalances.upi.closing} icon="rupee" tone="blue" to={links.dayBook} />
+                  {todayBalances.card && <StatTile label="Card Today" value={todayBalances.card.closing} icon="wallet" tone="violet" to={links.dayBook} />}
+                  {todayBalances.bank && <StatTile label="Bank Transfer Today" value={todayBalances.bank.closing} icon="building" tone="slate" to={links.dayBook} />}
                   <StatTile label="Credit Outstanding" value={todayBalances.credit.closing} icon="clock" tone="warning" to={links.dayBook} />
                 </div>
                 <CashFlowChart data={cashFlowToday} to={links.dayBook} />

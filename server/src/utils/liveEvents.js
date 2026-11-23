@@ -65,7 +65,11 @@ export const eventsRoute = [
       Connection: "keep-alive",
       "X-Accel-Buffering": "no", // no proxy buffering
     });
-    res.write(`retry: 5000\ndata: ${JSON.stringify({ hello: true })}\n\n`);
+    req.socket.setTimeout(0);
+    req.socket.setNoDelay(true);
+    // 2 KB of padding first: some proxies hold back a response until a
+    // first chunk of that size arrives, which would delay every notice.
+    res.write(`: ${" ".repeat(2048)}\n\nretry: 5000\ndata: ${JSON.stringify({ hello: true })}\n\n`);
     const client = { res, user: String(req.user._id) };
     clients.add(client);
     // Comments every 25s keep proxies (Render) from closing an idle stream.
