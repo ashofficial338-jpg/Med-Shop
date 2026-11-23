@@ -32,4 +32,9 @@ const supplierPaymentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Vendor ledger, a purchase's payments, and date-range reads (day book, reports).
+supplierPaymentSchema.index({ vendor: 1, date: -1 });
+supplierPaymentSchema.index({ purchase: 1 });
+supplierPaymentSchema.index({ date: -1 });
+
 export default mongoose.model("SupplierPayment", supplierPaymentSchema);

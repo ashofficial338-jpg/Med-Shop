@@ -32,4 +32,9 @@ const customerPaymentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Customer ledger, a bill's receipts, and date-range reads (day book, reports).
+customerPaymentSchema.index({ customer: 1, date: -1 });
+customerPaymentSchema.index({ sale: 1 });
+customerPaymentSchema.index({ date: -1 });
+
 export default mongoose.model("CustomerPayment", customerPaymentSchema);

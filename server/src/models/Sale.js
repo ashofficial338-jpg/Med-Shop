@@ -113,4 +113,9 @@ saleSchema.virtual("balanceDue").get(function () {
 saleSchema.index({ archiveNo: 1 }, { unique: true, sparse: true });
 saleSchema.index({ archivedAt: 1, createdAt: 1 });
 
+// Date-range reads (dashboard, day book, reports, bill history) and
+// customer ledgers.
+saleSchema.index({ createdAt: -1 });
+saleSchema.index({ customer: 1, createdAt: -1 });
+
 export default mongoose.model("Sale", saleSchema);

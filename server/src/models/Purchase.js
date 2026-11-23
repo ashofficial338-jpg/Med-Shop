@@ -132,4 +132,8 @@ purchaseSchema.virtual("balanceDue").get(function () {
   return Number((this.total - paid).toFixed(2));
 });
 
+// Date-range reads (day book, reports) and a product's last purchase rate.
+purchaseSchema.index({ date: -1 });
+purchaseSchema.index({ "items.product": 1, date: -1 });
+
 export default mongoose.model("Purchase", purchaseSchema);

@@ -52,4 +52,9 @@ const stockLedgerSchema = new mongoose.Schema(
 stockLedgerSchema.index({ rack: 1, createdAt: -1 });
 stockLedgerSchema.index({ toRack: 1, createdAt: -1 });
 
+// A purchase's stock entries, a product's history, and type/date filters.
+stockLedgerSchema.index({ refId: 1 });
+stockLedgerSchema.index({ product: 1, createdAt: -1 });
+stockLedgerSchema.index({ type: 1, createdAt: -1 });
+
 export default mongoose.model("StockLedger", stockLedgerSchema);

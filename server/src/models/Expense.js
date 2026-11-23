@@ -47,4 +47,7 @@ const expenseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Date-range reads (day book, reports).
+expenseSchema.index({ date: -1 });
+
 export default mongoose.model("Expense", expenseSchema);
