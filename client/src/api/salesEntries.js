@@ -23,6 +23,17 @@ export function updateSalesEntry(id, data) {
   return api.put(`/sales-entries/${id}`, data).then((r) => r.data);
 }
 
+// Older entries without a bill: record their sale now (Admin).
+export function linkSalesEntry(id) {
+  return api.post(`/sales-entries/${id}/link`).then((r) => r.data);
+}
+export function unlinkedSalesEntryCount() {
+  return api.get("/sales-entries/unlinked-count").then((r) => r.data.count);
+}
+export function linkAllSalesEntries() {
+  return api.post("/sales-entries/link-all").then((r) => r.data);
+}
+
 // Deletes the entry and its bill (stock put back, payments removed).
 export function deleteSalesEntry(id) {
   return api.delete(`/sales-entries/${id}`).then((r) => r.data);

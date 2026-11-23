@@ -6,7 +6,7 @@ import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../api/client";
 import ProductPicker from "../components/ProductPicker";
-import { createSalesEntry, deleteSalesEntry, getSalesEntry, getSalesEntryMeta, updateSalesEntry } from "../api/salesEntries";
+import { createSalesEntry, deleteSalesEntry, linkSalesEntry, getSalesEntry, getSalesEntryMeta, updateSalesEntry } from "../api/salesEntries";
 import { calcInvoice, GST_RATES, PAYMENT_MODES } from "../utils/salesEntryCalc";
 import { useLiveRefresh } from "../context/LiveSync";
 
@@ -242,6 +242,24 @@ function SalesEntryForm({ id }) {
     }
   };
 
+  // Older entry without a bill: record its sale now (stock, ledger, Day Book).
+  const [linking, setLinking] = useState(false);
+  const linkEntry = async () => {
+    if (!entry || linking) return;
+    if (!window.confirm(`Link ${entry.archiveNo}? Its items will be taken from stock and it will appear in the ledgers, Day Book and reports on ${new Date(entry.invoiceDate).toLocaleDateString()}.`)) return;
+    setLinking(true);
+    try {
+      const saved = await linkSalesEntry(entry._id);
+      setEntry(saved);
+      setForm(formFromEntry(saved));
+      toast.success(saved.message);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setLinking(false);
+    }
+  };
+
   const clearForm = () => {
     if (!form.items.every(isBlankRow) && !window.confirm("Clear this form?")) return;
     clearDraft();
@@ -375,7 +393,14 @@ function SalesEntryForm({ id }) {
                   </Link>
                 </>
               ) : (
-                "Saved before Sales Entry was linked to stock and ledgers - this entry doesn't affect them."
+                <>
+                  Saved before Sales Entry was linked to stock and ledgers - this entry doesn't affect them yet.{" "}
+                  {admin && (
+                    <button type="button" onClick={linkEntry} disabled={linking} className="font-semibold text-primary underline disabled:opacity-60">
+                      {linking ? "Linking…" : "Link to stock & ledgers"}
+                    </button>
+                  )}
+                </>
               )}
             </p>
           )}

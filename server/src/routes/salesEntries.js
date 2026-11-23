@@ -120,7 +120,7 @@ async function saleLines(items, created, previous = []) {
       const isNew = created.some((c) => String(c._id) === String(product._id));
       return {
         error: isNew
-          ? `${product.name} was just added to the Product List, but it has no stock yet. Record a purchase for it, then save this entry again.`
+          ? `${product.name} was just added to the Product List, but it has no stock yet. Record a purchase for it, then try again.`
           : `Only ${packs} ${product.packUnit} of ${product.name} in stock.`,
       };
     }
@@ -317,6 +317,11 @@ router.get("/export", async (req, res) => {
   res.send(Buffer.from(await wb.xlsx.writeBuffer()));
 });
 
+// How many older entries aren't linked yet (for the Sales History button).
+router.get("/unlinked-count", requireRole("admin"), async (req, res) => {
+  res.json({ count: await SalesEntry.countDocuments({ sale: null }) });
+});
+
 async function findEntry(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) {
     res.status(404).json({ message: "No records found." });
@@ -394,6 +399,76 @@ router.post("/", async (req, res) => {
   await Sale.updateOne({ _id: saleId }, { $set: { archiveNo: entry.archiveNo, archivedAt: new Date(), salesEntry: entry._id } });
   await datedSale(saleId, entry.invoiceDate);
   res.status(201).json({ ...entry.toObject(), billNo: made.body.billNo, createdProducts: linked.created });
+});
+
+// Older entries (saved before Sales Entry recorded sales) have no bill, so
+// they never touched stock or ledgers. Linking one records its sale now,
+// exactly like a new save: stock taken, customer found/added, credit on the
+// ledger, Day Book and reports updated. It keeps its SALES number and date.
+// Returns { ok, message }; nothing changes when it can't be linked.
+async function linkOldEntry(entry, req) {
+  if (entry.sale) return { ok: false, message: "Already linked." };
+  const { error, data } = buildEntry({
+    invoiceDate: entry.invoiceDate,
+    customer: entry.customer,
+    interState: entry.interState,
+    paymentMode: entry.paymentMode,
+    amountReceived: entry.amountReceived,
+    notes: entry.notes,
+    items: entry.items.map((it) => ({
+      product: it.product ? String(it.product) : null,
+      name: it.name,
+      hsnCode: it.hsnCode,
+      unit: it.unit,
+      qty: it.qty,
+      rate: it.rate,
+      discountPercent: it.discountPercent,
+      gstPercent: it.gstPercent,
+    })),
+  });
+  if (error) return { ok: false, message: error };
+  const linked = await linkProducts(data.items, req.user);
+  if (linked.error) return { ok: false, message: linked.error };
+  const checked = await saleLines(data.items, linked.created);
+  if (checked.error) return { ok: false, message: checked.error };
+  const customer = await resolveCustomer(data.customer);
+  const made = await callSaleHandler(createSaleHandler, req, { body: saleBody(data, customer, checked.lines) });
+  if (made.status !== 201) return { ok: false, message: made.body?.message || "Something went wrong." };
+  const saleId = made.body._id;
+  try {
+    entry.set({ ...data, sale: saleId, customerRef: customer?._id || null });
+    await entry.save();
+  } catch (e) {
+    await callSaleHandler(deleteSaleHandler, req, { id: saleId });
+    throw e;
+  }
+  await Sale.updateOne({ _id: saleId }, { $set: { archiveNo: entry.archiveNo, archivedAt: new Date(), salesEntry: entry._id } });
+  await datedSale(saleId, entry.invoiceDate);
+  return { ok: true, message: `Linked as bill ${made.body.billNo}.` };
+}
+
+// Links every older entry, oldest first. Each is linked or skipped on its
+// own; the reply lists what happened to each.
+router.post("/link-all", requireRole("admin"), async (req, res) => {
+  const entries = await SalesEntry.find({ sale: null }).sort({ invoiceDate: 1, createdAt: 1 });
+  const results = [];
+  for (const entry of entries) {
+    try {
+      results.push({ _id: entry._id, archiveNo: entry.archiveNo, ...(await linkOldEntry(entry, req)) });
+    } catch (e) {
+      console.error(e);
+      results.push({ _id: entry._id, archiveNo: entry.archiveNo, ok: false, message: "Something went wrong." });
+    }
+  }
+  res.json({ linked: results.filter((r) => r.ok).length, skipped: results.filter((r) => !r.ok).length, results });
+});
+
+router.post("/:id/link", requireRole("admin"), async (req, res) => {
+  const entry = await findEntry(req, res);
+  if (!entry) return;
+  const out = await linkOldEntry(entry, req);
+  if (!out.ok) return res.status(400).json({ message: out.message });
+  res.json({ ...(await SalesEntry.findById(entry._id).populate("createdBy", "username")).toObject(), message: `${entry.archiveNo}: ${out.message}` });
 });
 
 // Corrects a saved entry (Admin). The invoice number stays the same.

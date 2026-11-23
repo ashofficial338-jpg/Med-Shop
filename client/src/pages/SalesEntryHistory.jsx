@@ -5,7 +5,7 @@ import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../api/client";
 import { toast } from "react-toastify";
-import { downloadSalesEntryFile, listSalesEntries } from "../api/salesEntries";
+import { downloadSalesEntryFile, linkAllSalesEntries, listSalesEntries, unlinkedSalesEntryCount } from "../api/salesEntries";
 import { PAYMENT_MODES } from "../utils/salesEntryCalc";
 import { useLiveRefresh } from "../context/LiveSync";
 import { compactParams } from "../utils/query";
@@ -53,6 +53,27 @@ export default function SalesEntryHistory() {
     listSalesEntries(JSON.parse(paramsKey)).then(setEntries).catch(() => {});
   });
 
+  // Older entries not yet linked to stock and ledgers (Admin).
+  const [unlinked, setUnlinked] = useState(0);
+  const [linkResults, setLinkResults] = useState(null);
+  useEffect(() => {
+    if (admin) unlinkedSalesEntryCount().then(setUnlinked).catch(() => {});
+  }, [admin, entries]);
+  const linkAll = async () => {
+    if (!window.confirm(`Link ${unlinked} older entr${unlinked === 1 ? "y" : "ies"} to stock and ledgers? Their items will be taken from stock and they'll appear in ledgers, Day Book and reports on their own dates. Entries that can't be linked (e.g. not enough stock) are skipped and listed.`)) return;
+    setBusy("link");
+    try {
+      const out = await linkAllSalesEntries();
+      setLinkResults(out);
+      toast.success(`${out.linked} linked${out.skipped ? `, ${out.skipped} skipped` : ""}.`);
+      listSalesEntries(JSON.parse(paramsKey)).then(setEntries).catch(() => {});
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setBusy("");
+    }
+  };
+
   const [busy, setBusy] = useState("");
   const download = async (e, format) => {
     setBusy(`${e._id}${format}`);
@@ -79,6 +100,40 @@ export default function SalesEntryHistory() {
             New Sales Entry
           </Link>
         </div>
+
+        {admin && unlinked > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+            <Icon name="alert" size={18} />
+            <span className="font-semibold">
+              {unlinked} older entr{unlinked === 1 ? "y isn't" : "ies aren't"} linked to stock and ledgers yet.
+            </span>
+            <button type="button" onClick={linkAll} disabled={Boolean(busy)} className="rounded-lg bg-warning px-3 py-1 text-xs font-semibold text-white disabled:opacity-60">
+              {busy === "link" ? "Linking…" : "Link all older entries"}
+            </button>
+          </div>
+        )}
+        {linkResults && (
+          <div className="card mt-3 p-4 text-sm">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-text">
+                Linking: {linkResults.linked} linked, {linkResults.skipped} skipped
+              </p>
+              <button type="button" onClick={() => setLinkResults(null)} aria-label="Close" className="rounded p-1 text-muted hover:bg-bg">
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <ul className="mt-2 space-y-1">
+              {linkResults.results.map((r) => (
+                <li key={r._id} className={r.ok ? "text-success" : "text-danger"}>
+                  <Link to={`/sales-entry/${r._id}`} className="font-mono font-semibold underline">
+                    {r.archiveNo}
+                  </Link>{" "}
+                  - {r.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <input type="search" placeholder="Search invoice number or customer" value={query} onChange={(e) => setQuery(e.target.value)} className={`${inputCls} w-full max-w-xs`} />
@@ -138,6 +193,7 @@ export default function SalesEntryHistory() {
                   <tr key={e._id} onClick={() => navigate(`/sales-entry/${e._id}`)} className="cursor-pointer border-b border-border/70 last:border-0 hover:bg-bg/60">
                     <td className="px-4 py-2.5 font-mono font-semibold text-primary">
                       {e.archiveNo}
+                      {admin && !e.sale && <span className="ml-2 rounded-full bg-warning/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-warning">NOT LINKED</span>}
                       {e.editedAt && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 font-sans text-[10px] font-semibold">EDITED</span>}
                     </td>
                     <td className="px-3 py-2.5 text-text">{day(e.invoiceDate)}</td>
