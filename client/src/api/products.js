@@ -98,3 +98,8 @@ export function exportCompositionReport(format, params) {
 export function getProductFilterOptions() {
   return api.get("/products/filter-options").then((r) => r.data);
 }
+
+// Products with the same or a close name - shown before a new one is added.
+export function similarProducts(name) {
+  return api.get("/products/similar", { params: { name } }).then((r) => r.data);
+}

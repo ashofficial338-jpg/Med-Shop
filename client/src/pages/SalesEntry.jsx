@@ -5,13 +5,15 @@ import Layout from "../components/Layout";
 import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../api/client";
-import { listProducts } from "../api/products";
+import ProductPicker from "../components/ProductPicker";
 import { createSalesEntry, getSalesEntry, getSalesEntryMeta, updateSalesEntry } from "../api/salesEntries";
 import { calcInvoice, GST_RATES } from "../utils/salesEntryCalc";
 
 // Sales Entry: a simple form to type in a sale and save it to the database.
 // Nothing else happens on Save - no stock change, no PDF/Excel files. The
-// invoice number (SALES-001, ...) is given by the server when saving.
+// invoice number (SALES-001, ...) is given by the server when saving. A
+// product name that isn't in the Product List yet is added to it on Save
+// (with its HSN, unit and GST) - see components/ProductPicker.jsx.
 //
 // /sales-entry      new entry (a half-typed one is kept on this device until saved)
 // /sales-entry/:id  open a saved entry; an Admin can edit and save it again
@@ -25,7 +27,7 @@ const todayIso = () => {
 const isoInIndia = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 let keySeq = 0;
-const blankRow = () => ({ key: ++keySeq, product: null, name: "", qty: "1", rate: "", gstPercent: 12 });
+const blankRow = () => ({ key: ++keySeq, product: null, name: "", hsnCode: "", unit: "", qty: "1", rate: "", gstPercent: 12 });
 const blankForm = () => ({ customerName: "", invoiceDate: todayIso(), items: [blankRow()] });
 const isBlankRow = (r) => !r.name.trim() && !Number(r.rate);
 
@@ -33,7 +35,16 @@ function formFromEntry(e) {
   return {
     customerName: e.customer?.name || "",
     invoiceDate: isoInIndia(e.invoiceDate),
-    items: e.items.map((it) => ({ key: ++keySeq, product: it.product || null, name: it.name, qty: String(it.qty), rate: String(it.rate), gstPercent: it.gstPercent })),
+    items: e.items.map((it) => ({
+      key: ++keySeq,
+      product: it.product || null,
+      name: it.name,
+      hsnCode: it.hsnCode || "",
+      unit: it.unit && it.unit !== "Nos" ? it.unit : "",
+      qty: String(it.qty),
+      rate: String(it.rate),
+      gstPercent: it.gstPercent,
+    })),
   };
 }
 
@@ -60,90 +71,6 @@ function clearDraft() {
   } catch {
     /* ignore */
   }
-}
-
-// Product name box: type freely, or pick a product to fill in rate and GST.
-function ProductInput({ value, onChange, onPick, inputRef, disabled }) {
-  const [items, setItems] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const typed = useRef(false);
-
-  useEffect(() => {
-    const q = value.trim();
-    if (!typed.current || q.length < 2) return undefined;
-    let cancelled = false;
-    const t = setTimeout(() => {
-      listProducts({ q })
-        .then((list) => {
-          if (cancelled) return;
-          setItems(list.slice(0, 8));
-          setActive(0);
-          setOpen(list.length > 0);
-        })
-        .catch(() => {});
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [value]);
-
-  const pick = (p) => {
-    typed.current = false;
-    setOpen(false);
-    onPick(p);
-  };
-
-  return (
-    <div className="relative">
-      <input
-        ref={inputRef}
-        value={value}
-        disabled={disabled}
-        autoComplete="off"
-        maxLength={200}
-        placeholder="Product name"
-        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none disabled:bg-bg"
-        onChange={(e) => {
-          typed.current = true;
-          if (e.target.value.trim().length < 2) setOpen(false);
-          onChange(e.target.value);
-        }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onKeyDown={(e) => {
-          if (!open || !items.length) return;
-          if (["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(e.key)) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
-          if (e.key === "ArrowDown") setActive((a) => (a + 1) % items.length);
-          if (e.key === "ArrowUp") setActive((a) => (a - 1 + items.length) % items.length);
-          if (e.key === "Enter") pick(items[active]);
-          if (e.key === "Escape") setOpen(false);
-        }}
-      />
-      {open && (
-        <ul className="absolute left-0 top-full z-30 mt-1 max-h-60 w-full min-w-[240px] overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-lg">
-          {items.map((p, i) => (
-            <li key={p._id}>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick(p)}
-                className={`block w-full px-3 py-1.5 text-left text-sm ${i === active ? "bg-primary-soft" : "hover:bg-bg"}`}
-              >
-                <span className="font-medium text-text">{p.name}</span>
-                <span className="ml-2 text-xs text-muted">
-                  ₹{fmt(p.packRate)} · GST {p.gstPercent}%
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
 }
 
 // A fresh form for every entry opened (and for "new"), so nothing from one
@@ -219,6 +146,11 @@ function SalesEntryForm({ id }) {
     else nameRefs.current[form.items[i + 1].key]?.focus();
   };
 
+  const announceNewProducts = (list) => {
+    if (!list?.length) return;
+    toast.info(`Added to Product List: ${list.map((p) => `${p.name} (${p.productCode})`).join(", ")}`, { autoClose: 6000 });
+  };
+
   const save = async () => {
     if (saving || readOnly) return;
     const body = {
@@ -229,9 +161,9 @@ function SalesEntryForm({ id }) {
       items: form.items
         .filter((r) => !isBlankRow(r))
         .map((r) => {
-          // Keep any details an older entry had (HSN, unit, discount).
+          // Keep a discount an older entry had (the form has no discount box).
           const old = entry?.items?.find((it) => it.name === r.name) || {};
-          return { hsnCode: old.hsnCode, unit: old.unit, discountPercent: old.discountPercent, product: r.product, name: r.name, qty: r.qty, rate: r.rate, gstPercent: r.gstPercent };
+          return { discountPercent: old.discountPercent, product: r.product, name: r.name, hsnCode: r.hsnCode, unit: r.unit, qty: r.qty, rate: r.rate, gstPercent: r.gstPercent };
         }),
     };
     setSaving(true);
@@ -242,12 +174,14 @@ function SalesEntryForm({ id }) {
         setForm(formFromEntry(saved));
         setLastSaved({ archiveNo: saved.archiveNo, _id: saved._id, edited: true });
         toast.success(`${saved.archiveNo} updated successfully.`);
+        announceNewProducts(saved.createdProducts);
       } else {
         const saved = await createSalesEntry(body);
         clearDraft();
         setForm(blankForm());
         setLastSaved({ archiveNo: saved.archiveNo, _id: saved._id, edited: false });
         toast.success(`Sales entry ${saved.archiveNo} saved successfully.`);
+        announceNewProducts(saved.createdProducts);
         loadNextNo();
       }
     } catch (err) {
@@ -344,11 +278,13 @@ function SalesEntryForm({ id }) {
           </div>
 
           <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[620px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   <th className="w-8 pb-2">#</th>
                   <th className="pb-2">Product Name</th>
+                  <th className="w-24 pb-2 pl-2">HSN</th>
+                  <th className="w-24 pb-2 pl-2">Unit</th>
                   <th className="w-24 pb-2 pl-2">Quantity</th>
                   <th className="w-28 pb-2 pl-2">Rate (₹)</th>
                   <th className="w-24 pb-2 pl-2">GST</th>
@@ -359,30 +295,40 @@ function SalesEntryForm({ id }) {
               <tbody>
                 {form.items.map((r, i) => (
                   <tr key={r.key} onKeyDown={(e) => rowKeyDown(e, i)}>
-                    <td className="py-1 text-xs text-muted">{i + 1}</td>
-                    <td className="py-1">
-                      <ProductInput
+                    <td className="py-1 pt-3 align-top text-xs text-muted">{i + 1}</td>
+                    <td className="py-1 align-top">
+                      <ProductPicker
                         value={r.name}
+                        productId={r.product}
                         disabled={readOnly}
+                        className={inputCls}
                         inputRef={(el) => (nameRefs.current[r.key] = el)}
                         onChange={(name) => setRow(r.key, { name, product: null })}
                         onPick={(p) =>
                           setRow(r.key, {
                             product: p._id,
                             name: p.name,
+                            hsnCode: p.hsnCode || "",
+                            unit: p.packUnit || "",
                             rate: p.packRate != null ? String(p.packRate) : "",
                             gstPercent: GST_RATES.includes(Number(p.gstPercent)) ? Number(p.gstPercent) : 12,
                           })
                         }
                       />
                     </td>
-                    <td className="py-1 pl-2">
+                    <td className="py-1 align-top pl-2">
+                      <input className={inputCls} maxLength={20} placeholder="HSN" value={r.hsnCode} disabled={readOnly} onChange={(e) => setRow(r.key, { hsnCode: e.target.value })} />
+                    </td>
+                    <td className="py-1 align-top pl-2">
+                      <input className={inputCls} maxLength={30} placeholder="Strip" list="sales-entry-units" value={r.unit} disabled={readOnly} onChange={(e) => setRow(r.key, { unit: e.target.value })} />
+                    </td>
+                    <td className="py-1 align-top pl-2">
                       <input className={`${inputCls} text-right`} inputMode="decimal" value={r.qty} disabled={readOnly} onChange={(e) => setRow(r.key, { qty: e.target.value.replace(/[^\d.]/g, "") })} />
                     </td>
-                    <td className="py-1 pl-2">
+                    <td className="py-1 align-top pl-2">
                       <input className={`${inputCls} text-right`} inputMode="decimal" placeholder="0.00" value={r.rate} disabled={readOnly} onChange={(e) => setRow(r.key, { rate: e.target.value.replace(/[^\d.]/g, "") })} />
                     </td>
-                    <td className="py-1 pl-2">
+                    <td className="py-1 align-top pl-2">
                       <select className={inputCls} value={r.gstPercent} disabled={readOnly} onChange={(e) => setRow(r.key, { gstPercent: Number(e.target.value) })}>
                         {GST_RATES.map((g) => (
                           <option key={g} value={g}>
@@ -391,9 +337,9 @@ function SalesEntryForm({ id }) {
                         ))}
                       </select>
                     </td>
-                    <td className="py-1 pl-2 text-right font-mono tabular-nums text-text">{lineTotal(r)}</td>
+                    <td className="py-1 pt-3 align-top pl-2 text-right font-mono tabular-nums text-text">{lineTotal(r)}</td>
                     {!readOnly && (
-                      <td className="py-1 pl-1 text-center">
+                      <td className="py-1 align-top pl-1 text-center">
                         <button type="button" onClick={() => removeRow(r.key)} title="Remove row" aria-label={`Remove row ${i + 1}`} className="rounded-md p-1.5 text-muted hover:bg-danger/10 hover:text-danger">
                           <Icon name="trash" size={15} />
                         </button>
@@ -403,6 +349,11 @@ function SalesEntryForm({ id }) {
                 ))}
               </tbody>
             </table>
+            <datalist id="sales-entry-units">
+              {["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"].map((u) => (
+                <option key={u} value={u} />
+              ))}
+            </datalist>
           </div>
 
           {!readOnly && (

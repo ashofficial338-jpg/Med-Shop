@@ -17,6 +17,7 @@ import Purchase from "../models/Purchase.js";
 import { DOSAGE_FORMS, RELEASE_TYPES, compositionKey, compositionLabel, productSearchFilter } from "../utils/composition.js";
 import { weightedAvgCost, locationsByProduct } from "../utils/batchHelpers.js";
 import { effectiveLocations } from "../utils/locations.js";
+import { similarProducts } from "../utils/productAutoCreate.js";
 
 // One ledger row per rack position a write-off came from, so each rack's
 // history shows it. costImpact is split by quantity.
@@ -199,6 +200,13 @@ router.get("/", requireAuth, async (req, res) => {
 
 // Brands grouped by Composition Group with their combined stock. Read-only:
 // individual brand stock is never merged. ?q filters groups; ?format exports.
+// Products with the same or a close name (ignoring case, spaces and
+// punctuation) - Sales/Purchase Entry show these before a new product is
+// added, so the same medicine isn't created twice.
+router.get("/similar", requireAuth, async (req, res) => {
+  res.json(await similarProducts(String(req.query.name || "").slice(0, 150), 5));
+});
+
 router.get("/composition-report", requireAuth, requireRole("admin"), async (req, res) => {
   const { q, format } = req.query;
   const groups = await buildCompositionReport({ q });

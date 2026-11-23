@@ -9,6 +9,9 @@ import { salesEntryPdf, salesEntryXlsx } from "../utils/salesEntryDocs.js";
 import { KINDS, formatArchiveNo } from "../utils/invoiceArchive.js";
 import { dayRange } from "../utils/queryFilters.js";
 import { SHOP } from "../utils/saleHelpers.js";
+import Product from "../models/Product.js";
+import { findOrCreateProduct, findProductByName } from "../utils/productAutoCreate.js";
+import { hasPermission } from "../utils/permissions.js";
 
 // Sales Entry (Tally-style sales voucher) - see models/SalesEntry.js.
 // Anyone signed in can make one; staff see only their own. Editing an
@@ -21,6 +24,32 @@ const escapeRe = (s) => String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/;
 
 const canSee = (entry, user) => user.role === "admin" || String(entry.createdBy?._id || entry.createdBy) === String(user._id);
+
+// Links every line to a product in the Product List: a picked product is
+// checked, a typed name is matched to an existing product (ignoring case and
+// spaces) or added as a new one. Adding products needs the "Add products"
+// permission (Admins always have it). Returns { error } or { created }.
+async function linkProducts(items, user) {
+  const all = await Product.find({ isActive: true }, "name").lean();
+  const missing = [];
+  for (const it of items) {
+    if (it.product && all.some((p) => String(p._id) === String(it.product))) continue;
+    it.product = null;
+    if (!(await findProductByName(it.name, all))) missing.push(it.name);
+  }
+  if (missing.length && !hasPermission(user, "products.add")) {
+    return { error: `${[...new Set(missing)].join(", ")} ${missing.length === 1 ? "is" : "are"} not in the Product List, and you don't have permission to add products. Pick an existing product or ask an Admin.` };
+  }
+  const cache = new Map();
+  const created = [];
+  for (const it of items) {
+    if (it.product) continue;
+    const { product, created: isNew } = await findOrCreateProduct(it.name, { hsnCode: it.hsnCode, unit: it.unit, gstPercent: it.gstPercent, rate: it.rate }, cache);
+    it.product = product._id;
+    if (isNew) created.push({ _id: product._id, name: product.name, productCode: product.productCode });
+  }
+  return { created };
+}
 
 // "2026-11-23" -> noon India time that day, so the date reads the same in
 // every time zone (and in the dated folder the saver picks).
@@ -235,9 +264,11 @@ router.get("/:id/file.:format(pdf|xlsx)", async (req, res) => {
 router.post("/", async (req, res) => {
   const { error, data } = buildEntry(req.body);
   if (error) return res.status(400).json({ message: error });
+  const linked = await linkProducts(data.items, req.user);
+  if (linked.error) return res.status(400).json({ message: linked.error });
   const archiveNo = formatArchiveNo(prefix, await nextSequence(counter));
   const entry = await SalesEntry.create({ ...data, archiveNo, createdBy: req.user._id });
-  res.status(201).json(entry);
+  res.status(201).json({ ...entry.toObject(), createdProducts: linked.created });
 });
 
 // Corrects a saved entry (Admin). The invoice number stays the same.
@@ -246,9 +277,12 @@ router.put("/:id", requireRole("admin"), async (req, res) => {
   if (!entry) return;
   const { error, data } = buildEntry(req.body);
   if (error) return res.status(400).json({ message: error });
+  const linked = await linkProducts(data.items, req.user);
+  if (linked.error) return res.status(400).json({ message: linked.error });
   entry.set({ ...data, editedAt: new Date(), editedBy: req.user._id });
   await entry.save();
-  res.json(await SalesEntry.findById(entry._id).populate("createdBy", "username").populate("editedBy", "username"));
+  const saved = await SalesEntry.findById(entry._id).populate("createdBy", "username").populate("editedBy", "username");
+  res.json({ ...saved.toObject(), createdProducts: linked.created });
 });
 
 export default router;

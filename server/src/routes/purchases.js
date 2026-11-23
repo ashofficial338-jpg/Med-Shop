@@ -17,6 +17,7 @@ import { nextSequence } from "../models/Counter.js";
 import { generateProductCode, resolveCategory, computeLooseRate, deriveSoldAs } from "../utils/productHelpers.js";
 import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
+import { findOrCreateProduct, findProductByName } from "../utils/productAutoCreate.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
@@ -299,15 +300,31 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ message: "No records found." });
   }
 
+  const createdProductIds = [];
+  let purchase = null;
   try {
     const resolvedItems = [];
     let subtotal = 0;
     let gstAmount = 0;
 
     for (const item of items) {
-      const product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
-      if (!product) {
-        return res.status(400).json({ message: "Choose the product for each line (or remove empty lines)." });
+      let product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
+      // A product typed by name: an existing one (ignoring case and spaces)
+      // is used; a new name is added to the Product List once every line
+      // has been checked (below), so a bad line never leaves products behind.
+      let pendingNew = null;
+      if (!product || !product.isActive) {
+        const np = item.newProduct || {};
+        const name = String(np.name || "").trim();
+        if (!name) return res.status(400).json({ message: "Choose the product for each line (or remove empty lines)." });
+        const match = await findProductByName(name);
+        if (match) product = await Product.findById(match._id);
+        else {
+          const gst = np.gstPercent === undefined || np.gstPercent === "" || np.gstPercent === null ? 0 : Number(np.gstPercent);
+          if (!GST_VALUES.includes(gst)) return res.status(400).json({ message: `Choose a valid GST rate for ${name}.` });
+          pendingNew = { name, hsnCode: np.hsnCode, unit: np.unit, gstPercent: gst, rate: np.sellingPrice };
+          product = { name, gstPercent: gst };
+        }
       }
       // Product and quantity are what a stock-in is; everything else is
       // optional (cost 0, batch no = invoice no, no expiry, No Rack).
@@ -336,7 +353,18 @@ router.post("/", async (req, res) => {
         lineAmount,
         lineGst,
         _productDoc: product,
+        _pendingNew: pendingNew,
       });
+    }
+
+    // Every line is valid: add the new products to the Product List.
+    const madeHere = new Map();
+    for (const it of resolvedItems) {
+      if (!it._pendingNew) continue;
+      const { product, created } = await findOrCreateProduct(it._pendingNew.name, { ...it._pendingNew, vendor: vendorDoc._id }, madeHere);
+      if (created) createdProductIds.push(product._id);
+      it.product = product._id;
+      it._productDoc = product;
     }
 
     subtotal = Number(subtotal.toFixed(2));
@@ -352,11 +380,11 @@ router.post("/", async (req, res) => {
     const resolvedInvoiceNo = String(invoiceNo || "").trim() || `PUR-${String(await nextSequence("purchaseNo")).padStart(6, "0")}`;
     for (const it of resolvedItems) if (!it.batchNo) it.batchNo = resolvedInvoiceNo;
     await attachPreviousRates(resolvedItems, { vendor });
-    const purchase = await Purchase.create({
+    purchase = await Purchase.create({
       vendor,
       invoiceNo: resolvedInvoiceNo,
       date: date || new Date(),
-      items: resolvedItems.map(({ _productDoc, ...rest }) => rest),
+      items: resolvedItems.map(({ _productDoc, _pendingNew, ...rest }) => rest),
       subtotal,
       gstAmount,
       tdsAmount: Number(tdsAmount) || 0,
@@ -384,8 +412,10 @@ router.post("/", async (req, res) => {
       { path: "vendor", select: "name" },
       { path: "items.product", select: "name productCode" },
     ]);
-    res.status(201).json(populated);
+    res.status(201).json({ ...populated.toObject(), createdProducts: createdProductIds.length });
   } catch (e) {
+    // The purchase wasn't saved: take back products made just for it.
+    if (!purchase && createdProductIds.length) await Product.deleteMany({ _id: { $in: createdProductIds } }).catch(() => {});
     if (e.code === 11000) {
       return res.status(409).json({ message: "This invoice number has already been recorded for this vendor." });
     }
@@ -470,7 +500,8 @@ router.post("/direct", async (req, res) => {
       if (newProduct) {
         product = newProduct.name
           ? madeHere.get(newProduct.name.toLowerCase()) ||
-            (await Product.findOne({ isActive: true, name: new RegExp(`^${escapeRegex(newProduct.name)}$`, "i") }))
+            // Same name ignoring case, spaces and punctuation = same product.
+            (await Product.findOne({ _id: (await findProductByName(newProduct.name))?._id ?? null }))
           : null;
       }
       if (newProduct && !product) {

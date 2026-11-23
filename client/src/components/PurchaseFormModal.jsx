@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { listProducts } from "../api/products";
 import { createPurchase } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
+import ProductPicker from "./ProductPicker";
 import RackInput from "./RackInput";
 import PurchaseRateHint from "./PurchaseRateHint";
 import { validPosition } from "../utils/rack";
 import { ScannedBillBanner, ScannedLineHint } from "./ScannedBillNotes";
 
-const emptyLine = { product: "", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
+// `name` is what's typed in the product box. A name not in the Product List
+// is added to it on Save, with the new-product GST / HSN / unit below.
+const emptyLine = { product: "", name: "", newGst: "0", newHsn: "", newUnit: "Strip", qtyPacks: "", costPrice: "", batchNo: "", expiryDate: "", rack: "" };
+const PACK_UNITS = ["Strip", "Bottle", "Box", "Tube", "Vial", "Jar", "Piece"];
 
 // `initialData` (optional) pre-fills the form from a scanned bill - see
 // InvoiceUploadModal. Without it the form starts empty as before.
@@ -19,7 +23,9 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
   const [paymentMode, setPaymentMode] = useState("Credit");
   const [amountPaid, setAmountPaid] = useState("");
   const [lines, setLines] = useState(() =>
-    initialData?.lines?.length ? initialData.lines.map((l) => ({ ...emptyLine, ...l })) : [{ ...emptyLine }]
+    initialData?.lines?.length
+      ? initialData.lines.map((l) => ({ ...emptyLine, name: l.product ? "" : l.scan?.name || "", newGst: l.scan?.gstPercent != null ? String(l.scan.gstPercent) : "0", ...l }))
+      : [{ ...emptyLine }]
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -29,12 +35,12 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
   }, []);
 
   const productById = (id) => products.find((p) => p._id === id);
+  const isVendorProduct = (p) => p.vendor?._id === vendor._id || p.vendor === vendor._id;
+  const lineName = (line) => line.name || productById(line.product)?.name || "";
+  const isNewLine = (line) => !line.product && line.name.trim() !== "";
 
-  // This vendor's own products surface first (own optgroup) since a purchase
-  // is almost always against them - the rest of the catalog stays searchable
-  // right below instead of disappearing.
-  const vendorProducts = products.filter((p) => p.vendor?._id === vendor._id || p.vendor === vendor._id);
-  const otherProducts = products.filter((p) => !(p.vendor?._id === vendor._id || p.vendor === vendor._id));
+  // This vendor's own products are listed first in the product box (see
+  // isVendorProduct) since a purchase is almost always against them.
 
   // Typing a purchase price marks it as the user's own rate, so a looked-up
   // previous rate never overwrites it.
@@ -49,15 +55,17 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
 
   // Picking a product pre-fills the rack it already lives on. A rate read
   // off a scanned bill is kept rather than cleared.
-  const selectProduct = (idx, id) => {
+  const selectProduct = (idx, product) => {
     setLines((ls) =>
       ls.map((l, i) => {
         if (i !== idx) return l;
         const keepRate = Boolean(l.scan) && l.costPrice !== "";
-        return { ...l, product: id, costPrice: keepRate ? l.costPrice : "", costTouched: keepRate, rack: validPosition(productById(id)?.rack) || l.rack };
+        return { ...l, product: product._id, name: product.name, costPrice: keepRate ? l.costPrice : "", costTouched: keepRate, rack: validPosition(product.rack) || l.rack };
       })
     );
   };
+  // Typing a name un-links any picked product (a new name = a new product).
+  const typeProductName = (idx, name) => setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, name, product: "" } : l)));
 
   const addLine = () => setLines((ls) => [...ls, { ...emptyLine }]);
   const removeLine = (idx) => setLines((ls) => ls.filter((_, i) => i !== idx));
@@ -67,11 +75,8 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
     const cost = Number(line.costPrice) || 0;
     return qty * cost;
   };
-  const lineGst = (line) => {
-    const product = productById(line.product);
-    if (!product) return 0;
-    return Number(((lineAmount(line) * product.gstPercent) / 100).toFixed(2));
-  };
+  const gstOf = (line) => (line.product ? productById(line.product)?.gstPercent || 0 : Number(line.newGst) || 0);
+  const lineGst = (line) => Number(((lineAmount(line) * gstOf(line)) / 100).toFixed(2));
 
   const subtotal = lines.reduce((sum, l) => sum + lineAmount(l), 0);
   const gstTotal = lines.reduce((sum, l) => sum + lineGst(l), 0);
@@ -82,7 +87,7 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
   const balancePayable = Number((total - paidNow).toFixed(2));
 
   const validLines = lines.filter(
-    (l) => l.product && Number(l.qtyPacks) > 0 && (l.costPrice === "" || Number(l.costPrice) >= 0)
+    (l) => (l.product || isNewLine(l)) && Number(l.qtyPacks) > 0 && (l.costPrice === "" || Number(l.costPrice) >= 0)
   );
   // Only a product and quantity per line are needed; invoice no, batch no,
   // expiry, rack and rate are optional (auto invoice / batch numbers).
@@ -103,7 +108,8 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
         paymentMode,
         amountPaid: paidNow,
         items: lines.map((l) => ({
-          product: l.product,
+          product: l.product || undefined,
+          newProduct: l.product ? undefined : { name: l.name.trim(), gstPercent: Number(l.newGst) || 0, hsnCode: l.newHsn.trim(), unit: l.newUnit },
           qtyPacks: Number(l.qtyPacks),
           costPrice: Number(l.costPrice),
           batchNo: l.batchNo,
@@ -148,26 +154,20 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
           {lines.map((line, idx) => (
             <div key={idx} className="rounded-xl border border-border p-3">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                <div className="col-span-2 sm:col-span-1">
+                <div className="col-span-2">
                   <label className={labelCls}>Product<RequiredMark /></label>
-                  <select value={line.product} onChange={(e) => selectProduct(idx, e.target.value)} className={inputCls}>
-                    <option value="">Select…</option>
-                    {vendorProducts.length > 0 && (
-                      <optgroup label={`${vendor.name}'s products`}>
-                        {vendorProducts.map((p) => (
-                          <option key={p._id} value={p._id}>{p.name} ({p.productCode})</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    <optgroup label={vendorProducts.length > 0 ? "Other products" : "All products"}>
-                      {otherProducts.map((p) => (
-                        <option key={p._id} value={p._id}>{p.name} ({p.productCode})</option>
-                      ))}
-                    </optgroup>
-                  </select>
+                  <ProductPicker
+                    value={lineName(line)}
+                    productId={line.product}
+                    products={products}
+                    preferred={isVendorProduct}
+                    className={inputCls}
+                    onChange={(name) => typeProductName(idx, name)}
+                    onPick={(p) => selectProduct(idx, p)}
+                  />
                 </div>
                 <div>
-                  <label className={labelCls}>Qty ({productById(line.product)?.packUnit || "Packs"})<RequiredMark /></label>
+                  <label className={labelCls}>Qty ({line.product ? productById(line.product)?.packUnit || "Packs" : isNewLine(line) ? line.newUnit : "Packs"})<RequiredMark /></label>
                   <input type="number" min="1" value={line.qtyPacks} onChange={(e) => setLine(idx, "qtyPacks", e.target.value)} className={inputCls} />
                 </div>
                 <div>
@@ -191,13 +191,37 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
                   labelClassName={labelCls}
                 />
               </div>
+              {isNewLine(line) && (
+                <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg bg-secondary-soft/60 p-2">
+                  <div>
+                    <label className={labelCls}>New product GST</label>
+                    <select value={line.newGst} onChange={(e) => setLine(idx, "newGst", e.target.value)} className={inputCls}>
+                      {[0, 5, 12, 18, 28].map((g) => (
+                        <option key={g} value={g}>{g}%</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>HSN Code</label>
+                    <input type="text" maxLength={20} value={line.newHsn} onChange={(e) => setLine(idx, "newHsn", e.target.value)} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Unit</label>
+                    <select value={line.newUnit} onChange={(e) => setLine(idx, "newUnit", e.target.value)} className={inputCls}>
+                      {PACK_UNITS.map((u) => (
+                        <option key={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
               <PurchaseRateHint
                 productId={line.product}
                 vendorId={vendor._id}
                 costPrice={line.costPrice}
                 onSuggest={(rate) => suggestCost(idx, line.product, rate)}
               />
-              <ScannedLineHint line={line} productGst={productById(line.product)?.gstPercent} />
+              <ScannedLineHint line={line} productGst={line.product ? productById(line.product)?.gstPercent : undefined} />
               <div className="mt-2 flex items-center justify-between text-xs text-muted">
                 <span>Line: ₹{lineAmount(line).toFixed(2)} + GST ₹{lineGst(line).toFixed(2)}</span>
                 {lines.length > 1 && (
