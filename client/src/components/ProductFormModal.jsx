@@ -148,6 +148,12 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
       if (v !== "" && v !== undefined && v !== null) fd.append(k, v);
     });
     if (imageFile) fd.append("image", imageFile);
+    // The values this form was opened with: if another user changed them
+    // meanwhile, the server refuses instead of silently overwriting.
+    if (isEdit) {
+      const { name, packRate, gstPercent, hsnCode, packUnit } = product;
+      fd.append("expected", JSON.stringify({ name, packRate, gstPercent, hsnCode, packUnit }));
+    }
 
     try {
       const saved = isEdit ? await updateProduct(product._id, fd) : await createProduct(fd);

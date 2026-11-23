@@ -721,6 +721,23 @@ router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
       if (!product) return res.status(404).json({ message: "No records found." });
 
       const b = req.body;
+      // Conflicting edits: the form sends the values it was opened with. If
+      // someone else changed any of them since, don't overwrite their change.
+      if (b.expected) {
+        let expected = {};
+        try {
+          expected = JSON.parse(b.expected);
+        } catch {
+          /* ignore a malformed snapshot */
+        }
+        const changed = ["name", "packRate", "gstPercent", "hsnCode", "packUnit"].filter(
+          (k) => k in expected && String(expected[k] ?? "") !== String(product[k] ?? "")
+        );
+        if (changed.length) {
+          return res.status(409).json({ message: `${product.name} was changed by another user while you were editing (${changed.join(", ")}). Close this form and open it again to see the latest values.` });
+        }
+        delete b.expected;
+      }
 
       if (b.category) {
         const category = await resolveCategory(b.category);

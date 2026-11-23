@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { listSales, exportSales } from "../api/sales";
@@ -36,6 +37,11 @@ export default function BillHistory() {
       setLoading(false);
     });
   }, [paramsKey]);
+
+  // Bills made/edited by anyone appear without a refresh.
+  useLiveRefresh(["sales"], () => {
+    listSales(JSON.parse(paramsKey)).then(setSales).catch(() => {});
+  });
 
   useEffect(() => {
     if (filters.category) listCategories().then(setCategories).catch(() => {});

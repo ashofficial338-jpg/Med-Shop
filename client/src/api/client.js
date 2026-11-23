@@ -5,7 +5,7 @@ import axios from "axios";
 // fall back to the live Render backend (as before). In local dev, "/api" is
 // always used and Vite's proxy forwards it to VITE_API_URL (or localhost:5000),
 // so the app also works when opened via the LAN IP without any CORS setup.
-const API_URL = import.meta.env.DEV
+export const API_URL = import.meta.env.DEV
   ? "/api"
   : import.meta.env.VITE_API_URL || "https://med-shop-3.onrender.com/api";
 

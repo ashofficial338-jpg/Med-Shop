@@ -30,6 +30,7 @@ import reportsRoutes from "./routes/reports.js";
 import publicRoutes from "./routes/public.js";
 import invoiceArchiveRoutes from "./routes/invoiceArchive.js";
 import salesEntriesRoutes from "./routes/salesEntries.js";
+import { announceChanges, eventsRoute } from "./utils/liveEvents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -65,6 +66,10 @@ app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 // RENDER_GIT_COMMIT is set by Render on each deploy - lets anyone confirm which commit is live without logging in.
 app.get("/api/health", (req, res) => res.json({ status: "ok", commit: (process.env.RENDER_GIT_COMMIT || "local").slice(0, 7) }));
+
+// Live updates: the change stream, and a notice after every saved change.
+app.get("/api/events", ...eventsRoute);
+app.use("/api", announceChanges);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);

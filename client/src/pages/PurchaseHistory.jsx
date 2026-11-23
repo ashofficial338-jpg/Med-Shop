@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { listPurchases, exportPurchases } from "../api/purchases";
@@ -75,6 +76,11 @@ export default function PurchaseHistory() {
       setLoading(false);
     });
   }, [paramsKey, reloadKey]);
+
+  // Purchases saved/edited by anyone appear without a refresh.
+  useLiveRefresh(["purchases"], () => {
+    listPurchases(JSON.parse(paramsKey)).then(setPurchases).catch(() => {});
+  });
 
   useEffect(() => {
     listVendors().then(setVendors);

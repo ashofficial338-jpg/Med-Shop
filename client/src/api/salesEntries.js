@@ -1,4 +1,5 @@
 import api from "./client";
+import { downloadFile } from "../utils/downloadFile";
 
 // Sales Entry - see server routes/salesEntries.js.
 
@@ -20,4 +21,9 @@ export function createSalesEntry(data) {
 
 export function updateSalesEntry(id, data) {
   return api.put(`/sales-entries/${id}`, data).then((r) => r.data);
+}
+
+// Downloads SALES-001.pdf / SALES-001.xlsx on request (never made on Save).
+export function downloadSalesEntryFile(entry, format) {
+  return downloadFile(`/sales-entries/${entry._id}/file.${format}`, {}, `${entry.archiveNo}.${format}`);
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { listProducts, listCategories } from "../api/products";
 import { createDirectPurchase, listUnregisteredSuppliers } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
@@ -50,6 +51,11 @@ export default function DirectPurchaseModal({ initialMode = "none", onClose, onS
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Products added or changed by anyone are pickable right away.
+  useLiveRefresh(["products"], () => {
+    listProducts().then(setProducts).catch(() => {});
+  });
 
   useEffect(() => {
     listProducts().then(setProducts).catch(() => {});

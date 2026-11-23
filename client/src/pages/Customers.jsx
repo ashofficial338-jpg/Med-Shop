@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
@@ -36,6 +37,10 @@ export default function Customers() {
     // the API only restricts the no-query case for Staff.
     load(" ");
   }, []);
+
+  useLiveRefresh(["customers"], () => {
+    searchCustomers(query || " ").then(setCustomers).catch(() => {});
+  });
 
   const handleSearch = (e) => {
     const q = e.target.value;

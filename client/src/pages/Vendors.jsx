@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
@@ -65,6 +66,10 @@ export default function Vendors() {
   useEffect(() => {
     load();
   }, []);
+
+  useLiveRefresh(["vendors"], () => {
+    listVendors(query ? { q: query } : {}).then(setVendors).catch(() => {});
+  });
 
   const handleSearch = (e) => {
     setQuery(e.target.value);

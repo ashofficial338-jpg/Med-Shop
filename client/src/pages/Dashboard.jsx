@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { Link } from "react-router-dom";
 import Layout, { STORE_NAME } from "../components/Layout";
 import Icon from "../components/Icon";
@@ -65,6 +66,13 @@ export default function Dashboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Any sale, purchase, expense or stock change: refresh the figures quietly.
+  useLiveRefresh(["sales", "sales-entries", "purchases", "products", "expenses", "customers", "vendors", "stock", "daybook"], () => {
+    getDashboardSummary(interactive ? { from, to, category, paymentMode } : {})
+      .then(setSummary)
+      .catch(() => {});
+  });
 
   // The server reports the period it actually used (fixed for view-only users).
   const range = interactive || !summary?.access ? { from, to } : { from: summary.access.from, to: summary.access.to };

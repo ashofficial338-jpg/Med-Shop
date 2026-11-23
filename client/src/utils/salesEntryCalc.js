@@ -10,7 +10,7 @@
 //            equals the sum of the line totals; roundOff is kept at 0).
 
 export const GST_RATES = [0, 5, 12, 18, 28];
-export const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Credit"];
+export const PAYMENT_MODES = ["Cash", "UPI", "Card", "Bank Transfer", "Credit"];
 
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const num = (v) => {

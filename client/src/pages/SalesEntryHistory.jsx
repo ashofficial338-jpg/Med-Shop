@@ -4,13 +4,16 @@ import Layout from "../components/Layout";
 import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../api/client";
-import { listSalesEntries } from "../api/salesEntries";
+import { toast } from "react-toastify";
+import { downloadSalesEntryFile, listSalesEntries } from "../api/salesEntries";
+import { PAYMENT_MODES } from "../utils/salesEntryCalc";
+import { useLiveRefresh } from "../context/LiveSync";
 import { compactParams } from "../utils/query";
 
 // Sales History: every saved Sales Entry, newest first. Search by invoice
 // number or customer name, narrow by date, click a row to open (and, for an
 // Admin, edit) it. Filters live in the URL.
-const FILTER_KEYS = ["q", "from", "to"];
+const FILTER_KEYS = ["q", "from", "to", "paymentMode"];
 const fmt = (n) => Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (d) => new Date(d).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
 
@@ -45,6 +48,23 @@ export default function SalesEntryHistory() {
       .finally(() => setLoading(false));
   }, [paramsKey]);
 
+  // Entries saved or edited by anyone appear without a refresh.
+  useLiveRefresh(["sales-entries"], () => {
+    listSalesEntries(JSON.parse(paramsKey)).then(setEntries).catch(() => {});
+  });
+
+  const [busy, setBusy] = useState("");
+  const download = async (e, format) => {
+    setBusy(`${e._id}${format}`);
+    try {
+      await downloadSalesEntryFile(e, format);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setBusy("");
+    }
+  };
+
   const total = entries.reduce((s, e) => s + e.grandTotal, 0);
   const inputCls = "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
   const hasFilters = FILTER_KEYS.some((k) => filters[k]);
@@ -70,6 +90,12 @@ export default function SalesEntryHistory() {
             To
             <input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setFilter("to", e.target.value)} className={inputCls} />
           </label>
+          <select aria-label="Payment mode" value={filters.paymentMode} onChange={(e) => setFilter("paymentMode", e.target.value)} className={inputCls}>
+            <option value="">All payment modes</option>
+            {PAYMENT_MODES.map((m) => (
+              <option key={m}>{m}</option>
+            ))}
+          </select>
           {hasFilters && (
             <button
               type="button"
@@ -96,12 +122,13 @@ export default function SalesEntryHistory() {
           {error && <p className="p-4 text-sm text-danger">{error}</p>}
           {!loading && !error && entries.length === 0 && <p className="p-4 text-sm text-muted">No records found.</p>}
           {!loading && !error && entries.length > 0 && (
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-bg text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   <th className="px-4 py-2.5">Invoice No</th>
                   <th className="px-3 py-2.5">Date</th>
                   <th className="px-3 py-2.5">Customer</th>
+                  <th className="px-3 py-2.5">Payment</th>
                   <th className="px-3 py-2.5 text-right">Total</th>
                   <th className="px-3 py-2.5 text-right" />
                 </tr>
@@ -115,8 +142,25 @@ export default function SalesEntryHistory() {
                     </td>
                     <td className="px-3 py-2.5 text-text">{day(e.invoiceDate)}</td>
                     <td className="px-3 py-2.5 text-text">{e.customer?.name || "-"}</td>
+                    <td className="px-3 py-2.5 text-text">{e.paymentMode}</td>
                     <td className="px-3 py-2.5 text-right font-mono font-semibold tabular-nums text-text">₹{fmt(e.grandTotal)}</td>
-                    <td className="px-3 py-2.5 text-right">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                      {["pdf", "xlsx"].map((f) => (
+                        <button
+                          key={f}
+                          type="button"
+                          disabled={Boolean(busy)}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            download(e, f);
+                          }}
+                          title={`Download ${e.archiveNo}.${f}`}
+                          className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary-soft disabled:opacity-50"
+                        >
+                          <Icon name="download" size={14} />
+                          {busy === `${e._id}${f}` ? "…" : f === "pdf" ? "PDF" : "Excel"}
+                        </button>
+                      ))}
                       <Link to={`/sales-entry/${e._id}`} onClick={(ev) => ev.stopPropagation()} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary-soft">
                         <Icon name={admin ? "edit" : "eye"} size={14} />
                         {admin ? "Edit" : "View"}

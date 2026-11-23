@@ -58,7 +58,7 @@ const salesEntrySchema = new mongoose.Schema(
     roundOff: { type: Number, required: true },
     grandTotal: { type: Number, required: true },
     amountInWords: { type: String, default: "" },
-    paymentMode: { type: String, enum: ["Cash", "UPI", "Bank Transfer", "Credit"], default: "Cash" },
+    paymentMode: { type: String, enum: ["Cash", "UPI", "Card", "Bank Transfer", "Credit"], default: "Cash" },
     notes: { type: String, trim: true, default: "", maxlength: 500 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     editedAt: { type: Date, default: null },

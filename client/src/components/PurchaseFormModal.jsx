@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { listProducts } from "../api/products";
 import { createPurchase } from "../api/purchases";
 import RequiredMark from "./RequiredMark";
@@ -33,6 +34,11 @@ export default function PurchaseFormModal({ vendor, onClose, onSaved, initialDat
   useEffect(() => {
     listProducts().then(setProducts);
   }, []);
+
+  // Products added or changed by anyone are pickable right away.
+  useLiveRefresh(["products"], () => {
+    listProducts().then(setProducts).catch(() => {});
+  });
 
   const productById = (id) => products.find((p) => p._id === id);
   const isVendorProduct = (p) => p.vendor?._id === vendor._id || p.vendor === vendor._id;

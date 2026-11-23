@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
@@ -117,6 +118,13 @@ export default function StockManagement() {
     loadStockReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportCategory, reportAvailability]);
+
+  // Stock moved by a sale, purchase or adjustment anywhere: refresh quietly.
+  useLiveRefresh(["products", "stock"], () => {
+    getStockReport(reportParams).then(setStockReport).catch(() => {});
+    listStockLedger(compactParams({ type: ledgerType })).then(setLedger).catch(() => {});
+    getExpiryTracker().then(setTracker).catch(() => {});
+  });
 
   const selectCls =
     "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";

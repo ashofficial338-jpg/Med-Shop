@@ -75,7 +75,7 @@ function buildEntry(body) {
 
   // The simple form has no payment mode field - Cash unless one is sent.
   const paymentMode = body.paymentMode == null || body.paymentMode === "" ? "Cash" : PAYMENT_MODES.includes(body.paymentMode) ? body.paymentMode : null;
-  if (!paymentMode) return { error: "Choose a payment mode: Cash, UPI, Bank Transfer or Credit." };
+  if (!paymentMode) return { error: "Choose a payment mode: Cash, UPI, Card, Bank Transfer or Credit." };
   if (paymentMode === "Credit" && !c.name) return { error: "Enter the customer's name for a credit sale." };
 
   const invoiceDate = parseInvoiceDate(body.invoiceDate);
@@ -275,6 +275,10 @@ router.post("/", async (req, res) => {
 router.put("/:id", requireRole("admin"), async (req, res) => {
   const entry = await findEntry(req, res);
   if (!entry) return;
+  // Conflicting edits: refuse if someone saved this entry after it was opened.
+  if (req.body.expectedUpdatedAt && new Date(req.body.expectedUpdatedAt).getTime() !== entry.updatedAt.getTime()) {
+    return res.status(409).json({ message: `${entry.archiveNo} was changed by another user while you were editing. Reload it to see the latest values, then make your change again.` });
+  }
   const { error, data } = buildEntry(req.body);
   if (error) return res.status(400).json({ message: error });
   const linked = await linkProducts(data.items, req.user);

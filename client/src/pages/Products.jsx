@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLiveRefresh } from "../context/LiveSync";
 import { toast } from "react-toastify";
 import { useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
@@ -112,6 +113,20 @@ export default function Products() {
     setQuery("");
   };
 
+  // Current filters as API params (also used by the live refresh below).
+  const liveParams = () => {
+    const params = {};
+    if (query) params.q = query;
+    if (category) params.category = category;
+    if (availability) params.availability = availability;
+    if (brand) params.brand = brand;
+    if (dosageForm) params.dosageForm = dosageForm;
+    if (minPrice !== "") params.minPrice = minPrice;
+    if (maxPrice !== "") params.maxPrice = maxPrice;
+    if (status) params.status = status;
+    return params;
+  };
+
   const load = useCallback(() => {
     setLoading(true);
     const params = {};
@@ -136,6 +151,12 @@ export default function Products() {
   useEffect(() => {
     load();
   }, [load]);
+  // Products added/edited by anyone (or stock moved) show up without a refresh.
+  useLiveRefresh(["products", "categories"], () => {
+    listProducts(liveParams())
+      .then(setProducts)
+      .catch(() => {});
+  });
 
   useEffect(() => {
     listCategories().then(setCategories).catch(() => {});

@@ -7,7 +7,8 @@ import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../api/client";
 import ProductPicker from "../components/ProductPicker";
 import { createSalesEntry, getSalesEntry, getSalesEntryMeta, updateSalesEntry } from "../api/salesEntries";
-import { calcInvoice, GST_RATES } from "../utils/salesEntryCalc";
+import { calcInvoice, GST_RATES, PAYMENT_MODES } from "../utils/salesEntryCalc";
+import { useLiveRefresh } from "../context/LiveSync";
 
 // Sales Entry: a simple form to type in a sale and save it to the database.
 // Nothing else happens on Save - no stock change, no PDF/Excel files. The
@@ -28,13 +29,14 @@ const isoInIndia = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "A
 
 let keySeq = 0;
 const blankRow = () => ({ key: ++keySeq, product: null, name: "", hsnCode: "", unit: "", qty: "1", rate: "", gstPercent: 12 });
-const blankForm = () => ({ customerName: "", invoiceDate: todayIso(), items: [blankRow()] });
+const blankForm = () => ({ customerName: "", invoiceDate: todayIso(), paymentMode: "Cash", items: [blankRow()] });
 const isBlankRow = (r) => !r.name.trim() && !Number(r.rate);
 
 function formFromEntry(e) {
   return {
     customerName: e.customer?.name || "",
     invoiceDate: isoInIndia(e.invoiceDate),
+    paymentMode: e.paymentMode || "Cash",
     items: e.items.map((it) => ({
       key: ++keySeq,
       product: it.product || null,
@@ -52,7 +54,7 @@ function loadDraft() {
   try {
     const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
     if (!d || !Array.isArray(d.items) || !d.items.length) return null;
-    return { customerName: d.customerName || "", invoiceDate: d.invoiceDate || todayIso(), items: d.items.map((r) => ({ ...blankRow(), ...r, key: ++keySeq })) };
+    return { customerName: d.customerName || "", invoiceDate: d.invoiceDate || todayIso(), paymentMode: PAYMENT_MODES.includes(d.paymentMode) ? d.paymentMode : "Cash", items: d.items.map((r) => ({ ...blankRow(), ...r, key: ++keySeq })) };
   } catch {
     return null;
   }
@@ -115,6 +117,22 @@ function SalesEntryForm({ id }) {
       .catch((err) => setLoadError(getErrorMessage(err)));
   }, [id, loadNextNo]);
 
+  // Live: keep the next invoice number current (POS bills share the series),
+  // and say so when someone else changes the entry that's open here.
+  const [changedElsewhere, setChangedElsewhere] = useState(false);
+  useLiveRefresh(["sales-entries", "sales"], (evt) => {
+    if (!id) loadNextNo();
+    else if (evt?.catchUp || (evt?.resource === "sales-entries" && evt.id === id && evt.by !== String(user._id))) setChangedElsewhere(true);
+  });
+  const reloadEntry = () =>
+    getSalesEntry(id)
+      .then((e) => {
+        setEntry(e);
+        setForm(formFromEntry(e));
+        setChangedElsewhere(false);
+      })
+      .catch((err) => toast.error(getErrorMessage(err)));
+
   // A new entry being typed is kept on this device until it's saved.
   useEffect(() => {
     if (!id) saveDraft(form);
@@ -156,7 +174,9 @@ function SalesEntryForm({ id }) {
     const body = {
       invoiceDate: form.invoiceDate,
       customer: { ...(entry?.customer || {}), name: form.customerName },
-      paymentMode: entry?.paymentMode,
+      paymentMode: form.paymentMode,
+      // Refused if someone else saved this entry after it was opened.
+      expectedUpdatedAt: entry?.updatedAt,
       interState: entry?.interState,
       items: form.items
         .filter((r) => !isBlankRow(r))
@@ -261,8 +281,18 @@ function SalesEntryForm({ id }) {
           </div>
         )}
 
+        {changedElsewhere && (
+          <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+            <Icon name="alert" size={18} />
+            <span className="font-semibold">This entry may have been changed by another user.</span>
+            <button type="button" onClick={reloadEntry} className="rounded-lg bg-warning px-3 py-1 text-xs font-semibold text-white">
+              Load latest
+            </button>
+          </div>
+        )}
+
         <div className="card mt-4 p-5">
-          <div className="grid gap-4 sm:grid-cols-[1fr_180px_180px]">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_160px_160px_160px]">
             <label className="block">
               <span className={labelCls}>Customer Name</span>
               <input className={inputCls} maxLength={120} placeholder="Customer name" value={form.customerName} disabled={readOnly} onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))} />
@@ -274,6 +304,14 @@ function SalesEntryForm({ id }) {
             <label className="block">
               <span className={labelCls}>Date</span>
               <input type="date" className={inputCls} value={form.invoiceDate} disabled={readOnly} onChange={(e) => setForm((f) => ({ ...f, invoiceDate: e.target.value }))} />
+            </label>
+            <label className="block">
+              <span className={labelCls}>Payment Mode</span>
+              <select className={inputCls} value={form.paymentMode} disabled={readOnly} onChange={(e) => setForm((f) => ({ ...f, paymentMode: e.target.value }))}>
+                {PAYMENT_MODES.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+              </select>
             </label>
           </div>
 
