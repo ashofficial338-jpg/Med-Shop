@@ -88,6 +88,12 @@ const saleSchema = new mongoose.Schema(
     // names; archivedAt is set once both files are saved.
     archiveNo: { type: String, default: undefined },
     archivedAt: { type: Date, default: null },
+    // Bumped by every edit/void of a numbered invoice; the saver then saves
+    // a new copy ("SALES-001 (edited 1)") next to the untouched original.
+    // archiveCopies = how many copies have been saved so far (0 = none yet).
+    archiveVersion: { type: Number, default: 0 },
+    archiveCopies: { type: Number, default: 0 },
+    archiveChange: { type: String, enum: ["edited", "void"], default: "edited" },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

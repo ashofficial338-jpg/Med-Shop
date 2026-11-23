@@ -107,30 +107,49 @@ export async function writeNew(file, data) {
   return true;
 }
 
+// Saves one copy of an invoice. `inv.fileName` is "SALES-001" for the first
+// copy and "SALES-001 (edited 1)" / "SALES-001 (void)" after a change - the
+// earlier copies are left exactly as they are. Returns false when the
+// invoice changed while being saved (it's listed again with the change).
 async function saveOne(kind, inv) {
+  const name = inv.fileName || inv.archiveNo;
+  const version = inv.version ?? "";
   const dir = datedFolder(FOLDERS[kind], inv.createdAt);
   await fs.mkdir(dir, { recursive: true });
-  const saved = [];
-  for (const format of ["pdf", "xlsx"]) {
-    const file = path.join(dir, `${inv.archiveNo}.${format}`);
-    if (existsSync(file)) continue; // already saved earlier - keep it as is
-    const data = await api(`/invoice-archive/${kind}/${inv.id}/file.${format}`, { binary: true });
-    if (await writeNew(file, data)) saved.push(path.basename(file));
+  // Both files are downloaded before either is written, so a PDF and Excel
+  // with the same name always show the same version of the invoice.
+  const files = [];
+  try {
+    for (const format of ["pdf", "xlsx"]) {
+      const file = path.join(dir, `${name}.${format}`);
+      if (existsSync(file)) continue; // already saved earlier - keep it as is
+      files.push({ file, data: await api(`/invoice-archive/${kind}/${inv.id}/file.${format}?version=${version}`, { binary: true }) });
+    }
+  } catch (err) {
+    if (/ -> 409/.test(err.message)) return false;
+    throw err;
   }
-  await api(`/invoice-archive/${kind}/${inv.id}/saved`, { method: "POST" });
-  log(`${inv.archiveNo}: ${saved.length ? `saved ${saved.join(", ")}` : "already on disk"} -> ${dir}`);
+  const saved = [];
+  for (const { file, data } of files) if (await writeNew(file, data)) saved.push(path.basename(file));
+  await api(`/invoice-archive/${kind}/${inv.id}/saved?version=${version}`, { method: "POST" });
+  log(`${name}: ${saved.length ? `saved ${saved.join(", ")}` : "already on disk"} -> ${dir}`);
+  return true;
 }
 
-// Saves every pending invoice of both kinds; returns how many were handled.
+// Saves every pending invoice of both kinds; returns how many were saved.
 async function saveAllPending() {
   let count = 0;
   for (const kind of ["sales", "purchase"]) {
+    const tried = new Set();
     for (;;) {
       const pending = await api(`/invoice-archive/${kind}/pending?limit=25`);
-      if (!pending.length) break;
-      for (const inv of pending) {
-        await saveOne(kind, inv);
-        count++;
+      // Each invoice version is tried once per round; one that keeps
+      // changing is picked up on the next round instead of looping here.
+      const fresh = pending.filter((inv) => !tried.has(`${inv.id}@${inv.version}`));
+      if (!fresh.length) break;
+      for (const inv of fresh) {
+        tried.add(`${inv.id}@${inv.version}`);
+        if (await saveOne(kind, inv)) count++;
       }
     }
   }

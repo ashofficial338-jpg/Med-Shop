@@ -40,7 +40,7 @@ export function pendingInvoices(kind, limit) {
 async function numberAndList(kind, limit) {
   const { model, prefix, counter } = KINDS[kind];
   const pending = await model
-    .find({ archivedAt: null }, "archiveNo createdAt")
+    .find({ archivedAt: null }, "archiveNo archiveVersion archiveCopies archiveChange createdAt")
     .sort({ createdAt: 1, _id: 1 })
     .limit(limit);
   for (const doc of pending) {
@@ -49,7 +49,39 @@ async function numberAndList(kind, limit) {
     await model.updateOne({ _id: doc._id, archiveNo: { $exists: false } }, { $set: { archiveNo } });
     doc.archiveNo = archiveNo;
   }
-  return pending.map((d) => ({ id: String(d._id), archiveNo: d.archiveNo, createdAt: d.createdAt }));
+  return pending.map((d) => ({
+    id: String(d._id),
+    archiveNo: d.archiveNo,
+    version: d.archiveVersion || 0,
+    fileName: archiveFileName(d),
+    createdAt: d.createdAt,
+  }));
+}
+
+// Name (without extension) the next copy of this invoice is saved under:
+// the first copy is just "SALES-001"; after an edit "SALES-001 (edited 1)",
+// "SALES-001 (edited 2)", ...; after a void "SALES-001 (void)". Earlier
+// copies are never touched.
+export function archiveFileName(doc) {
+  const copies = doc.archiveCopies || 0;
+  if (copies === 0) return doc.archiveNo;
+  if (doc.archiveChange === "void") return `${doc.archiveNo} (void)`;
+  return `${doc.archiveNo} (edited ${copies})`;
+}
+
+// Matches the invoice only while it is still at `version` (missing = 0, for
+// invoices saved before versions existed).
+export const atVersion = (version) => (version === 0 ? { archiveVersion: { $in: [0, null] } } : { archiveVersion: version });
+
+// Called after an invoice is edited or voided. Once it has a number it goes
+// back on the saver's list with a new version, so a fresh copy is saved -
+// including when the change lands while the saver is mid-way through saving
+// the previous version (see the /saved route).
+export async function markInvoiceChanged(kind, id, change) {
+  await KINDS[kind].model.updateOne(
+    { _id: id, archiveNo: { $exists: true } },
+    { $inc: { archiveVersion: 1 }, $set: { archivedAt: null, archiveChange: change } }
+  );
 }
 
 export function loadInvoice(kind, id) {
@@ -82,7 +114,7 @@ export function invoicePdf(kind, invoice) {
   return pdfToBuffer((doc) => {
     doc.font("Courier-Bold").fontSize(10).fillColor("#133331");
     if (kind === "sales") {
-      doc.text(`Invoice No: ${invoice.archiveNo}`, { lineGap: 2 });
+      doc.text(`Invoice No: ${archiveFileName(invoice)}`, { lineGap: 2 });
       doc.font("Courier").fontSize(8);
       doc.text(buildBillText(invoice), { lineGap: 1 });
       return;
@@ -91,7 +123,7 @@ export function invoicePdf(kind, invoice) {
     doc.moveDown(0.5);
     doc.font("Courier").fontSize(9);
     const rows = [
-      ["Invoice No", invoice.archiveNo],
+      ["Invoice No", archiveFileName(invoice)],
       ["Supplier", purchaseSupplier(invoice)],
       ["Supplier Inv No", invoice.invoiceNo],
       ["Bill Date", day(invoice.date)],
@@ -137,7 +169,7 @@ export function invoicePdf(kind, invoice) {
 export async function invoiceXlsx(kind, invoice) {
   const wb = new ExcelJS.Workbook();
   wb.creator = SHOP.name;
-  const ws = wb.addWorksheet(invoice.archiveNo);
+  const ws = wb.addWorksheet(archiveFileName(invoice));
   const header = (rows) => {
     ws.addRow([`${SHOP.name} - ${kind === "sales" ? "Sales" : "Purchase"} Invoice`]).font = { bold: true, size: 14 };
     for (const [k, v] of rows) {
@@ -165,7 +197,7 @@ export async function invoiceXlsx(kind, invoice) {
   if (kind === "sales") {
     const paid = invoice.amountPaid ?? invoice.total;
     header([
-      ["Invoice No", invoice.archiveNo],
+      ["Invoice No", archiveFileName(invoice)],
       ["Bill No", invoice.billNo],
       ["Date", day(invoice.createdAt)],
       ["Customer", invoice.customer?.name || "Walk-in"],
@@ -197,7 +229,7 @@ export async function invoiceXlsx(kind, invoice) {
   } else {
     const paid = invoice.amountPaid ?? invoice.total;
     header([
-      ["Invoice No", invoice.archiveNo],
+      ["Invoice No", archiveFileName(invoice)],
       ["Supplier", purchaseSupplier(invoice)],
       ["Supplier Inv No", invoice.invoiceNo],
       ["Bill Date", day(invoice.date)],

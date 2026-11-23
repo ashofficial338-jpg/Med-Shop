@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { markInvoiceChanged } from "../utils/invoiceArchive.js";
 import mongoose from "mongoose";
 import Purchase from "../models/Purchase.js";
 import Vendor from "../models/Vendor.js";
@@ -858,6 +859,7 @@ router.put("/:id", async (req, res) => {
 
     lines.forEach((l, i) => (purchase.items[i].batch = l.batch || null));
     await purchase.save();
+    await markInvoiceChanged("purchase", purchase._id, "edited");
 
     await SupplierPayment.deleteMany({ _id: { $in: billingPayments.map((p) => p._id) } });
     if (mode === "Credit" && paidNow > 0) {

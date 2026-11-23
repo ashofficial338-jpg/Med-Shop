@@ -8,6 +8,7 @@ import CustomerPayment from "../models/CustomerPayment.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { saleLineInternalQty, generateBillNo, buildBillText } from "../utils/saleHelpers.js";
 import { streamBillPdf } from "../utils/billPdf.js";
+import { markInvoiceChanged } from "../utils/invoiceArchive.js";
 import { allocateFefo, allocateFromBatch, reverseBreakdown, earliestActiveBatch, landLegacyReturn } from "../utils/batchHelpers.js";
 import Batch from "../models/Batch.js";
 import { effectiveLocations } from "../utils/locations.js";
@@ -592,6 +593,7 @@ router.put("/:id", requireRole("admin"), async (req, res) => {
       editedBy: req.user._id,
     });
     await sale.save();
+    await markInvoiceChanged("sales", sale._id, "edited");
 
     const populated = await Sale.findById(sale._id).populate("customer", "name phone").populate("createdBy", "username");
     res.json({ ...populated.toObject(), billText: buildBillText(populated) });
@@ -659,6 +661,7 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
   // never shows outstanding money owed on a sale that no longer stands.
   sale.amountPaid = sale.total;
   await sale.save();
+  await markInvoiceChanged("sales", sale._id, "void");
 
   res.json({ ...sale.toObject(), billText: buildBillText(sale) });
 });

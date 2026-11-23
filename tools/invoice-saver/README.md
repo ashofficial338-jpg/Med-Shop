@@ -21,5 +21,19 @@ An existing file is never overwritten. Folders are created automatically.
 
 `node saver.mjs --once` saves everything pending and exits.
 
+## Edited and voided invoices
+
+When a saved sale or purchase is edited or voided, a new copy is saved next to
+the original, in the same date folder. The original is never changed:
+
+```
+SALES-001.pdf               the invoice as first made
+SALES-001 (edited 1).pdf    after the first edit
+SALES-001 (edited 2).pdf    after the second edit
+SALES-001 (void).pdf        after it was voided
+```
+
+(and the same `.xlsx` files). The copy's label is also printed on the invoice.
+
 If the PC is off, nothing is lost: invoices made meanwhile are saved the next
 time the saver runs (into the folder for the day they were made).
