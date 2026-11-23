@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { useAuth } from "./AuthContext";
 
 const CartContext = createContext(null);
 const STORAGE_KEY = "ghm_cart";
@@ -7,18 +8,47 @@ function lineKey(productId, unitType) {
   return `${productId}:${unitType}`;
 }
 
+const OWNER_KEY = "ghm_cart_owner";
+
+function readStoredCart() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function CartProvider({ children }) {
-  const [lines, setLines] = useState(() => {
+  const { user } = useAuth();
+  const userId = user?._id || user?.id || null;
+  const [lines, setLines] = useState(readStoredCart);
+
+  // The cart belongs to whoever built it. Another user signing in at a shared
+  // counter starts with an empty cart; the same user signing back in (e.g.
+  // after their session expired mid-sale) gets theirs back.
+  useEffect(() => {
+    if (!userId) return;
+    let owner = null;
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      owner = localStorage.getItem(OWNER_KEY);
     } catch {
-      return [];
+      /* storage blocked */
     }
-  });
+    if (owner && owner !== String(userId)) setLines((prev) => (prev.length ? [] : prev));
+    try {
+      localStorage.setItem(OWNER_KEY, String(userId));
+    } catch {
+      /* storage blocked */
+    }
+  }, [userId]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
+    } catch {
+      /* storage full or blocked - the cart still works for this visit */
+    }
   }, [lines]);
 
   const addToCart = (product, unitType, qtyToAdd = 1) => {
@@ -56,6 +86,22 @@ export function CartProvider({ children }) {
     );
   };
 
+  // The cart is kept in the browser, so its product details (rates, GST,
+  // units) can go stale. Checkout swaps in the current details from the
+  // server, so the total on screen is the total that gets billed.
+  const refreshProducts = (fresh) => {
+    setLines((prev) => {
+      let changed = false;
+      const next = prev.map((l) => {
+        const p = fresh[l.product._id];
+        if (!p) return l;
+        changed = true;
+        return { ...l, product: { ...l.product, ...p } };
+      });
+      return changed ? next : prev;
+    });
+  };
+
   const clearCart = () => setLines([]);
 
   const lineTotal = (line) => {
@@ -68,7 +114,7 @@ export function CartProvider({ children }) {
 
   return (
     <CartContext.Provider
-      value={{ lines, addToCart, updateQty, removeLine, setLineBatch, clearCart, cartTotal, cartCount, lineTotal }}
+      value={{ lines, addToCart, updateQty, removeLine, setLineBatch, refreshProducts, clearCart, cartTotal, cartCount, lineTotal }}
     >
       {children}
     </CartContext.Provider>

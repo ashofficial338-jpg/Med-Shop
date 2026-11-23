@@ -108,6 +108,15 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  // A malformed id in the URL (e.g. an old or mistyped link) is a missing
+  // record, not a server fault; a model rule that rejects the input is the
+  // user's to fix. Everything else is a real error.
+  if (err?.name === "CastError") return res.status(404).json({ message: "No records found." });
+  if (err?.name === "ValidationError") {
+    const first = Object.values(err.errors || {})[0];
+    return res.status(400).json({ message: first?.message || "Please check the details and try again." });
+  }
+  if (err?.type === "entity.parse.failed") return res.status(400).json({ message: "Please check the details and try again." });
   console.error(err);
   res.status(500).json({ message: "Something went wrong. Please try again." });
 });

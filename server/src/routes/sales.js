@@ -20,6 +20,10 @@ import { dayRange } from "../utils/queryFilters.js";
 const router = Router();
 router.use(requireAuth);
 
+const SALE_PAYMENT_MODES = ["Cash", "Card", "UPI", "Other", "Credit"];
+const BILLING_RECEIPT_NOTE = "Received at billing";
+const round2 = (n) => Number(Number(n).toFixed(2));
+
 function canAccessSale(sale, user) {
   return user.role === "admin" || String(sale.createdBy) === String(user._id);
 }
@@ -151,11 +155,19 @@ router.post("/", async (req, res) => {
   let customerId = null;
   if (customer) {
     const customerDoc = typeof customer === "string" ? await Customer.findById(customer).catch(() => null) : null;
-    if (!customerDoc) return res.status(400).json({ message: "No records found." });
+    if (!customerDoc) return res.status(400).json({ message: "The selected customer was not found. Please choose the customer again." });
     customerId = customerDoc._id;
   }
   if (paymentMode === "Credit" && !customerId) {
     return res.status(400).json({ message: "A customer must be selected for a credit sale." });
+  }
+  // Checked before any stock is taken: a value the Sale model rejects would
+  // otherwise fail only after stock had already been deducted.
+  if (paymentMode && !SALE_PAYMENT_MODES.includes(paymentMode)) {
+    return res.status(400).json({ message: "Please choose a valid payment mode." });
+  }
+  if (items.some((i) => i?.unitType !== "pack" && i?.unitType !== "loose")) {
+    return res.status(400).json({ message: "Please choose pack or loose for each line." });
   }
 
   const isAdmin = req.user.role === "admin";
@@ -232,6 +244,15 @@ router.post("/", async (req, res) => {
       });
     }
 
+    // The discount is checked against the bill amount before any stock moves,
+    // so a bill can never come out negative (same rule as editing a bill).
+    const appliedDiscount = isAdmin ? round2(Number(discount) || 0) : 0;
+    const subtotal = round2(resolved.reduce((s, r) => s + r.line.amount, 0));
+    const gstAmount = round2(resolved.reduce((s, r) => s + r.line.gstAmount, 0));
+    if (appliedDiscount < 0 || appliedDiscount > subtotal + gstAmount) {
+      return res.status(400).json({ message: "The discount can't be more than the bill amount." });
+    }
+
     // Guarded, atomic decrement per line against the product's total (race-safe
     // against concurrent sales), then FEFO-allocate that same quantity across
     // the product's batches so cost/expiry are always attributed to the actual
@@ -281,30 +302,36 @@ router.post("/", async (req, res) => {
       settled.push({ product, internalQty, breakdown, line });
     }
 
-    const isDiscountAllowed = isAdmin;
-    const appliedDiscount = isDiscountAllowed ? Number(discount) || 0 : 0;
-
-    const subtotal = Number(resolved.reduce((s, r) => s + r.line.amount, 0).toFixed(2));
-    const gstAmount = Number(resolved.reduce((s, r) => s + r.line.gstAmount, 0).toFixed(2));
-    const total = Number((subtotal + gstAmount - appliedDiscount).toFixed(2));
+    const total = round2(subtotal + gstAmount - appliedDiscount);
 
     const resolvedPaymentMode = paymentMode || "Cash";
     const amountPaid =
       resolvedPaymentMode === "Credit" ? Math.min(Math.max(Number(amountReceived) || 0, 0), total) : total;
 
-    const billNo = await generateBillNo();
-    const sale = await Sale.create({
-      billNo,
-      customer: customerId,
-      items: resolved.map((r) => r.line),
-      subtotal,
-      gstAmount,
-      discount: appliedDiscount,
-      total,
-      paymentMode: resolvedPaymentMode,
-      amountPaid,
-      createdBy: req.user._id,
-    });
+    let billNo;
+    let sale;
+    try {
+      billNo = await generateBillNo();
+      sale = await Sale.create({
+        billNo,
+        customer: customerId,
+        items: resolved.map((r) => r.line),
+        subtotal,
+        gstAmount,
+        discount: appliedDiscount,
+        total,
+        paymentMode: resolvedPaymentMode,
+        amountPaid,
+        createdBy: req.user._id,
+      });
+    } catch (e) {
+      // The bill wasn't saved: put back every unit already taken for it.
+      for (const s of settled) {
+        await Product.updateOne({ _id: s.product._id }, { $inc: { qty: s.internalQty } });
+        await reverseBreakdown(s.breakdown);
+      }
+      throw e;
+    }
 
     if (resolvedPaymentMode === "Credit" && amountPaid > 0) {
       const paymentNo = await generatePaymentNo("customer");
@@ -340,10 +367,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
 });
-
-const SALE_PAYMENT_MODES = ["Cash", "Card", "UPI", "Other", "Credit"];
-const BILLING_RECEIPT_NOTE = "Received at billing";
-const round2 = (n) => Number(Number(n).toFixed(2));
 
 // Corrects a completed bill (wrong item, quantity, rate, customer, discount
 // or payment mode). The bill keeps its number and date. Stock is put back
@@ -647,6 +670,12 @@ router.post("/:id/void", requireRole("admin"), async (req, res) => {
   const sale = await Sale.findById(req.params.id).populate("customer", "name phone").populate("createdBy", "username");
   if (!sale) return res.status(404).json({ message: "No records found." });
   if (sale.paymentStatus === "void") {
+    return res.status(400).json({ message: "This bill has already been voided." });
+  }
+  // Claim the void atomically, so a double click (or two admins at once)
+  // can never put the same bill's stock back twice.
+  const claimed = await Sale.updateOne({ _id: sale._id, paymentStatus: { $ne: "void" } }, { $set: { paymentStatus: "void" } });
+  if (!claimed.modifiedCount) {
     return res.status(400).json({ message: "This bill has already been voided." });
   }
 

@@ -94,6 +94,8 @@ router.get("/export", async (req, res) => {
 router.post("/adjust", async (req, res) => {
   const { product: productId, adjustmentType, qty, reason, batchId, batchNo, expiryDate, costPrice } = req.body;
   const rack = cleanRack(req.body.rack);
+  // "No Rack" is an explicit choice (sent as NONE); a blank field is not.
+  const rackGiven = String(req.body.rack ?? "").trim() !== "";
 
   if (!productId) return res.status(400).json({ message: "Choose the product to adjust." });
   if (!["add", "reduce"].includes(adjustmentType)) {
@@ -144,7 +146,7 @@ router.post("/adjust", async (req, res) => {
       if (!batch) return res.status(404).json({ message: "No records found." });
       batch.qtyReceived += quantity;
       batch.qtyRemaining += quantity;
-      batch.rack = rack;
+      if (rackGiven) batch.rack = rack;
       await batch.save();
     } else {
       batch = await upsertBatch({
@@ -154,11 +156,14 @@ router.post("/adjust", async (req, res) => {
         costPrice: Number(costPrice) || 0,
         addQty: quantity,
         receivedAt: new Date(),
-        rack,
+        rack: rackGiven ? rack : product.rack || "",
       });
     }
     product.qty += quantity;
-    product.rack = rack;
+    // The rack is optional here: left blank, the product keeps its current
+    // position instead of being moved to No Rack.
+    if (rackGiven) product.rack = rack;
+    else ledgerRack = batch.rack || "";
   }
 
   await product.save();

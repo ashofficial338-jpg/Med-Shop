@@ -6,7 +6,7 @@ import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 import { createSale } from "../api/sales";
 import RequiredMark from "../components/RequiredMark";
-import { getSaleBatches } from "../api/products";
+import { getProduct, getSaleBatches } from "../api/products";
 import { listRacks } from "../api/racks";
 import { describePosition, rackLetter } from "../utils/rack";
 import { makerOf } from "../utils/medicine";
@@ -94,7 +94,7 @@ function BrandStock({ line, batches, racks, onPick }) {
 }
 
 export default function Checkout() {
-  const { lines, updateQty, removeLine, setLineBatch, clearCart, lineTotal } = useCart();
+  const { lines, updateQty, removeLine, setLineBatch, refreshProducts, clearCart, lineTotal } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user.role === "admin";
@@ -118,12 +118,27 @@ export default function Checkout() {
   useEffect(() => {
     if (!productIds) return;
     let cancelled = false;
-    Promise.all(productIds.split(",").map((id) => getSaleBatches(id).then((b) => [id, b]).catch(() => [id, []]))).then((pairs) => {
+    const ids = productIds.split(",");
+    Promise.all(ids.map((id) => getSaleBatches(id).then((b) => [id, b]).catch(() => [id, []]))).then((pairs) => {
       if (!cancelled) setBatchesByProduct(Object.fromEntries(pairs));
+    });
+    // Current rates/GST/units for the cart lines (see CartContext).
+    Promise.all(ids.map((id) => getProduct(id).then((p) => [id, p]).catch(() => null))).then((pairs) => {
+      if (cancelled) return;
+      const fresh = {};
+      for (const pair of pairs) {
+        if (!pair) continue;
+        const [id, p] = pair;
+        const keys = ["name", "packRate", "looseRate", "gstPercent", "soldAs", "unitsPerPack", "packUnit", "looseUnitName"];
+        fresh[id] = Object.fromEntries(keys.filter((k) => p[k] !== undefined && p[k] !== null).map((k) => [k, p[k]]));
+      }
+      refreshProducts(fresh);
     });
     return () => {
       cancelled = true;
     };
+    // refreshProducts only updates cart state; re-running for it isn't needed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productIds]);
 
   if (lines.length === 0) {
@@ -134,7 +149,8 @@ export default function Checkout() {
 
   const subtotal = lines.reduce((sum, l) => sum + lineTotal(l), 0);
   const gstTotal = lines.reduce((sum, l) => sum + lineGst(l), 0);
-  const appliedDiscount = isAdmin ? Number(discount) || 0 : 0;
+  // Never below zero or above the bill amount (the server enforces the same).
+  const appliedDiscount = isAdmin ? Math.min(Math.max(Number(discount) || 0, 0), Number((subtotal + gstTotal).toFixed(2))) : 0;
   const total = subtotal + gstTotal - appliedDiscount;
   const isCredit = paymentMode === "Credit";
   const receivedNow = isCredit ? Math.min(Math.max(Number(amountReceived) || 0, 0), total) : total;

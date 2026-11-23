@@ -295,7 +295,7 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ message: "Add at least one product line before saving." });
   }
 
-  const vendorDoc = await Vendor.findById(vendor);
+  const vendorDoc = mongoose.isValidObjectId(vendor) ? await Vendor.findById(vendor) : null;
   if (!vendorDoc || !vendorDoc.isActive) {
     return res.status(400).json({ message: "No records found." });
   }
@@ -330,7 +330,8 @@ router.post("/", async (req, res) => {
       // optional (cost 0, batch no = invoice no, no expiry, No Rack).
       const qtyPacks = Number(item.qtyPacks);
       const costPrice = optionalNumber(item.costPrice);
-      if (!(qtyPacks > 0)) return res.status(400).json({ message: `Enter the quantity for ${product.name}.` });
+      // Whole packs only, as for a direct purchase and a purchase edit.
+      if (!(qtyPacks > 0) || !Number.isInteger(qtyPacks)) return res.status(400).json({ message: `Enter the quantity for ${product.name}.` });
       if (!(costPrice >= 0)) return res.status(400).json({ message: "Please enter a valid number." });
       if (item.expiryDate && Number.isNaN(new Date(item.expiryDate).getTime())) return res.status(400).json({ message: "Please enter a valid date." });
       const rack = cleanRack(item.rack);
