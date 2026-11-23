@@ -130,6 +130,13 @@ export default function Dashboard() {
         {interactive ? (
           <div className="flex flex-wrap gap-2">
             <Link
+              to="/sales-entry"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-white hover:bg-secondary-dark"
+            >
+              <Icon name="plus" size={16} />
+              Sales Entry
+            </Link>
+            <Link
               to={withQuery("/reports", { from, to, category, paymentMode })}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-dark"
             >

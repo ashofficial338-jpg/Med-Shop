@@ -26,6 +26,7 @@ const ADMIN_NAV = [
       { to: "/rack-center", label: "Rack Center", icon: "boxes" },
       { to: "/stock", label: "Inventory", icon: "boxes" },
       { to: "/bills", label: "Sales", icon: "receipt" },
+      { to: "/sales-entry", label: "Sales Entry", icon: "edit" },
       { to: "/purchases", label: "Purchases", icon: "truck" },
       { to: "/checkout", label: "Orders", icon: "cart", badge: "cart" },
     ],
@@ -74,6 +75,7 @@ const STAFF_NAV = [
       { to: "/rack-center", label: "Rack Center", icon: "boxes" },
       { to: "/checkout", label: "Orders", icon: "cart", badge: "cart" },
       { to: "/bills", label: "My Bills", icon: "receipt" },
+      { to: "/sales-entry", label: "Sales Entry", icon: "edit" },
     ],
   },
   {

@@ -1,5 +1,5 @@
 // Invoice Saver - runs on the shop PC and saves a PDF + Excel copy of every
-// sale and purchase into:
+// sale (POS bills and Sales Entry invoices) and purchase into:
 //   reports\sales\<Year>\<Month>\<DD-MM-YYYY>\SALES-001.pdf / .xlsx
 //   reports\purchase\<Year>\<Month>\<DD-MM-YYYY>\PUR-001.pdf / .xlsx
 //
@@ -36,6 +36,10 @@ const FOLDERS = {
   sales: process.env.SALES_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\sales`,
   purchase: process.env.PURCHASE_DIR || String.raw`C:\Users\ASHWIN\OneDrive\Desktop\Med Shop\reports\purchase`,
 };
+// Sales Entry invoices share the SALES-xxx series with POS bills, so they go
+// in the same sales folder (their numbers never clash).
+FOLDERS["sales-entry"] = FOLDERS.sales;
+const KIND_ORDER = ["sales", "sales-entry", "purchase"];
 const EMAIL = process.env.SAVER_EMAIL;
 const PASSWORD = process.env.SAVER_PASSWORD;
 const POLL_SECONDS = Math.max(Number(process.env.POLL_SECONDS) || 10, 3);
@@ -139,7 +143,7 @@ async function saveOne(kind, inv) {
 // Saves every pending invoice of both kinds; returns how many were saved.
 async function saveAllPending() {
   let count = 0;
-  for (const kind of ["sales", "purchase"]) {
+  for (const kind of KIND_ORDER) {
     const tried = new Set();
     for (;;) {
       const pending = await api(`/invoice-archive/${kind}/pending?limit=25`);
@@ -157,7 +161,7 @@ async function saveAllPending() {
 }
 
 async function main() {
-  for (const dir of Object.values(FOLDERS)) await fs.mkdir(dir, { recursive: true });
+  for (const dir of new Set(Object.values(FOLDERS))) await fs.mkdir(dir, { recursive: true });
   log(`Invoice Saver -> ${API_URL}`);
   log(`Sales folder:    ${FOLDERS.sales}`);
   log(`Purchase folder: ${FOLDERS.purchase}`);
