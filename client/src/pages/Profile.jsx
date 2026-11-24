@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import Layout from "../components/Layout";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -186,6 +187,16 @@ export default function Profile() {
           </form>
         )}
       </div>
+
+      {user.role === "admin" && (
+        <div className="mt-6 max-w-sm rounded-2xl border border-danger/30 bg-surface p-5 shadow-sm">
+          <p className="text-sm font-semibold text-text">Clear All Transaction Records</p>
+          <p className="mt-1 text-xs text-muted">Erase sales, purchases and payments to start fresh. Accounts and logins stay.</p>
+          <Link to="/clear-records" className="mt-3 inline-block text-sm font-semibold text-danger hover:underline">
+            Open
+          </Link>
+        </div>
+      )}
     </Layout>
   );
 }

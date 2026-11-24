@@ -33,6 +33,7 @@ const pageImports = {
   ProductProfitabilityReport: () => import("./pages/ProductProfitabilityReport"),
   RolesPermissions: () => import("./pages/RolesPermissions"),
   Reports: () => import("./pages/Reports"),
+  ClearRecords: () => import("./pages/ClearRecords"),
 };
 const Profile = lazy(pageImports.Profile);
 const Users = lazy(pageImports.Users);
@@ -55,6 +56,7 @@ const StockManagement = lazy(pageImports.StockManagement);
 const RackCenter = lazy(pageImports.RackCenter);
 const ProductProfitabilityReport = lazy(pageImports.ProductProfitabilityReport);
 const RolesPermissions = lazy(pageImports.RolesPermissions);
+const ClearRecords = lazy(pageImports.ClearRecords);
 // Reports & Analytics is large (charts, tables, export dialog).
 const Reports = lazy(pageImports.Reports);
 // The public website is only for visitors, so staff never download it.
@@ -302,6 +304,15 @@ export default function App() {
             element={
               <ProtectedRoute roles={["admin"]}>
                 <ProductProfitabilityReport />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/clear-records"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <ClearRecords />
               </ProtectedRoute>
             }
           />

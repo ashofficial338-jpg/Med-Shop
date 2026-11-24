@@ -53,6 +53,7 @@ const ADMIN_NAV = [
       { action: "notifications", label: "Notifications", icon: "bell", badge: "alerts" },
       { to: "/users", label: "Users", icon: "user" },
       { to: "/roles", label: "Roles & Permissions", icon: "check" },
+      { to: "/clear-records", label: "Clear Records", icon: "trash" },
       { to: "/profile", label: "Settings", icon: "settings" },
     ],
   },

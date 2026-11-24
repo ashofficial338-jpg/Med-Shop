@@ -31,6 +31,7 @@ import reportsRoutes from "./routes/reports.js";
 import publicRoutes from "./routes/public.js";
 import invoiceArchiveRoutes from "./routes/invoiceArchive.js";
 import importsRoutes from "./routes/imports.js";
+import maintenanceRoutes from "./routes/maintenance.js";
 import { announceChanges, eventsRoute } from "./utils/liveEvents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -91,6 +92,7 @@ app.use("/api/reports", reportsRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/invoice-archive", invoiceArchiveRoutes);
 app.use("/api/imports", importsRoutes);
+app.use("/api/maintenance", maintenanceRoutes);
 
 // In a single combined deploy this same process also serves the built React
 // app, under the same origin as the API, so no CORS setup or separate
