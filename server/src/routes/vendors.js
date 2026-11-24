@@ -9,6 +9,9 @@ import Product from "../models/Product.js";
 import { buildVendorReport } from "../utils/vendorReportHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { runInTransaction } from "../utils/transaction.js";
+import { findVendorByName, partyKey } from "../utils/parties.js";
+import { nextSequence } from "../models/Counter.js";
+import { partySummary, partyTotals } from "../utils/managementReports.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
@@ -22,8 +25,13 @@ router.get("/", async (req, res) => {
     filter.$or = [{ name: re }, { phone: re }];
   }
   const vendors = await Vendor.find(filter).sort({ name: 1 });
-  const outstandingMap = await vendorOutstandingMap();
-  res.json(vendors.map((v) => ({ ...v.toObject(), outstandingPayable: outstandingMap.get(String(v._id)) || 0 })));
+  const [outstandingMap, totals] = await Promise.all([vendorOutstandingMap(), partyTotals("vendor", vendors.map((v) => v._id))]);
+  res.json(
+    vendors.map((v) => {
+      const t = totals.get(String(v._id));
+      return { ...v.toObject(), outstandingPayable: outstandingMap.get(String(v._id)) || 0, purchaseCount: t?.count || 0, totalPurchases: t?.total || 0, totalPaid: t?.paid || 0, lastPurchase: t?.last || null };
+    })
+  );
 });
 
 // Directory export with the same search filter as the list.
@@ -73,6 +81,14 @@ router.get("/:id", async (req, res) => {
   if (!vendor) return res.status(404).json({ message: "No records found." });
   const { outstandingBalance } = await buildSupplierLedger(vendor._id);
   res.json({ ...vendor.toObject(), outstandingPayable: outstandingBalance });
+});
+
+// One supplier in full: totals, every purchase, what they supply, month by month.
+router.get("/:id/summary", async (req, res) => {
+  const vendor = await Vendor.findById(req.params.id);
+  if (!vendor) return res.status(404).json({ message: "No records found." });
+  const [summary, outstanding] = await Promise.all([partySummary("vendor", vendor._id), vendorOutstandingMap()]);
+  res.json({ party: vendor, outstanding: outstanding.get(String(vendor._id)) || 0, ...summary });
 });
 
 router.get("/:id/ledger", async (req, res) => {
@@ -164,22 +180,25 @@ router.delete("/:id/payments/:paymentId", async (req, res) => {
   res.json({ vendor, ...ledger });
 });
 
-// Deletes a supplier outright - only one with no purchases or payments on
-// record, since those would lose who they were with (mark the supplier
-// inactive instead, or delete their purchases first). Products that named
-// this supplier simply stop naming one.
+// Deletes a supplier. One with nothing on record is removed outright; one with
+// purchases or payments leaves the Supplier List but stays named on them (and
+// comes back if bought from again). Blocked while the shop still owes them, so
+// an unpaid balance can't disappear from view.
 router.delete("/:id", async (req, res) => {
   const vendor = await Vendor.findById(req.params.id).catch(() => null);
   if (!vendor) return res.status(404).json({ message: "No records found." });
+  const { outstandingBalance } = await buildSupplierLedger(vendor._id);
+  if (outstandingBalance > 0) {
+    return res.status(400).json({ message: `You still owe ${vendor.name} ₹${outstandingBalance.toFixed(2)}. Settle the balance before deleting.` });
+  }
   const [purchases, payments] = await Promise.all([
     Purchase.countDocuments({ vendor: vendor._id }),
     SupplierPayment.countDocuments({ vendor: vendor._id }),
   ]);
   if (purchases || payments) {
-    const what = [purchases && `${purchases} purchase${purchases === 1 ? "" : "s"}`, payments && `${payments} payment${payments === 1 ? "" : "s"}`]
-      .filter(Boolean)
-      .join(" and ");
-    return res.status(400).json({ message: `${vendor.name} has ${what} on record. Delete those first, or mark the supplier inactive instead.` });
+    vendor.isActive = false;
+    await vendor.save();
+    return res.json({ message: `${vendor.name} deleted. Past purchases stay on record.` });
   }
   await Product.updateMany({ vendor: vendor._id }, { $set: { vendor: null } });
   await Vendor.deleteOne({ _id: vendor._id });
@@ -270,9 +289,26 @@ router.post("/", vendorValidation, async (req, res) => {
   }
 
   try {
-    const vendor = await Vendor.create(await withVendorName({ name: "", ...req.body }));
-    res.status(201).json(vendor);
+    const out = await runInTransaction(async () => {
+      // One at a time, so the same supplier can't be added twice at once.
+      await nextSequence("lock:vendor");
+      const found = await findVendorByName(req.body.name);
+      if (found && found.isActive !== false) return { status: 409, body: { message: `${found.name} is already in the Supplier List.` } };
+      const fields = await withVendorName({ name: "", ...req.body });
+      if (found) {
+        // Added again after being deleted: the same supplier, with its history.
+        const vendor = await Vendor.findById(found._id);
+        vendor.set({ ...fields, isActive: true });
+        await vendor.save();
+        return { status: 201, body: vendor };
+      }
+      const vendor = new Vendor(fields);
+      await vendor.save();
+      return { status: 201, body: vendor };
+    });
+    res.status(out.status).json(out.body);
   } catch (e) {
+    console.error(e);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
 });
@@ -285,6 +321,10 @@ router.patch("/:id", vendorValidation, async (req, res) => {
 
   const vendor = await Vendor.findById(req.params.id);
   if (!vendor) return res.status(404).json({ message: "No records found." });
+  if (req.body.name !== undefined && partyKey(req.body.name) !== partyKey(vendor.name)) {
+    const same = await findVendorByName(req.body.name);
+    if (same && String(same._id) !== String(vendor._id)) return res.status(409).json({ message: `${same.name} is already in the Supplier List${same.isActive === false ? " (deleted)" : ""}.` });
+  }
 
   Object.assign(vendor, await withVendorName(req.body));
   await vendor.save();

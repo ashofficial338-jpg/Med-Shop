@@ -32,7 +32,7 @@ const ADMIN_NAV = [
     section: "Accounts",
     items: [
       { to: "/customers", label: "Customers", icon: "users" },
-      { to: "/vendors", label: "Suppliers", icon: "building" },
+      { to: "/vendors", label: "Vendors", icon: "building" },
       { to: "/expenses", label: "Expenses", icon: "wallet" },
       { to: "/day-book", label: "Day Book", icon: "book" },
     ],
@@ -40,6 +40,7 @@ const ADMIN_NAV = [
   {
     section: "Reports",
     items: [
+      { to: "/reports/management", label: "Management Reports", icon: "clipboard" },
       { to: "/reports", label: "Reports & Analytics", icon: "chart", end: true },
       { to: "/reports/profitability", label: "Profitability", icon: "trendUp" },
     ],
@@ -65,7 +66,8 @@ const STAFF_NAV = [
     // Only shown when an Admin has granted the view-only dashboard.
     items: [
       { to: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "dashboard.view" },
-      { to: "/reports", label: "Reports & Analytics", icon: "chart", permission: "reports.view" },
+      { to: "/reports/management", label: "Management Reports", icon: "clipboard", permission: "reports.view" },
+      { to: "/reports", label: "Reports & Analytics", icon: "chart", end: true, permission: "reports.view" },
     ],
   },
   {

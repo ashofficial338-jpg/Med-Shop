@@ -1,19 +1,14 @@
-import { useEffect, useState } from "react";
-import { createVendor } from "../../api/vendors";
+import { useState } from "react";
 
-const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const norm = (s) => String(s || "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu, "");
 
-// Supplier box for Purchase Entry. Pick a supplier, add a new one on the spot,
-// or leave it blank for a purchase with no supplier. A name that is typed but
-// not added stays on this purchase only (no account, paid in full).
-export default function SupplierPicker({ vendors, vendor, name, knownNames = [], onPick, onType, onCreated, locked, inputClassName, autoFocus }) {
+// Supplier box for Purchase Entry: pick a supplier, or just type a new name -
+// it is added to the Supplier List when the purchase is saved. A name that is
+// already in the list is linked to it, however it's typed. Blank = no supplier.
+export default function SupplierPicker({ vendors, vendor, name, onPick, onType, locked, inputClassName, autoFocus }) {
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState("");
+  const [active, setActive] = useState(-1); // -1: nothing highlighted yet
   const key = norm(name);
-
-  useEffect(() => setActive(0), [key]);
 
   if (vendor) {
     return (
@@ -31,94 +26,70 @@ export default function SupplierPicker({ vendors, vendor, name, knownNames = [],
     );
   }
 
-  const matches = vendors.filter((v) => v.isActive !== false && (!key || norm(v.name).includes(key) || String(v.phone || "").includes(name.trim()))).slice(0, 8);
-  const exact = vendors.find((v) => v.isActive !== false && norm(v.name) === key);
-  const names = key ? knownNames.filter((n) => norm(n).includes(key) && norm(n) !== key && !vendors.some((v) => norm(v.name) === norm(n))).slice(0, 3) : [];
-
-  const add = async () => {
-    if (adding || !name.trim()) return;
-    setAdding(true);
-    setError("");
-    try {
-      const created = await createVendor({ name: name.trim() });
-      onCreated(created);
-      onPick(created);
-      setOpen(false);
-    } catch (err) {
-      setError(err.response?.data?.message || "Couldn't add the supplier. Please try again.");
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const options = [
-    ...matches.map((v) => ({ id: v._id, label: v.name, hint: v.outstandingPayable > 0 ? `You owe ₹${v.outstandingPayable.toFixed(2)}` : v.phone || "", run: () => onPick(v) })),
-    ...names.map((n) => ({ id: `n:${n}`, label: n, hint: "Used before, no account", run: () => onType(n) })),
-    ...(key && !exact ? [{ id: "add", label: adding ? "Adding…" : `+ Add “${name.trim()}” as a supplier`, hint: "Keeps an account, can buy on credit", run: add, add: true }] : []),
-  ];
+  const live = vendors.filter((v) => v.isActive !== false);
+  const matches = live.filter((v) => !key || norm(v.name).includes(key) || String(v.phone || "").includes(name.trim())).slice(0, 8);
+  const exact = live.find((v) => norm(v.name) === key);
 
   return (
     <div className="relative">
       <input
         type="text"
+        aria-label="Supplier"
         autoComplete="off"
         autoFocus={autoFocus}
-        maxLength={100}
+        maxLength={150}
         value={name}
         disabled={locked}
-        placeholder="Type to find or add a supplier (blank = no supplier)"
+        placeholder="Type the supplier's name (blank = no supplier)"
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onBlur={() => {
+          // Typed in full: that's the supplier meant.
+          if (key && exact) onPick(exact);
+          setTimeout(() => setOpen(false), 150);
+        }}
         onChange={(e) => {
           onType(e.target.value);
+          setActive(-1);
           setOpen(true);
-          setError("");
         }}
         onKeyDown={(e) => {
-          if (!open || options.length === 0) return;
+          if (e.key === "Escape") setOpen(false);
+          if (!open || matches.length === 0) return;
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
-            setActive((a) => (a + (e.key === "ArrowDown" ? 1 : options.length - 1)) % options.length);
-          } else if (e.key === "Enter" && key) {
+            setActive((a) => (e.key === "ArrowDown" ? (a + 1) % matches.length : a <= 0 ? matches.length - 1 : a - 1));
+          } else if (e.key === "Enter" && (active >= 0 || exact)) {
+            // Only a highlighted or fully typed supplier is picked.
             e.preventDefault();
             e.stopPropagation();
-            options[Math.min(active, options.length - 1)].run();
+            onPick(active >= 0 ? matches[active] : exact);
             setOpen(false);
-          } else if (e.key === "Escape") setOpen(false);
+          }
         }}
         className={inputClassName}
       />
-      {open && !locked && options.length > 0 && (
+      {open && !locked && matches.length > 0 && (
         <ul className="absolute left-0 top-full z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-lg">
-          {options.map((o, i) => (
-            <li key={o.id}>
+          {matches.map((v, i) => (
+            <li key={v._id}>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => {
-                  o.run();
-                  if (!o.add) setOpen(false);
+                  onPick(v);
+                  setOpen(false);
                 }}
                 className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm ${i === active ? "bg-primary-soft" : ""}`}
               >
-                <span className={o.add ? "font-semibold text-primary" : "font-medium text-text"}>{o.label}</span>
-                <span className="shrink-0 text-xs text-muted">{o.hint}</span>
+                <span className="font-medium text-text">{v.name}</span>
+                <span className="shrink-0 text-xs text-muted">{v.outstandingPayable > 0 ? `You owe ₹${v.outstandingPayable.toFixed(2)}` : v.phone || ""}</span>
               </button>
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
-      {key && !open && !locked && (
-        <p className="mt-1 text-xs text-muted">
-          No account for this name – the purchase is paid in full.{" "}
-          <button type="button" onClick={add} className="font-semibold text-primary hover:underline">
-            Add as a supplier
-          </button>{" "}
-          to buy on credit.
-        </p>
-      )}
+      {key && !exact && !locked && !(open && matches.length > 0) && <p className="mt-1 text-xs font-semibold text-secondary">New supplier – added to your Supplier List when saved.</p>}
     </div>
   );
 }

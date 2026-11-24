@@ -5,6 +5,9 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { buildCustomerLedger, customerOutstandingMap, recordCustomerPayment, deleteCustomerPayment } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { runInTransaction } from "../utils/transaction.js";
+import { cleanPhone, findCustomer } from "../utils/parties.js";
+import { nextSequence } from "../models/Counter.js";
+import { partySummary, partyTotals } from "../utils/managementReports.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -33,8 +36,13 @@ router.get("/", async (req, res) => {
   const customers = await Customer.find(filter).sort({ name: 1 }).limit(browsing ? 2000 : 20);
 
   if (req.user.role !== "admin") return res.json(customers);
-  const outstandingMap = await customerOutstandingMap();
-  res.json(customers.map((c) => ({ ...c.toObject(), outstandingBalance: outstandingMap.get(String(c._id)) || 0 })));
+  const [outstandingMap, totals] = await Promise.all([customerOutstandingMap(), partyTotals("customer", customers.map((c) => c._id))]);
+  res.json(
+    customers.map((c) => {
+      const t = totals.get(String(c._id));
+      return { ...c.toObject(), outstandingBalance: outstandingMap.get(String(c._id)) || 0, billCount: t?.count || 0, totalSales: t?.total || 0, lastSale: t?.last || null };
+    })
+  );
 });
 
 router.post("/", async (req, res) => {
@@ -48,23 +56,31 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const existing = phone ? await Customer.findOne({ phone }) : null;
-    if (existing?.isActive) return res.status(409).json({ message: "A customer with this phone number already exists." });
-
-    // Phone is unique, so re-adding a deleted customer restores that record
-    // (keeping their bill history) instead of failing on the unique index.
-    if (existing && req.user.role !== "admin") {
-      return res.status(409).json({ message: "A removed customer has this phone number. Ask an Admin to restore them." });
-    }
-    if (existing) {
-      Object.assign(existing, { name: name.trim(), email: email ?? existing.email, address: address ?? existing.address, isActive: true });
-      await existing.save();
-      return res.status(201).json(existing);
-    }
-
-    const customer = await Customer.create({ name, phone: phone || undefined, email, address });
-    res.status(201).json(customer);
+    const out = await runInTransaction(async () => {
+      // One at a time, so the same customer can't be added twice at once.
+      await nextSequence("lock:customer");
+      const existing = await findCustomer({ name: req.body.name, phone });
+      if (existing?.isActive) {
+        return { status: 409, body: { message: existing.phone && existing.phone === phone ? "A customer with this phone number already exists." : `${existing.name} is already in the Customer List. ${phone ? "Edit that customer to add the phone number." : "Add a phone number if this is someone else."}` } };
+      }
+      // Phone is unique, so re-adding a deleted customer restores that record
+      // (keeping their bill history) instead of failing on the unique index.
+      if (existing && req.user.role !== "admin") {
+        return { status: 409, body: { message: "A removed customer has this name or phone number. Ask an Admin to restore them." } };
+      }
+      if (existing) {
+        Object.assign(existing, { name, email: email ?? existing.email, address: address ?? existing.address, isActive: true, ...(phone ? { phone } : {}) });
+        await existing.save();
+        return { status: 201, body: existing };
+      }
+      const customer = new Customer({ name, phone: phone || undefined, email, address });
+      await customer.save();
+      return { status: 201, body: customer };
+    });
+    res.status(out.status).json(out.body);
   } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ message: "A customer with this phone number already exists." });
+    console.error(e);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
 });
@@ -119,6 +135,14 @@ router.get("/:id", requireRole("admin"), async (req, res) => {
   const bills = await Sale.find({ customer: customer._id }).sort({ createdAt: -1 });
   const { outstandingBalance } = await buildCustomerLedger(customer._id);
   res.json({ customer, bills, outstandingBalance });
+});
+
+// One customer in full: totals, every bill, what they buy, month by month.
+router.get("/:id/summary", requireRole("admin"), async (req, res) => {
+  const customer = await Customer.findById(req.params.id);
+  if (!customer) return res.status(404).json({ message: "No records found." });
+  const [summary, outstanding] = await Promise.all([partySummary("customer", customer._id), customerOutstandingMap()]);
+  res.json({ party: customer, outstanding: outstanding.get(String(customer._id)) || 0, ...summary });
 });
 
 router.get("/:id/ledger", requireRole("admin"), async (req, res) => {
@@ -214,8 +238,16 @@ router.patch("/:id", requireRole("admin"), async (req, res) => {
   const customer = await Customer.findById(req.params.id);
   if (!customer) return res.status(404).json({ message: "No records found." });
 
-  const { name, email, address } = req.body;
+  const { email, address } = req.body;
+  const name = req.body.name === undefined ? undefined : String(req.body.name).trim();
+  if (name === "") return res.status(400).json({ message: "Enter the customer's name." });
+  const phone = req.body.phone === undefined ? undefined : cleanPhone(req.body.phone);
+  if (phone === "" && String(req.body.phone).trim()) return res.status(400).json({ message: "Enter a valid 10-digit phone number, or leave it blank." });
+  if (phone && (await Customer.exists({ phone, _id: { $ne: customer._id } }))) {
+    return res.status(409).json({ message: "Another customer already has this phone number." });
+  }
   if (name !== undefined) customer.name = name;
+  if (phone !== undefined) customer.phone = phone || undefined;
   if (email !== undefined) customer.email = email;
   if (address !== undefined) customer.address = address;
   await customer.save();

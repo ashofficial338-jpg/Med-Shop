@@ -44,7 +44,7 @@ export function autoGranularity(start, end) {
 }
 
 // Buckets follow server-local calendar days, like the report's date range.
-function bucketKey(date, granularity) {
+export function bucketKey(date, granularity) {
   if (granularity === "week") return isoDay(new Date(date.getFullYear(), date.getMonth(), date.getDate() - ((date.getDay() + 6) % 7))); // Monday
   if (granularity === "month") return isoDay(date).slice(0, 7);
   if (granularity === "quarter") return `${date.getFullYear()}-Q${Math.floor(date.getMonth() / 3) + 1}`;
@@ -53,7 +53,7 @@ function bucketKey(date, granularity) {
   return isoDay(date);
 }
 
-function bucketLabel(key, granularity) {
+export function bucketLabel(key, granularity) {
   const dm = (iso) => `${iso.slice(8, 10)} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`;
   if (granularity === "week") return `Wk of ${dm(key)}`;
   if (granularity === "month") return `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;

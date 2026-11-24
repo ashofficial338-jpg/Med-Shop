@@ -513,7 +513,7 @@ function FinanceTab({ a }) {
               <DataTable
                 minWidth={420}
                 columns={[
-                  { key: "name", label: "Customer", render: (r) => <Link to={`/customers/${r.customerId}/ledger`} className="text-text hover:text-primary hover:underline">{r.name}</Link> },
+                  { key: "name", label: "Customer", render: (r) => <Link to={`/customers/${r.customerId}`} className="text-text hover:text-primary hover:underline">{r.name}</Link> },
                   { key: "phone", label: "Phone" },
                   { key: "outstanding", label: "Outstanding", type: "money", tone: () => "text-danger" },
                 ]}
@@ -530,7 +530,7 @@ function FinanceTab({ a }) {
               <DataTable
                 minWidth={420}
                 columns={[
-                  { key: "name", label: "Supplier", render: (r) => <Link to={`/vendors/${r.vendorId}/ledger`} className="text-text hover:text-primary hover:underline">{r.name}</Link> },
+                  { key: "name", label: "Supplier", render: (r) => <Link to={`/vendors/${r.vendorId}`} className="text-text hover:text-primary hover:underline">{r.name}</Link> },
                   { key: "outstanding", label: "Outstanding", type: "money", tone: () => "text-danger" },
                 ]}
                 rows={a.payables.rows}

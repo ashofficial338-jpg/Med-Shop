@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { useLiveRefresh } from "../context/LiveSync";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
-import { listSales, exportSales } from "../api/sales";
+import { listSales, exportSales, listSaleIds, bulkDeleteSales, deleteSale } from "../api/sales";
+import BulkDelete from "../components/BulkDelete";
+import { getErrorMessage } from "../api/client";
+import { toast } from "react-toastify";
 import { listCategories } from "../api/products";
 import { useAuth } from "../context/AuthContext";
 import ExportButtons from "../components/ExportButtons";
@@ -23,10 +26,33 @@ export default function BillHistory() {
   const [loading, setLoading] = useState(true);
   const [excelOpen, setExcelOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [selected, setSelected] = useState(() => new Set());
+  const isAdmin = user.role === "admin";
 
   const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
   const params = compactParams(filters);
   const paramsKey = JSON.stringify(params);
+  // Other filters show other bills: start the selection again.
+  useEffect(() => setSelected(new Set()), [paramsKey]);
+
+  const reload = () => listSales(JSON.parse(paramsKey)).then(setSales).catch(() => {});
+  const toggle = (id) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  const removeOne = async (s) => {
+    if (!window.confirm(`Delete bill ${s.billNo} completely?${s.paymentStatus === "void" ? "" : " Its stock goes back on the shelves."} This cannot be undone.`)) return;
+    try {
+      await deleteSale(s._id);
+      toast.success(`Bill ${s.billNo} deleted.`);
+      setSelected((prev) => new Set([...prev].filter((id) => id !== s._id)));
+      reload();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
 
   const setFilter = (key, value) => {
     const next = { ...filters, [key]: value };
@@ -134,15 +160,33 @@ export default function BillHistory() {
         </p>
       )}
 
+      {isAdmin && sales.length > 0 && (
+        <BulkDelete
+          noun="bill"
+          shownIds={sales.map((s) => s._id)}
+          selected={selected}
+          setSelected={setSelected}
+          loadAllIds={() => listSaleIds(params)}
+          deleteMany={bulkDeleteSales}
+          note="Their stock goes back on the shelves and they leave every report and balance."
+          onDeleted={reload}
+        />
+      )}
+
       <div className="mt-4 space-y-2">
         {loading && <p className="text-sm text-muted">Loading…</p>}
         {!loading && sales.length === 0 && <p className="text-sm text-muted">No records found.</p>}
 
         {sales.map((s) => (
+          <div key={s._id} className={`flex items-center gap-1 rounded-xl bg-surface pr-3 shadow-sm ${selected.has(s._id) ? "ring-2 ring-primary/40" : ""}`}>
+          {isAdmin && (
+            <label className="flex cursor-pointer items-center self-stretch pl-4 pr-2">
+              <input type="checkbox" aria-label={`Select bill ${s.billNo}`} checked={selected.has(s._id)} onChange={() => toggle(s._id)} className="h-4 w-4 accent-primary" />
+            </label>
+          )}
           <button
-            key={s._id}
             onClick={() => navigate(`/bills/${s._id}`)}
-            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl bg-surface p-4 text-left shadow-sm hover:bg-bg"
+            className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2 rounded-xl p-4 text-left hover:bg-bg"
           >
             <div>
               <p className="font-medium text-text">
@@ -166,6 +210,12 @@ export default function BillHistory() {
             </div>
             <p className="font-mono text-sm font-semibold text-text">₹{s.total.toFixed(2)}</p>
           </button>
+          {isAdmin && (
+            <button onClick={() => removeOne(s)} aria-label={`Delete bill ${s.billNo}`} className="shrink-0 rounded-lg border border-danger/40 px-3 py-1 text-xs font-semibold text-danger hover:bg-danger/10">
+              Delete
+            </button>
+          )}
+          </div>
         ))}
       </div>
       {excelOpen && <ExcelUploadModal kind="sales" onClose={() => setExcelOpen(false)} onSaved={() => setReloadKey((k) => k + 1)} />}

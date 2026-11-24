@@ -7,7 +7,8 @@ import { listVendors } from "../api/vendors";
 import { listCategories } from "../api/products";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import ExcelUploadModal from "../components/ExcelUploadModal";
-import { listUnregisteredSuppliers, deletePurchase } from "../api/purchases";
+import { listUnregisteredSuppliers, deletePurchase, listPurchaseIds, bulkDeletePurchases } from "../api/purchases";
+import BulkDelete from "../components/BulkDelete";
 import { toast } from "react-toastify";
 import { compactParams } from "../utils/query";
 
@@ -24,6 +25,7 @@ export default function PurchaseHistory() {
   const [unregistered, setUnregistered] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [deletingId, setDeletingId] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
   const [excelOpen, setExcelOpen] = useState(false);
 
   const handleDelete = async (p) => {
@@ -43,6 +45,14 @@ export default function PurchaseHistory() {
   const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, searchParams.get(k) || ""]));
   const params = compactParams(filters);
   const paramsKey = JSON.stringify(params);
+  // Other filters show other purchases: start the selection again.
+  useEffect(() => setSelected(new Set()), [paramsKey]);
+  const toggle = (id) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   const setFilter = (key, value) => setSearchParams(compactParams({ ...filters, [key]: value }), { replace: true });
   // One supplier dropdown drives two params: a registered vendor / "unregistered"
@@ -110,17 +120,19 @@ export default function PurchaseHistory() {
       <div className="mt-4 flex flex-wrap gap-2">
         <select aria-label="Supplier" value={supplierValue} onChange={(e) => setSupplier(e.target.value)} className={selectCls}>
           <option value="">All Suppliers</option>
-          <optgroup label="Registered suppliers">
+          <optgroup label="Suppliers">
             {vendors.map((v) => (
               <option key={v._id} value={v._id}>{v.name}</option>
             ))}
           </optgroup>
-          <optgroup label="Unregistered suppliers">
-            <option value="unregistered">All unregistered</option>
-            {unregistered.map((n) => (
-              <option key={n} value={`name:${n}`}>{n}</option>
-            ))}
-          </optgroup>
+          {unregistered.length > 0 && (
+            <optgroup label="Unregistered suppliers">
+              <option value="unregistered">All unregistered</option>
+              {unregistered.map((n) => (
+                <option key={n} value={`name:${n}`}>{n}</option>
+              ))}
+            </optgroup>
+          )}
           <option value="none">No supplier</option>
         </select>
         <select aria-label="Payment status" value={filters.payment} onChange={(e) => setFilter("payment", e.target.value)} className={selectCls}>
@@ -149,12 +161,27 @@ export default function PurchaseHistory() {
         </p>
       )}
 
+      {purchases.length > 0 && (
+        <BulkDelete
+          noun="purchase"
+          shownIds={purchases.map((p) => p._id)}
+          selected={selected}
+          setSelected={setSelected}
+          loadAllIds={() => listPurchaseIds(params)}
+          deleteMany={bulkDeletePurchases}
+          note="Their stock comes off the shelves and they leave every report and balance. A purchase whose stock has been sold is kept."
+          onDeleted={() => setReloadKey((k) => k + 1)}
+        />
+      )}
+
       <div className="mt-4 space-y-2">
         {loading && <p className="text-sm text-muted">Loading…</p>}
         {!loading && purchases.length === 0 && <p className="text-sm text-muted">No records found.</p>}
 
         {purchases.map((p) => (
-          <div key={p._id} className="rounded-xl bg-surface p-4 shadow-sm">
+          <div key={p._id} className={`flex gap-3 rounded-xl bg-surface p-4 shadow-sm ${selected.has(p._id) ? "ring-2 ring-primary/40" : ""}`}>
+            <input type="checkbox" aria-label={`Select purchase ${p.invoiceNo}`} checked={selected.has(p._id)} onChange={() => toggle(p._id)} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
+            <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="font-medium text-text">
@@ -202,11 +229,15 @@ export default function PurchaseHistory() {
                 </li>
               ))}
             </ul>
+            </div>
           </div>
         ))}
       </div>
       {excelOpen && (
-        <ExcelUploadModal kind="purchases" onClose={() => setExcelOpen(false)} onSaved={() => setReloadKey((k) => k + 1)} />
+        <ExcelUploadModal kind="purchases" onClose={() => setExcelOpen(false)} onSaved={() => {
+          setReloadKey((k) => k + 1);
+          listVendors().then(setVendors).catch(() => {});
+        }} />
       )}
     </Layout>
   );

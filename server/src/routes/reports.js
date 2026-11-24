@@ -9,7 +9,11 @@ import { GRANULARITIES, TRANSACTION_TYPES, buildAnalytics, buildCatalog, buildTr
 import { streamAnalyticsPdf } from "../utils/analyticsPdf.js";
 import { EXCEL_SHEETS, buildAnalyticsWorkbook } from "../utils/analyticsExcel.js";
 import { buildConsolidated } from "../utils/consolidatedHelpers.js";
-import { todayStamp } from "../utils/reportExport.js";
+import { periodLabel, streamExcelReport, streamPdfReport, todayStamp } from "../utils/reportExport.js";
+import Customer from "../models/Customer.js";
+import { REPORT_LIST, buildManagementReport, describeReportFilters } from "../utils/managementReports.js";
+import { hasPermission } from "../utils/permissions.js";
+import mongoose from "mongoose";
 import { SHOP } from "../utils/saleHelpers.js";
 
 // Reports & Analytics. Financial figures for any period and filter, so it
@@ -179,6 +183,79 @@ router.get("/export", requirePermission("reports.export"), async (req, res) => {
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Length", buffer.length);
   res.end(buffer);
+});
+
+// ---------- Management Reports (utils/managementReports.js) ----------
+
+router.get("/management/options", async (req, res) => {
+  const [customers, vendors, products] = await Promise.all([
+    Customer.find({ isActive: true }, "name phone").sort({ name: 1 }).lean(),
+    Vendor.find({ isActive: { $ne: false } }, "name").sort({ name: 1 }).lean(),
+    Product.find({ isActive: true }, "name productCode").sort({ name: 1 }).lean(),
+  ]);
+  res.json({ reports: REPORT_LIST, customers, vendors, products });
+});
+
+const inr = (v) => Number(v || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// A cell for a downloaded file: numbers stay numbers in Excel, text in the PDF.
+function cellOf(column, row, forPdf) {
+  const type = column.type === "by-row" ? row.type || "money" : column.type;
+  const v = row[column.key];
+  if (v === null || v === undefined || v === "") return forPdf ? "" : null;
+  if (type === "date") return isoLocal(v);
+  if (typeof v !== "number") return v;
+  if (!forPdf) return v;
+  if (type === "money") return inr(v);
+  if (type === "pct") return `${v}%`;
+  return String(v);
+}
+const isoLocal = (d) => new Date(d).toLocaleDateString("en-GB", { timeZone: "Asia/Kolkata" }).replace(/\//g, "-"); // DD-MM-YYYY
+
+// ?report=<key>&from&to&customer&vendor&product  (&format=excel|pdf to download)
+router.get("/management", async (req, res) => {
+  const range = rangeOr400(req, res);
+  if (!range) return;
+  const id = (v, word) => (v && (v === word || mongoose.isValidObjectId(v)) ? String(v) : null);
+  const ctx = { ...range, customer: id(req.query.customer, "walk-in"), vendor: id(req.query.vendor, "none"), product: id(req.query.product) };
+  const { format } = req.query;
+  if (format && !hasPermission(req.user, "reports.export")) return res.status(403).json({ message: "You do not have permission to perform this action." });
+
+  const report = await buildManagementReport(String(req.query.report || ""), ctx);
+  if (!report) return res.status(404).json({ message: "Choose a report." });
+  if (!format) return res.json(report);
+
+  const productName = ctx.product ? (await Product.findById(ctx.product, "name"))?.name : "";
+  const filters = await describeReportFilters({ ...ctx, productName });
+  const subtitle = [periodLabel(report.period.from, report.period.to), filters].filter(Boolean).join(" · ");
+  const numeric = (c) => !["text", "date"].includes(c.type);
+  const totalRow = report.totals && report.rows.length ? { [report.columns[0].key]: "Total", ...report.totals } : null;
+  const filename = `GuganMedicals_${report.title.replace(/[^\w]+/g, "_")}`;
+
+  if (format === "pdf") {
+    const rows = report.rows.map((r) => Object.fromEntries(report.columns.map((c) => [c.key, cellOf(c, r, true)])));
+    if (totalRow) rows.push(Object.fromEntries(report.columns.map((c) => [c.key, c.key === report.columns[0].key ? "Total" : report.totals[c.key] === undefined ? "" : cellOf(c, totalRow, true)])));
+    return streamPdfReport(res, `${filename}.pdf`, {
+      title: `${SHOP.name} - ${report.title}`,
+      subtitle,
+      summaryLines: [...(report.note ? [report.note] : []), ...(report.summary || []).map((s) => `${s.label}: ${s.type === "money" ? `Rs. ${inr(s.value)}` : s.value}`)],
+      columns: report.columns.map((c) => ({ header: c.label || " ", key: c.key, align: numeric(c) ? "right" : "left", flex: c.type === "text" ? 1.6 : 1 })),
+      rows,
+      showCount: false,
+    });
+  }
+  const sheets = [
+    {
+      name: report.title.slice(0, 31),
+      columns: report.columns.map((c) => ({ header: c.label || " ", key: c.key, width: c.type === "text" ? 26 : 16, ...(c.type === "money" ? { style: { numFmt: "#,##0.00" } } : {}) })),
+      rows: [...report.rows, ...(totalRow ? [totalRow] : [])].map((r) => Object.fromEntries(report.columns.map((c) => [c.key, r === totalRow && c.key !== report.columns[0].key && report.totals[c.key] === undefined ? null : r === totalRow && c.key === report.columns[0].key ? "Total" : cellOf(c, r, false)]))),
+    },
+    {
+      name: "About",
+      columns: [{ header: "Report", key: "k", width: 30 }, { header: report.title, key: "v", width: 44 }],
+      rows: [{ k: "Period and filters", v: subtitle }, ...(report.note ? [{ k: "Note", v: report.note }] : []), ...(report.summary || []).map((s) => ({ k: s.label, v: s.value }))],
+    },
+  ];
+  return streamExcelReport(res, `${filename}.xlsx`, sheets);
 });
 
 export default router;

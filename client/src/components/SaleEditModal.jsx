@@ -14,6 +14,8 @@ export default function SaleEditModal({ sale, onClose, onSaved }) {
     sale.items.map((i) => ({ product: String(i.product), name: i.name, unitType: i.unitType, qty: String(i.qty), rate: String(i.rate) }))
   );
   const [customer, setCustomer] = useState(sale.customer || null);
+  const [typedCustomer, setTypedCustomer] = useState(null);
+  const hasCustomer = Boolean(customer || typedCustomer);
   const [paymentMode, setPaymentMode] = useState(sale.paymentMode);
   const [discount, setDiscount] = useState(sale.discount ? String(sale.discount) : "");
   const [amountReceived, setAmountReceived] = useState(sale.receivedAtBilling ? String(sale.receivedAtBilling) : "");
@@ -63,7 +65,7 @@ export default function SaleEditModal({ sale, onClose, onSaved }) {
   const isValid =
     lines.length > 0 &&
     lines.every((l) => l.product && Number(l.qty) > 0 && l.rate !== "" && Number(l.rate) >= 0) &&
-    (!isCredit || Boolean(customer));
+    (!isCredit || hasCustomer);
 
   const submit = async () => {
     if (!isValid || saving) return;
@@ -72,6 +74,7 @@ export default function SaleEditModal({ sale, onClose, onSaved }) {
     try {
       const updated = await updateSale(sale._id, {
         customer: customer?._id || null,
+        ...(!customer && typedCustomer ? { newCustomer: { name: typedCustomer.name, phone: typedCustomer.phone } } : {}),
         paymentMode,
         discount: appliedDiscount,
         amountReceived: isCredit ? receivedNow : undefined,
@@ -152,7 +155,7 @@ export default function SaleEditModal({ sale, onClose, onSaved }) {
           {collectedLater > 0 ? (
             <p className="text-sm text-text">{sale.customer?.name} <span className="text-xs text-muted">(payments already recorded, can't change)</span></p>
           ) : (
-            <CustomerPicker selected={customer} onSelect={setCustomer} isAdmin />
+            <CustomerPicker selected={customer} onSelect={setCustomer} typed={typedCustomer} onTyped={setTypedCustomer} isAdmin />
           )}
         </div>
 
@@ -176,7 +179,7 @@ export default function SaleEditModal({ sale, onClose, onSaved }) {
             </div>
           )}
         </div>
-        {isCredit && !customer && <p className="text-xs text-danger">Select a customer to keep this bill on credit.</p>}
+        {isCredit && !hasCustomer && <p className="text-xs text-danger">Select a customer to keep this bill on credit.</p>}
 
         <div className="rounded-xl bg-bg p-4 text-sm text-text">
           <div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>

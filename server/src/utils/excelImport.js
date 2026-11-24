@@ -115,8 +115,9 @@ export function pickOption(v, allowed) {
   return allowed.find((a) => headerKey(a) === k) || null;
 }
 
-// Streams an .xlsx template: a data sheet (bold headers, notes, dropdowns,
-// sample rows) and an Instructions sheet.
+// Streams an .xlsx template: an empty data sheet (bold headers, notes,
+// dropdowns), a filled Example sheet - so samples are never uploaded by
+// mistake - and an Instructions sheet.
 export async function streamTemplate(res, filename, { sheetName, columns, samples, instructions }) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(sheetName, { views: [{ state: "frozen", ySplit: 1 }] });
@@ -130,7 +131,6 @@ export async function streamTemplate(res, filename, { sheetName, columns, sample
     if (c.note) cell.note = c.note;
     if (c.required) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0B4F63" } };
   });
-  for (const s of samples) ws.addRow(s);
   // Dropdowns and formats down to row 2000.
   columns.forEach((c, i) => {
     const col = ws.getColumn(i + 1);
@@ -147,6 +147,11 @@ export async function streamTemplate(res, filename, { sheetName, columns, sample
       };
     }
   });
+
+  const example = wb.addWorksheet("Example");
+  example.columns = columns.map((c) => ({ header: c.header, key: c.key, width: c.width || 16 }));
+  example.getRow(1).font = { bold: true };
+  for (const s of samples) example.addRow(s);
 
   const help = wb.addWorksheet("Instructions");
   help.getColumn(1).width = 110;

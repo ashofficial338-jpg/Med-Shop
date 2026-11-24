@@ -29,6 +29,7 @@ export default function Billing() {
   const isAdmin = user.role === "admin";
 
   const [customer, setCustomer] = useState(null);
+  const [typedCustomer, setTypedCustomer] = useState(null); // a name / phone typed, not picked
   const [discount, setDiscount] = useState("");
   const [discountType, setDiscountType] = useState("₹");
   const [paymentMode, setPaymentMode] = useState("Cash");
@@ -93,12 +94,14 @@ export default function Billing() {
   const receivedNow = isCredit ? round2(Math.min(Math.max(Number(amountReceived) || 0, 0), total)) : total;
   const balanceDue = round2(total - receivedNow);
   const shortLine = shortLineOf(lines, batchesByProduct);
-  const canSave = lines.length > 0 && !shortLine && (!isCredit || Boolean(customer)) && !saving;
+  const hasCustomer = Boolean(customer || typedCustomer);
+  const canSave = lines.length > 0 && !shortLine && (!isCredit || hasCustomer) && !saving;
 
   const startNextBill = () => {
     clearCart();
     renewBillRef();
     setCustomer(null);
+    setTypedCustomer(null);
     setDiscount("");
     setPaymentMode("Cash");
     setAmountReceived("");
@@ -119,6 +122,7 @@ export default function Billing() {
       const sale = await createSale({
         clientRef: billRef(),
         customer: customer?._id || null,
+        ...(!customer && typedCustomer ? { newCustomer: { name: typedCustomer.name, phone: typedCustomer.phone } } : {}),
         paymentMode,
         discount: appliedDiscount,
         items: lines.map((l) => ({
@@ -268,8 +272,8 @@ export default function Billing() {
           <section aria-label="Payment" className="space-y-4 rounded-2xl bg-surface p-4 shadow-sm sm:p-5 lg:sticky lg:top-24">
             <div>
               <label className={labelCls}>Customer</label>
-              <CustomerPicker selected={customer} onSelect={setCustomer} isAdmin={isAdmin} />
-              {!customer && !isCredit && <p className="mt-1 text-xs text-muted">Leave blank for a walk-in customer.</p>}
+              <CustomerPicker selected={customer} onSelect={setCustomer} typed={typedCustomer} onTyped={setTypedCustomer} isAdmin={isAdmin} />
+              {!hasCustomer && !isCredit && <p className="mt-1 text-xs text-muted">Leave blank for a walk-in customer.</p>}
             </div>
 
             <div>
@@ -281,7 +285,7 @@ export default function Billing() {
                   </button>
                 ))}
               </div>
-              {isCredit && !customer && <p className="mt-1.5 text-xs font-semibold text-danger">Choose a customer above to bill on credit.</p>}
+              {isCredit && !hasCustomer && <p className="mt-1.5 text-xs font-semibold text-danger">Enter the customer above to bill on credit.</p>}
             </div>
 
             {isCredit && (

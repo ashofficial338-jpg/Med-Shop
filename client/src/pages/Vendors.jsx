@@ -1,211 +1,120 @@
-import { useEffect, useState } from "react";
-import { useLiveRefresh } from "../context/LiveSync";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import VendorFormModal from "../components/VendorFormModal";
-import { listVendors, setVendorActive, exportVendors, deleteVendor } from "../api/vendors";
-import { listProducts } from "../api/products";
+import PartyTable from "../components/PartyTable";
+import { useLiveRefresh } from "../context/LiveSync";
+import { listVendors, exportVendors, deleteVendor } from "../api/vendors";
+import { getErrorMessage } from "../api/client";
 
-function VendorProducts({ vendorId }) {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState("");
+const FILTERS = [
+  ["all", "All suppliers"],
+  ["due", "You owe them"],
+  ["clear", "Nothing owed"],
+  ["new", "No purchases yet"],
+];
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    listProducts({ vendor: vendorId, q: q || undefined })
-      .then((data) => !cancelled && setProducts(data))
-      .catch(() => {})
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [vendorId, q]);
-
-  return (
-    <div className="mt-3 rounded-xl bg-bg p-3">
-      <input
-        type="text"
-        placeholder="Search this supplier's products…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        className="w-full max-w-xs rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
-      />
-      <div className="mt-2 space-y-1">
-        {loading && <p className="text-xs text-muted">Loading…</p>}
-        {!loading && products.length === 0 && <p className="text-xs text-muted">No products found.</p>}
-        {!loading &&
-          products.map((p) => (
-            <div key={p._id} className="flex items-center justify-between rounded-lg bg-surface px-2.5 py-1.5 text-xs">
-              <span className="text-text">{p.name} <span className="font-mono text-muted">({p.productCode})</span></span>
-              <span className="font-mono text-muted">₹{Number(p.packRate).toFixed(2)} · Qty {p.qty}</span>
-            </div>
-          ))}
-      </div>
-    </div>
-  );
-}
-
+// Vendor Management. Suppliers are added here, or by themselves from the
+// purchases (typed or Excel) that name them.
 export default function Vendors() {
   const [vendors, setVendors] = useState([]);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
-  const [editingVendor, setEditingVendor] = useState(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [expandedId, setExpandedId] = useState(null);
+  const [editing, setEditing] = useState(null); // a vendor, or {} for a new one
 
-  const load = (q = "") => {
-    setLoading(true);
-    listVendors(q ? { q } : {})
+  const load = () =>
+    listVendors()
       .then(setVendors)
-      .catch(() => {})
+      .catch((err) => toast.error(getErrorMessage(err, "Could not load suppliers.")))
       .finally(() => setLoading(false));
-  };
-
   useEffect(() => {
     load();
   }, []);
+  useLiveRefresh(["vendors", "purchases"], load);
 
-  useLiveRefresh(["vendors"], () => {
-    listVendors(query ? { q: query } : {}).then(setVendors).catch(() => {});
-  });
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return vendors.filter(
+      (v) =>
+        (!q || [v.name, v.phone, v.contactPerson, v.gstNumber, v.email].some((x) => String(x || "").toLowerCase().includes(q))) &&
+        (filter === "all" || (filter === "due" ? v.outstandingPayable > 0 : filter === "clear" ? !(v.outstandingPayable > 0) : v.purchaseCount === 0))
+    );
+  }, [vendors, query, filter]);
+  const sum = (k) => shown.reduce((s, v) => s + (v[k] || 0), 0);
 
-  const handleSearch = (e) => {
-    setQuery(e.target.value);
-    load(e.target.value);
-  };
-
-  const handleSaved = () => {
-    setEditingVendor(null);
-    setShowAddForm(false);
-    load(query);
-  };
-
-  const handleDelete = async (v) => {
-    if (!window.confirm(`Delete ${v.name}? This cannot be undone.`)) return;
+  const remove = async (v) => {
+    if (!window.confirm(`Delete ${v.name}?${v.purchaseCount ? " Their past purchases stay on record." : ""}`)) return;
     try {
-      await deleteVendor(v._id);
-      toast.success(`${v.name} deleted.`);
-      load(query);
+      toast.success((await deleteVendor(v._id)).message);
+      load();
     } catch (err) {
-      toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
+      toast.error(getErrorMessage(err));
     }
   };
 
-  const toggleActive = async (v) => {
-    if (!window.confirm(`Deactivate ${v.name}? They will be removed from the supplier list and purchase form. Past purchases and payments stay on record.`)) return;
-    try {
-      await setVendorActive(v._id, !v.isActive);
-      toast.success(`${v.name} deactivated.`);
-      load(query);
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
-    }
-  };
+  const inputCls = "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
 
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Suppliers</h1>
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Vendor Management</h1>
+          <p className="mt-0.5 text-sm text-muted">New suppliers on your purchases and Excel uploads are added here by themselves.</p>
+        </div>
         <div className="flex flex-wrap gap-2">
-          <ReportDownloadButtons onExport={(format) => exportVendors(format, query.trim() ? { q: query.trim() } : {})} />
-          <Link
-            to="/purchases"
-            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
-          >
-            Purchases
+          <Link to="/reports/management?report=vendor-performance" className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface">
+            Vendor reports
           </Link>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
-          >
-            Add Supplier
+          <ReportDownloadButtons onExport={(format) => exportVendors(format, query.trim() ? { q: query.trim() } : {})} />
+          <button onClick={() => setEditing({})} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            + Add Vendor
           </button>
         </div>
       </div>
 
-      <input
-        type="text"
-        placeholder="Search by name or phone"
-        value={query}
-        onChange={handleSearch}
-        className="mt-4 w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
-      />
-
-      <div className="mt-6 space-y-2">
-        {loading && <p className="text-sm text-muted">Loading…</p>}
-        {!loading && vendors.length === 0 && <p className="text-sm text-muted">No records found.</p>}
-
-        {vendors.map((v) => {
-          const isOpen = expandedId === v._id;
-          return (
-            <div key={v._id} className="rounded-xl bg-surface p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <button
-                  onClick={() => setExpandedId(isOpen ? null : v._id)}
-                  className="flex items-center gap-2 text-left"
-                >
-                  <span className={`text-muted transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
-                  <span>
-                    <p className="font-medium text-text">{v.name}</p>
-                    <p className="text-sm text-muted">
-                      {[v.phone, v.gstNumber].filter(Boolean).join(" · ")}
-                      {v.overallRating != null && (
-                        <span className="ml-2 text-warning">{"★".repeat(Math.round(v.overallRating))}<span className="text-muted">{v.overallRating.toFixed(1)}</span></span>
-                      )}
-                    </p>
-                  </span>
-                </button>
-                <div className="flex items-center gap-2">
-                  {v.outstandingPayable > 0 && (
-                    <span className="font-mono text-sm font-semibold text-danger">₹{v.outstandingPayable.toFixed(2)} payable</span>
-                  )}
-                  <Link
-                    to={`/vendors/${v._id}/ledger`}
-                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:bg-bg"
-                  >
-                    Ledger
-                  </Link>
-                  <Link
-                    to={`/vendors/${v._id}/analysis`}
-                    className="rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:bg-bg"
-                  >
-                    Analysis
-                  </Link>
-                  <Link
-                    to={`/purchases/new?vendor=${v._id}`}
-                    className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark"
-                  >
-                    New Purchase
-                  </Link>
-                  <button onClick={() => setEditingVendor(v)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:bg-bg">
-                    Edit
-                  </button>
-                  <button onClick={() => toggleActive(v)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-muted hover:bg-bg">
-                    Deactivate
-                  </button>
-                  <button onClick={() => handleDelete(v)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-danger hover:bg-danger/10">
-                    Delete
-                  </button>
-                </div>
-              </div>
-              {isOpen && <VendorProducts vendorId={v._id} />}
-            </div>
-          );
-        })}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <input type="search" aria-label="Search suppliers" placeholder="Search name, phone, GSTIN" value={query} onChange={(e) => setQuery(e.target.value)} className={`${inputCls} w-full max-w-xs`} />
+        <select aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value)} className={inputCls}>
+          {FILTERS.map(([k, l]) => (
+            <option key={k} value={k}>{l}</option>
+          ))}
+        </select>
+        <p className="ml-auto text-sm text-muted">
+          {shown.length} supplier{shown.length === 1 ? "" : "s"} · purchases ₹{sum("totalPurchases").toFixed(2)} · <span className="font-semibold text-danger">you owe ₹{sum("outstandingPayable").toFixed(2)}</span>
+        </p>
       </div>
 
-      {(showAddForm || editingVendor) && (
+      <PartyTable
+        loading={loading}
+        rows={shown}
+        base="/vendors"
+        columns={[
+          { key: "purchaseCount", label: "Purchases", type: "int" },
+          { key: "totalPurchases", label: "Total purchases", type: "money" },
+          { key: "outstandingPayable", label: "You owe", type: "due" },
+          { key: "lastPurchase", label: "Last purchase", type: "date" },
+        ]}
+        sub={(v) => [v.contactPerson, v.phone, v.gstNumber].filter(Boolean).join(" · ")}
+        actions={(v) => [
+          { label: "New purchase", to: `/purchases/new?vendor=${v._id}` },
+          { label: "Pay / ledger", to: `/vendors/${v._id}/ledger` },
+          { label: "Edit", onClick: () => setEditing(v) },
+          { label: "Delete", onClick: () => remove(v), danger: true },
+        ]}
+      />
+
+      {editing && (
         <VendorFormModal
-          vendor={editingVendor}
-          onClose={() => {
-            setShowAddForm(false);
-            setEditingVendor(null);
+          vendor={editing._id ? editing : null}
+          onClose={() => setEditing(null)}
+          onSaved={(v) => {
+            toast.success(`${v.name} saved.`);
+            setEditing(null);
+            load();
           }}
-          onSaved={handleSaved}
         />
       )}
     </Layout>

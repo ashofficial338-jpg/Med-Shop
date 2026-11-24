@@ -251,12 +251,12 @@ export default function InvoiceUploadModal({ vendors, onClose, onContinue }) {
               <div className="col-span-2">
                 <label className={labelCls}>Enter this purchase as</label>
                 <select value={target} onChange={(e) => setTarget(e.target.value)} className={inputCls}>
-                  <optgroup label="Registered supplier">
+                  <optgroup label="Your suppliers">
                     {activeVendors.map((v) => (
                       <option key={v._id} value={v._id}>{v.name}</option>
                     ))}
                   </optgroup>
-                  <option value="unregistered">Another supplier{supplierName.trim() ? ` — ${supplierName.trim()}` : ""}</option>
+                  <option value="unregistered">New supplier{supplierName.trim() ? ` — ${supplierName.trim()}` : ""}</option>
                   <option value="none">No supplier</option>
                 </select>
                 {target === "unregistered" && !supplierName.trim() && (

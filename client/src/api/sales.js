@@ -38,3 +38,12 @@ export function updateSale(id, data) {
 export function deleteSale(id) {
   return api.delete(`/sales/${id}`).then((r) => r.data);
 }
+
+// Every bill id the filters match, and deleting many at once (Admin).
+export function listSaleIds(params) {
+  return api.get("/sales/ids", { params }).then((r) => r.data);
+}
+
+export function bulkDeleteSales(ids) {
+  return api.post("/sales/bulk-delete", { ids }, { timeout: 120_000 }).then((r) => r.data);
+}

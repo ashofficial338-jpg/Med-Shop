@@ -18,7 +18,8 @@ import { computeLooseRate } from "../utils/productHelpers.js";
 import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
 import { findOrCreateProduct } from "../utils/productAutoCreate.js";
-import { transactional, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
+import { transactional, runInTransaction, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
+import { findOrCreateVendor, partyKey } from "../utils/parties.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
@@ -28,6 +29,7 @@ const LOOSE_UNITS = ["Tablet", "Capsule", "ml", "Piece"];
 const GST_VALUES = [0, 5, 12, 18, 28];
 // A purchase without a supplier has nobody to owe, so it's always paid up front.
 const DIRECT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
+const MAX_BULK = 200;
 const PAID_AT_PURCHASE_NOTE = "Paid at purchase";
 // How money paid along with a credit purchase was paid.
 const paidMode = (m) => (DIRECT_PAYMENT_MODES.includes(m) ? m : "Cash");
@@ -254,6 +256,12 @@ router.get("/export", async (req, res) => {
   ]);
 });
 
+// Ids of every purchase matching the list's filters, for "select all".
+router.get("/ids", async (req, res) => {
+  const rows = await Purchase.find(await buildPurchaseFilter(req), "_id").sort({ date: -1 }).lean();
+  res.json(rows.map((r) => r._id));
+});
+
 router.get("/:id", async (req, res) => {
   const purchase = await Purchase.findById(req.params.id)
     .populate("vendor", "name")
@@ -366,8 +374,8 @@ function priceUpdate(product, sellingPrice) {
   return { packRate: sellingPrice, ...(product.soldAs === "pack-and-loose" ? { looseRate: looseRate ?? 0 } : {}) };
 }
 
-// The one Purchase Entry: from a registered supplier (can be on credit), from
-// a supplier typed in by name, or with no supplier at all (both paid up
+// The one Purchase Entry: from a supplier (picked, or typed by name - a new one
+// is added to the list; can be on credit), or with no supplier at all (paid up
 // front). In one transaction it records the purchase, brings the stock in
 // batch by batch, updates purchase and selling rates, and posts what was
 // paid; supplier balances, stock value, the Day Book, the dashboard and the
@@ -391,15 +399,19 @@ const savePurchase = transactional(async (req, res) => {
   if (vendor) {
     vendorDoc = mongoose.isValidObjectId(vendor) ? await Vendor.findById(vendor) : null;
     if (!vendorDoc || !vendorDoc.isActive) return res.status(400).json({ message: "The selected supplier was not found. Please choose the supplier again." });
+  } else if (partyKey(req.body.supplierName)) {
+    // A name typed on the purchase (or in the Excel file): linked to that
+    // supplier if there is one, else added to the Supplier List with it.
+    vendorDoc = (await findOrCreateVendor(req.body.supplierName)).vendor;
   }
   const vendorId = vendorDoc?._id || null;
-  const supplierName = vendorDoc ? "" : String(req.body.supplierName || "").trim();
+  const supplierName = "";
 
   // Only a registered supplier has an account to owe on; every other purchase
   // (and every mode but Credit) is settled in full at once.
   const mode = paymentMode || (vendorDoc ? "Credit" : "Cash");
   if (!vendorDoc && mode === "Credit") {
-    return res.status(400).json({ message: "Choose a registered supplier to buy on credit, or pick how it was paid (Cash, UPI, ...)." });
+    return res.status(400).json({ message: "Enter the supplier to buy on credit, or pick how it was paid (Cash, UPI, ...)." });
   }
   if (![...DIRECT_PAYMENT_MODES, "Credit"].includes(mode)) return res.status(400).json({ message: "Please choose a valid payment mode." });
 
@@ -506,7 +518,7 @@ const savePurchase = transactional(async (req, res) => {
 });
 
 router.post("/", savePurchase);
-// Kept for the Excel upload: the same entry, without a registered supplier.
+// The old address for purchases without a registered supplier: same entry.
 router.post("/direct", (req, res, next) => {
   req.body.vendor = undefined;
   return savePurchase(req, res, next);
@@ -526,22 +538,24 @@ router.put(
     const purchase = await Purchase.findById(req.params.id);
     if (!purchase) return res.status(404).json({ message: "No records found." });
     const { vendor, supplierName, invoiceNo, date, items, tdsAmount, paymentMode, amountPaid } = req.body;
-    const isDirect = !purchase.vendor;
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "Add at least one product line before saving." });
     }
     if (date && Number.isNaN(new Date(date).getTime())) return res.status(400).json({ message: "Please enter a valid date." });
 
-    let vendorId = null;
-    if (!isDirect) {
-      vendorId = vendor && mongoose.isValidObjectId(vendor) ? String(vendor) : String(purchase.vendor);
-      if (vendorId !== String(purchase.vendor)) {
-        const v = await Vendor.findById(vendorId);
-        if (!v || !v.isActive) return res.status(400).json({ message: "Please choose a valid supplier." });
-      }
+    // A supplier can be changed, or put on a purchase that had none; once a
+    // purchase has a supplier it keeps one.
+    let vendorId = purchase.vendor ? String(purchase.vendor) : null;
+    if (vendor && mongoose.isValidObjectId(vendor) && String(vendor) !== vendorId) {
+      const v = await Vendor.findById(vendor);
+      if (!v || !v.isActive) return res.status(400).json({ message: "Please choose a valid supplier." });
+      vendorId = String(v._id);
+    } else if (!vendor && partyKey(supplierName)) {
+      vendorId = String((await findOrCreateVendor(supplierName)).vendor._id);
     }
-    const vendorChanged = !isDirect && vendorId !== String(purchase.vendor);
+    const isDirect = !vendorId;
+    const vendorChanged = String(vendorId || "") !== String(purchase.vendor || "");
     const mode = paymentMode || purchase.paymentMode;
     const allowedModes = isDirect ? DIRECT_PAYMENT_MODES : [...DIRECT_PAYMENT_MODES, "Credit"];
     if (!allowedModes.includes(mode)) {
@@ -648,9 +662,8 @@ router.put(
         }
       }
 
-      const cleanSupplierName = isDirect ? String(supplierName ?? purchase.supplierName ?? "").trim() : "";
       const newLines = read.map((r) => r.line).filter((l) => l.previousCostPrice === undefined);
-      if (newLines.length) await attachPreviousRates(newLines, supplierFilterFor(vendorId, cleanSupplierName), purchase._id);
+      if (newLines.length) await attachPreviousRates(newLines, supplierFilterFor(vendorId, ""), purchase._id);
 
       const purchaseDate = date ? new Date(date) : purchase.date;
       const reason = `Edit of purchase ${resolvedInvoiceNo}`;
@@ -745,7 +758,7 @@ router.put(
 
       purchase.set({
         vendor: isDirect ? null : vendorId,
-        supplierName: isDirect ? cleanSupplierName : purchase.supplierName,
+        supplierName: "",
         invoiceNo: resolvedInvoiceNo,
         date: purchaseDate,
         items: read.map((r) => ({ ...r.line, batch: r.line.batch || null })),
@@ -816,76 +829,104 @@ async function broughtIn(purchase) {
   return { qtyByBatch, costByBatch, batches };
 }
 
-// Removes a purchase completely (Admin): every unit it brought in comes off
-// its batches again, and what was paid with it goes too. Refused while any of
-// that stock has been sold or used (correct the quantity with Edit instead),
-// or while payments made later through the supplier ledger point at it.
+// Removes a purchase completely: every unit it brought in comes off its batches
+// again, and what was paid with it goes too. Refused while any of that stock
+// has been sold or used (correct the quantity with Edit instead), or while
+// payments made later through the supplier ledger point at it.
+// Runs in a transaction; returns { error, status, ref } or { ref }.
+async function deletePurchase(id, userId) {
+  const purchase = await Purchase.findById(id);
+  if (!purchase) return { error: "No records found.", status: 404 };
+  const refuse = (error) => ({ ref: purchase.invoiceNo, status: 400, error });
+
+  const { atPurchase, paidLater, otherPayments } = await purchasePayments(purchase);
+  if (paidLater > 0 || otherPayments > 0) {
+    return refuse("Payments were made against this purchase from the supplier ledger. Delete those payments first, then delete the purchase.");
+  }
+
+  const { qtyByBatch, costByBatch, batches } = await broughtIn(purchase);
+  const productDelta = new Map();
+  for (const b of batches) {
+    const qty = qtyByBatch.get(String(b._id)) || 0;
+    if (b.qtyRemaining < qty) {
+      const p = await Product.findById(b.product);
+      const used = qty - b.qtyRemaining;
+      return refuse(
+        `${p?.name || "A product"} batch ${b.batchNo}: ${used} ${stockUnitName(p)} from this purchase ${used === 1 ? "has" : "have"} already been sold or used, so it can't be deleted. Delete those bills first, or use Edit to correct it.`
+      );
+    }
+    productDelta.set(String(b.product), (productDelta.get(String(b.product)) || 0) - qty);
+  }
+  for (const [pid, delta] of productDelta) {
+    const p = await Product.findById(pid);
+    if (p && p.qty + delta < 0) return refuse(`Only ${p.qty} ${stockUnitName(p)} of ${p.name} left in stock, so this purchase can't be deleted.`);
+  }
+
+  const reason = `Deleted purchase ${purchase.invoiceNo}`;
+  for (const b of batches) {
+    const qty = qtyByBatch.get(String(b._id)) || 0;
+    if (qty === 0) continue;
+    const c = costByBatch.get(String(b._id));
+    const cost = c && c.packs > 0 ? c.value / c.packs : b.costPrice;
+    const left = b.qtyReceived - qty;
+    // Take this delivery's cost back out of the lot's blended cost.
+    if (left > 0) b.costPrice = Number(Math.max((b.qtyReceived * b.costPrice - qty * cost) / left, 0).toFixed(4));
+    b.qtyReceived = Math.max(left, 0);
+    b.qtyRemaining -= qty;
+    if (b.qtyReceived <= 0 && b.qtyRemaining <= 0) b.isDeleted = true;
+    await b.save();
+    await StockLedger.create({
+      product: b.product,
+      batch: b._id,
+      type: "purchase-edit",
+      qtyChange: -qty,
+      rack: b.rack || "",
+      reason,
+      refId: purchase._id,
+      performedBy: userId,
+    });
+  }
+  for (const [pid, delta] of productDelta) {
+    if (delta !== 0) await Product.updateOne({ _id: pid }, { $inc: { qty: delta } });
+    const p = await Product.findById(pid);
+    if (p) await refreshProductRack(p);
+  }
+  await SupplierPayment.deleteMany({ _id: { $in: atPurchase.map((p) => p._id) } });
+  await Purchase.deleteOne({ _id: purchase._id });
+  return { ref: purchase.invoiceNo };
+}
+
 router.delete(
   "/:id",
   transactional(async (req, res) => {
-    const purchase = await Purchase.findById(req.params.id);
-    if (!purchase) return res.status(404).json({ message: "No records found." });
-
-    const { atPurchase, paidLater, otherPayments } = await purchasePayments(purchase);
-    if (paidLater > 0 || otherPayments > 0) {
-      return res.status(400).json({
-        message: "Payments were made against this purchase from the supplier ledger. Delete those payments first, then delete the purchase.",
-      });
-    }
-
-    const { qtyByBatch, costByBatch, batches } = await broughtIn(purchase);
-    const productDelta = new Map();
-    for (const b of batches) {
-      const qty = qtyByBatch.get(String(b._id)) || 0;
-      if (b.qtyRemaining < qty) {
-        const p = await Product.findById(b.product);
-        const used = qty - b.qtyRemaining;
-        return res.status(400).json({
-          message: `${p?.name || "A product"} batch ${b.batchNo}: ${used} ${stockUnitName(p)} from this purchase ${used === 1 ? "has" : "have"} already been sold or used, so it can't be deleted. Use Edit to correct it instead.`,
-        });
-      }
-      productDelta.set(String(b.product), (productDelta.get(String(b.product)) || 0) - qty);
-    }
-    for (const [pid, delta] of productDelta) {
-      const p = await Product.findById(pid);
-      if (p && p.qty + delta < 0) {
-        return res.status(400).json({ message: `Only ${p.qty} ${stockUnitName(p)} of ${p.name} left in stock, so this purchase can't be deleted.` });
-      }
-    }
-
-    const reason = `Deleted purchase ${purchase.invoiceNo}`;
-    for (const b of batches) {
-      const qty = qtyByBatch.get(String(b._id)) || 0;
-      if (qty === 0) continue;
-      const c = costByBatch.get(String(b._id));
-      const cost = c && c.packs > 0 ? c.value / c.packs : b.costPrice;
-      const left = b.qtyReceived - qty;
-      // Take this delivery's cost back out of the lot's blended cost.
-      if (left > 0) b.costPrice = Number(Math.max((b.qtyReceived * b.costPrice - qty * cost) / left, 0).toFixed(4));
-      b.qtyReceived = Math.max(left, 0);
-      b.qtyRemaining -= qty;
-      if (b.qtyReceived <= 0 && b.qtyRemaining <= 0) b.isDeleted = true;
-      await b.save();
-      await StockLedger.create({
-        product: b.product,
-        batch: b._id,
-        type: "purchase-edit",
-        qtyChange: -qty,
-        rack: b.rack || "",
-        reason,
-        refId: purchase._id,
-        performedBy: req.user._id,
-      });
-    }
-    for (const [pid, delta] of productDelta) {
-      if (delta !== 0) await Product.updateOne({ _id: pid }, { $inc: { qty: delta } });
-      const p = await Product.findById(pid);
-      if (p) await refreshProductRack(p);
-    }
-    await SupplierPayment.deleteMany({ _id: { $in: atPurchase.map((p) => p._id) } });
-    await Purchase.deleteOne({ _id: purchase._id });
-    res.json({ message: `Purchase ${purchase.invoiceNo} deleted.` });
+    const out = await deletePurchase(req.params.id, req.user._id);
+    if (out.error) return res.status(out.status).json({ message: out.error });
+    res.json({ message: `Purchase ${out.ref} deleted.` });
   })
 );
+
+// Deletes many at once (Admin). Each one is its own all-or-nothing delete with
+// the same rules as deleting it alone; the ones that can't go are returned
+// with the reason, and the rest are deleted.
+router.post("/bulk-delete", runBulkDelete);
+async function runBulkDelete(req, res) {
+  const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].filter((id) => mongoose.isValidObjectId(id)) : [];
+  if (!ids.length) return res.status(400).json({ message: "Select at least one record to delete." });
+  if (ids.length > MAX_BULK) return res.status(400).json({ message: `Delete at most ${MAX_BULK} at a time.` });
+  let deleted = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      // Refusals are decided before anything is written.
+      const out = await runInTransaction(() => deletePurchase(id, req.user._id));
+      if (out.error) failed.push({ id, ref: out.ref || "", message: out.error });
+      else deleted += 1;
+    } catch (e) {
+      console.error(e);
+      failed.push({ id, ref: "", message: "Something went wrong. Please try again." });
+    }
+  }
+  res.json({ deleted, failed });
+}
 
 export default router;

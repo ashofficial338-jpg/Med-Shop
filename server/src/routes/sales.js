@@ -16,12 +16,14 @@ import { cleanRack } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
-import { transactional, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
+import { transactional, runInTransaction, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
+import { findOrCreateCustomer } from "../utils/parties.js";
 
 const router = Router();
 router.use(requireAuth);
 
 const SALE_PAYMENT_MODES = ["Cash", "Card", "UPI", "Other", "Credit"];
+const MAX_BULK = 200;
 const BILLING_RECEIPT_NOTE = "Received at billing";
 const round2 = (n) => Number(Number(n).toFixed(2));
 // How money received with a credit bill was paid.
@@ -131,6 +133,13 @@ router.get("/export", async (req, res) => {
   ]);
 });
 
+// Ids of every bill matching the list's filters, for "select all" (Admin).
+router.get("/ids", requireRole("admin"), async (req, res) => {
+  const rows = await Sale.find(await buildSaleFilter(req), "_id").sort({ createdAt: -1 }).lean();
+  res.json(rows.map((r) => r._id));
+});
+
+// Registered before GET "/:id", like "/export" above.
 router.get("/:id", async (req, res) => {
   const sale = await Sale.findById(req.params.id).populate("customer", "name phone").populate("createdBy", "username");
   if (!sale) return res.status(404).json({ message: "No records found." });
@@ -172,6 +181,12 @@ router.post(
       const customerDoc = mongoose.isValidObjectId(customer) ? await Customer.findById(customer) : null;
       if (!customerDoc) return res.status(400).json({ message: "The selected customer was not found. Please choose the customer again." });
       customerId = customerDoc._id;
+    } else if (req.body.newCustomer) {
+      // A name (and phone) typed on the bill: linked to that customer if there
+      // is one, else added to the Customer List along with the bill.
+      const typed = await findOrCreateCustomer(req.body.newCustomer);
+      if (typed.error) return res.status(400).json({ message: typed.error });
+      customerId = typed.customer._id;
     }
     if (paymentMode === "Credit" && !customerId) {
       return res.status(400).json({ message: "A customer must be selected for a credit sale." });
@@ -385,6 +400,10 @@ router.put(
       const customerDoc = mongoose.isValidObjectId(customer) ? await Customer.findById(customer) : null;
       if (!customerDoc) return res.status(400).json({ message: "The selected customer was not found. Please choose the customer again." });
       customerId = customerDoc._id;
+    } else if (req.body.newCustomer) {
+      const typed = await findOrCreateCustomer(req.body.newCustomer);
+      if (typed.error) return res.status(400).json({ message: typed.error });
+      customerId = typed.customer._id;
     }
     const mode = paymentMode || "Cash";
     if (!SALE_PAYMENT_MODES.includes(mode)) return res.status(400).json({ message: "Please choose a valid payment mode." });
@@ -665,29 +684,56 @@ router.post(
   })
 );
 
-// Removes a bill completely (Admin). A bill that still stands has its stock
-// put back first; what was received at billing goes with it. Money collected
-// later through the customer ledger has to be deleted there first, so the
+// Removes a bill completely. A bill that still stands has its stock put back
+// first; what was received at billing goes with it. Money collected later
+// through the customer ledger has to be deleted there first, so the
 // customer's account never shows a payment for a bill that doesn't exist.
+// Runs in a transaction; returns { error, status, ref } or { ref }.
+async function deleteSale(id, userId) {
+  const sale = await Sale.findById(id);
+  if (!sale) return { error: "No records found.", status: 404 };
+  const { billingReceipts, collectedLater, otherPayments } = await saleReceipts(sale);
+  if (collectedLater > 0 || otherPayments > 0) {
+    return { ref: sale.billNo, status: 400, error: "Payments were collected against this bill from the customer ledger. Delete those payments first, then delete the bill." };
+  }
+  if (sale.paymentStatus !== "void") await returnSaleStock(sale, `Deleted bill ${sale.billNo}`, userId);
+  await CustomerPayment.deleteMany({ _id: { $in: billingReceipts.map((p) => p._id) } });
+  await Sale.deleteOne({ _id: sale._id });
+  return { ref: sale.billNo };
+}
+
 router.delete(
   "/:id",
   requireRole("admin"),
   transactional(async (req, res) => {
-    const sale = await Sale.findById(req.params.id);
-    if (!sale) return res.status(404).json({ message: "No records found." });
-
-    const { billingReceipts, collectedLater, otherPayments } = await saleReceipts(sale);
-    if (collectedLater > 0 || otherPayments > 0) {
-      return res.status(400).json({
-        message: "Payments were collected against this bill from the customer ledger. Delete those payments first, then delete the bill.",
-      });
-    }
-
-    if (sale.paymentStatus !== "void") await returnSaleStock(sale, `Deleted bill ${sale.billNo}`, req.user._id);
-    await CustomerPayment.deleteMany({ _id: { $in: billingReceipts.map((p) => p._id) } });
-    await Sale.deleteOne({ _id: sale._id });
-    res.json({ message: `Bill ${sale.billNo} deleted.` });
+    const out = await deleteSale(req.params.id, req.user._id);
+    if (out.error) return res.status(out.status).json({ message: out.error });
+    res.json({ message: `Bill ${out.ref} deleted.` });
   })
 );
+
+// Deletes many at once (Admin). Each one is its own all-or-nothing delete with
+// the same rules as deleting it alone; the ones that can't go are returned
+// with the reason, and the rest are deleted.
+router.post("/bulk-delete", requireRole("admin"), runBulkDelete);
+async function runBulkDelete(req, res) {
+  const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].filter((id) => mongoose.isValidObjectId(id)) : [];
+  if (!ids.length) return res.status(400).json({ message: "Select at least one record to delete." });
+  if (ids.length > MAX_BULK) return res.status(400).json({ message: `Delete at most ${MAX_BULK} at a time.` });
+  let deleted = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      // Refusals are decided before anything is written.
+      const out = await runInTransaction(() => deleteSale(id, req.user._id));
+      if (out.error) failed.push({ id, ref: out.ref || "", message: out.error });
+      else deleted += 1;
+    } catch (e) {
+      console.error(e);
+      failed.push({ id, ref: "", message: "Something went wrong. Please try again." });
+    }
+  }
+  res.json({ deleted, failed });
+}
 
 export default router;

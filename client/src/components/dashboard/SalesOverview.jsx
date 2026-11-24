@@ -54,7 +54,7 @@ export default function SalesOverview({ data, links }) {
           render={(c) => (
             <li key={c.customerId || "walkin"} className="flex justify-between gap-2">
               {c.customerId ? (
-                <Link to={`/customers/${c.customerId}/ledger`} className="truncate text-primary hover:underline">
+                <Link to={`/customers/${c.customerId}`} className="truncate text-primary hover:underline">
                   {c.name}
                 </Link>
               ) : (

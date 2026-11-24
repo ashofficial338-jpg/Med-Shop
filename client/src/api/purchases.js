@@ -9,11 +9,6 @@ export function createPurchase(data) {
   return api.post("/purchases", data).then((r) => r.data);
 }
 
-// Purchase without a supplier - see server routes/purchases.js POST /direct.
-export function createDirectPurchase(data) {
-  return api.post("/purchases/direct", data).then((r) => r.data);
-}
-
 export function exportPurchases(format, params) {
   return downloadFile("/purchases/export", { ...params, format }, reportFileName("GuganMedicals_Purchases_Report", format));
 }
@@ -43,4 +38,12 @@ export function updatePurchase(id, data) {
 
 export function deletePurchase(id) {
   return api.delete(`/purchases/${id}`).then((r) => r.data);
+}
+
+export function listPurchaseIds(params) {
+  return api.get("/purchases/ids", { params }).then((r) => r.data);
+}
+
+export function bulkDeletePurchases(ids) {
+  return api.post("/purchases/bulk-delete", { ids }, { timeout: 120_000 }).then((r) => r.data);
 }

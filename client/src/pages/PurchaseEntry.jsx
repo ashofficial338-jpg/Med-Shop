@@ -9,7 +9,7 @@ import InvoiceUploadModal from "../components/InvoiceUploadModal";
 import { ScannedBillBanner } from "../components/ScannedBillNotes";
 import { useLiveRefresh } from "../context/LiveSync";
 import { listCategories, listProducts } from "../api/products";
-import { createPurchase, getPurchase, listUnregisteredSuppliers, updatePurchase } from "../api/purchases";
+import { createPurchase, getPurchase, updatePurchase } from "../api/purchases";
 import { listVendors } from "../api/vendors";
 import { todayLocal } from "../utils/date";
 import { enterMovesToNextField } from "../utils/formKeys";
@@ -41,7 +41,6 @@ function PurchaseForm({ purchaseId }) {
   const [vendors, setVendors] = useState([]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [knownNames, setKnownNames] = useState([]);
 
   const [vendor, setVendor] = useState(null);
   const [supplierName, setSupplierName] = useState("");
@@ -78,7 +77,6 @@ function PurchaseForm({ purchaseId }) {
       })
       .catch(() => {});
     listCategories().then(setCategories).catch(() => {});
-    listUnregisteredSuppliers().then(setKnownNames).catch(() => {});
   }, [purchaseId, presetVendor]);
   // Products and suppliers added or changed by anyone are usable right away.
   useLiveRefresh(["products"], loadProducts);
@@ -123,7 +121,9 @@ function PurchaseForm({ purchaseId }) {
   const productById = (pid) => products.find((p) => p._id === pid);
   const sellingOf = (l) => (l.sellTouched || l.sellingPrice !== "" || !l.product ? l.sellingPrice : String(productById(l.product)?.packRate ?? ""));
 
-  const isDirect = editing ? Boolean(original && !original.vendor) : !vendor;
+  // Named (picked or typed) suppliers have an account; only a purchase with no
+  // supplier at all has to be paid up front.
+  const isDirect = !vendor && !supplierName.trim() && !(editing && original?.vendor);
   const paidLater = original?.paidLater || 0;
   const setLine = (key, patch) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   // There is always one empty line at the end, ready for the next product.
@@ -161,6 +161,11 @@ function PurchaseForm({ purchaseId }) {
     if (!modeTouched) setPaymentMode(v ? "Credit" : "Cash");
     else if (!v && paymentMode === "Credit") setPaymentMode("Cash");
   };
+  const typeSupplier = (name) => {
+    setSupplierName(name);
+    if (!modeTouched) setPaymentMode(name.trim() ? "Credit" : "Cash");
+    else if (!name.trim() && paymentMode === "Credit" && !(editing && original?.vendor)) setPaymentMode("Cash");
+  };
   const chooseMode = (m) => {
     setPaymentMode(m);
     setModeTouched(true);
@@ -170,7 +175,7 @@ function PurchaseForm({ purchaseId }) {
     setScanOpen(false);
     setScan(initialData);
     chooseVendor(v || null);
-    if (!v) setSupplierName(initialData.supplierName || "");
+    if (!v) typeSupplier(initialData.supplierName || "");
     setInvoiceNo(initialData.invoiceNo || "");
     if (initialData.date) setDate(initialData.date);
     setLines([...initialData.lines.map((l) => emptyLine(l)), emptyLine()]);
@@ -223,7 +228,7 @@ function PurchaseForm({ purchaseId }) {
       invoiceNo: invoiceNo.trim(),
       date,
       paymentMode,
-      tdsAmount: vendor ? Number(tdsAmount) || 0 : 0,
+      tdsAmount: isDirect ? 0 : Number(tdsAmount) || 0,
       amountPaid: isCredit ? paidNow : undefined,
       paidMode: isCredit ? paidMode : undefined,
       ...(vendor ? { vendor: vendor._id } : { supplierName: supplierName.trim() }),
@@ -324,22 +329,13 @@ function PurchaseForm({ purchaseId }) {
                 vendors={vendors}
                 vendor={vendor}
                 name={supplierName}
-                knownNames={knownNames}
-                // A saved purchase keeps its kind: with an account, or without.
                 locked={paidLater > 0}
-                onPick={(v) => {
-                  if (editing && isDirect && v) {
-                    toast.info("A purchase saved without a supplier account stays that way. Delete it and enter it again to put it on an account.");
-                    return;
-                  }
-                  chooseVendor(v);
-                }}
-                onType={setSupplierName}
-                onCreated={(v) => setVendors((vs) => [...vs, v])}
+                onPick={chooseVendor}
+                onType={typeSupplier}
                 inputClassName={inputCls}
                 autoFocus={!editing && !presetVendor}
               />
-              {editing && !isDirect && !vendor && <p className="mt-1 text-xs text-warning">Choose a supplier – otherwise it stays with {original.vendor.name}.</p>}
+              {editing && original.vendor && !vendor && !supplierName.trim() && <p className="mt-1 text-xs text-warning">Choose a supplier – otherwise it stays with {original.vendor.name}.</p>}
             </div>
             <div>
               <label htmlFor="purchase-invoice" className={labelCls}>Invoice no</label>
@@ -390,7 +386,7 @@ function PurchaseForm({ purchaseId }) {
                     </button>
                   ))}
                 </div>
-                {isDirect && <p className="mt-1.5 text-xs text-muted">Choose or add a supplier above to buy on credit.</p>}
+                {isDirect && <p className="mt-1.5 text-xs text-muted">Enter the supplier above to buy on credit.</p>}
                 {paidLater > 0 && (
                   <p className="mt-1.5 text-xs text-muted">₹{paidLater.toFixed(2)} was paid later from the supplier's account, so the supplier and payment mode stay as they are.</p>
                 )}
@@ -408,7 +404,7 @@ function PurchaseForm({ purchaseId }) {
                   </div>
                 </div>
               )}
-              {vendor &&
+              {!isDirect &&
                 (showTds ? (
                   <div className="max-w-[10rem]">
                     <label htmlFor="purchase-tds" className={labelCls}>TDS (tracked separately)</label>

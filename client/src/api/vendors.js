@@ -52,3 +52,7 @@ export function deleteVendor(id) {
 export function deleteSupplierPayment(vendorId, paymentId) {
   return api.delete(`/vendors/${vendorId}/payments/${paymentId}`).then((r) => r.data);
 }
+
+export function getVendorSummary(id) {
+  return api.get(`/vendors/${id}/summary`).then((r) => r.data);
+}

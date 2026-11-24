@@ -34,6 +34,8 @@ const pageImports = {
   RolesPermissions: () => import("./pages/RolesPermissions"),
   Reports: () => import("./pages/Reports"),
   ClearRecords: () => import("./pages/ClearRecords"),
+  ManagementReports: () => import("./pages/ManagementReports"),
+  PartyDetail: () => import("./pages/PartyDetail"),
 };
 const Profile = lazy(pageImports.Profile);
 const Users = lazy(pageImports.Users);
@@ -57,6 +59,8 @@ const RackCenter = lazy(pageImports.RackCenter);
 const ProductProfitabilityReport = lazy(pageImports.ProductProfitabilityReport);
 const RolesPermissions = lazy(pageImports.RolesPermissions);
 const ClearRecords = lazy(pageImports.ClearRecords);
+const ManagementReports = lazy(pageImports.ManagementReports);
+const PartyDetail = lazy(pageImports.PartyDetail);
 // Reports & Analytics is large (charts, tables, export dialog).
 const Reports = lazy(pageImports.Reports);
 // The public website is only for visitors, so staff never download it.
@@ -308,6 +312,30 @@ export default function App() {
             }
           />
 
+          <Route
+            path="/customers/:id"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PartyDetail key="customer" side="customer" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/vendors/:id"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PartyDetail key="vendor" side="vendor" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/management"
+            element={
+              <ProtectedRoute permission="reports.view">
+                <ManagementReports />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/clear-records"
             element={

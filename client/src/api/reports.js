@@ -1,5 +1,5 @@
 import api from "./client";
-import { reportFileName } from "../utils/downloadFile";
+import { downloadFile, reportFileName } from "../utils/downloadFile";
 import { compactParams } from "../utils/query";
 
 // Reports & Analytics. Every call takes the page's filters
@@ -46,4 +46,17 @@ export function saveBlob(blob, base, format) {
   a.click();
   a.remove();
   window.URL.revokeObjectURL(url);
+}
+
+// Management Reports - see server utils/managementReports.js.
+export function getManagementOptions() {
+  return api.get("/reports/management/options").then((r) => r.data);
+}
+
+export function getManagementReport(params) {
+  return api.get("/reports/management", { params: compactParams(params) }).then((r) => r.data);
+}
+
+export function exportManagementReport(params, format, name) {
+  return downloadFile("/reports/management", { ...compactParams(params), format }, reportFileName(`GuganMedicals_${name}`, format));
 }

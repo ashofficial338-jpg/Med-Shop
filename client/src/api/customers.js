@@ -40,3 +40,7 @@ export function exportCustomers(format, params) {
 export function deleteCustomerPayment(customerId, paymentId) {
   return api.delete(`/customers/${customerId}/payments/${paymentId}`).then((r) => r.data);
 }
+
+export function getCustomerSummary(id) {
+  return api.get(`/customers/${id}/summary`).then((r) => r.data);
+}
