@@ -8,6 +8,7 @@ import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import { useLiveRefresh } from "../context/LiveSync";
 import { searchCustomers, deleteCustomer, exportCustomers } from "../api/customers";
 import { getErrorMessage } from "../api/client";
+import { compactParams } from "../utils/query";
 
 const FILTERS = [
   ["all", "All customers"],
@@ -74,7 +75,7 @@ export default function Customers() {
           <Link to="/reports/management?report=customer-performance" className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface">
             Customer reports
           </Link>
-          <ReportDownloadButtons onExport={(format) => exportCustomers(format, query.trim() ? { q: query.trim() } : {})} />
+          <ReportDownloadButtons onExport={(format) => exportCustomers(format, compactParams({ q: query.trim(), show: filter === "all" ? "" : filter }))} />
           <button onClick={() => setEditing({})} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
             + Add Customer
           </button>

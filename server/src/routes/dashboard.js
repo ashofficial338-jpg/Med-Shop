@@ -4,7 +4,7 @@ import Purchase from "../models/Purchase.js";
 import Expense from "../models/Expense.js";
 import Product from "../models/Product.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { shopDay, streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { computeSummary, describeFilters, resolveFilters, resolveRange } from "../utils/summaryHelpers.js";
 import { dayBookSummary } from "../utils/dayBookHelpers.js";
 import { purchasesOverview, salesOverview } from "../utils/salesOverview.js";
@@ -193,7 +193,7 @@ router.get("/export", requireRole("admin"), async (req, res) => {
       ],
       rows: sales.map((s) => ({
         billNo: s.billNo,
-        date: s.createdAt.toISOString().slice(0, 10),
+        date: shopDay(s.createdAt),
         customer: s.customer?.name || "Walk-in",
         subtotal: s.subtotal,
         gst: s.gstAmount,
@@ -215,7 +215,7 @@ router.get("/export", requireRole("admin"), async (req, res) => {
       ],
       rows: purchases.map((p) => ({
         invoiceNo: p.invoiceNo,
-        date: p.date.toISOString().slice(0, 10),
+        date: shopDay(p.date),
         vendor: p.vendor ? p.vendor.name || "Unknown supplier" : p.supplierName ? `${p.supplierName} (unregistered)` : "No supplier",
         subtotal: p.subtotal,
         gst: p.gstAmount,
@@ -231,7 +231,7 @@ router.get("/export", requireRole("admin"), async (req, res) => {
         { header: "Amount", key: "amount", width: 12 },
         { header: "Notes", key: "notes", width: 30 },
       ],
-      rows: expenses.map((e) => ({ date: e.date.toISOString().slice(0, 10), category: e.category, amount: e.amount, notes: e.notes })),
+      rows: expenses.map((e) => ({ date: shopDay(e.date), category: e.category, amount: e.amount, notes: e.notes })),
     },
   ]);
 });

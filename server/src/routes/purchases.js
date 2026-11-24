@@ -15,7 +15,7 @@ import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { nextSequence } from "../models/Counter.js";
 import { computeLooseRate } from "../utils/productHelpers.js";
-import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
+import { shopDay, streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
 import { findOrCreateProduct } from "../utils/productAutoCreate.js";
 import { transactional, runInTransaction, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
@@ -209,7 +209,7 @@ router.get("/export", async (req, res) => {
   const purchases = await Purchase.find(filter).populate("vendor", "name").sort({ date: -1, createdAt: -1 });
   const rows = purchases.map((p) => ({
     invoiceNo: p.invoiceNo,
-    date: p.date.toISOString().slice(0, 10),
+    date: shopDay(p.date),
     vendor: purchasePartyName(p),
     paymentMode: p.paymentMode,
     subtotal: p.subtotal,

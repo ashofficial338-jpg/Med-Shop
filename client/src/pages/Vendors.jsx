@@ -8,6 +8,7 @@ import PartyTable from "../components/PartyTable";
 import { useLiveRefresh } from "../context/LiveSync";
 import { listVendors, exportVendors, deleteVendor } from "../api/vendors";
 import { getErrorMessage } from "../api/client";
+import { compactParams } from "../utils/query";
 
 const FILTERS = [
   ["all", "All suppliers"],
@@ -68,7 +69,7 @@ export default function Vendors() {
           <Link to="/reports/management?report=vendor-performance" className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface">
             Vendor reports
           </Link>
-          <ReportDownloadButtons onExport={(format) => exportVendors(format, query.trim() ? { q: query.trim() } : {})} />
+          <ReportDownloadButtons onExport={(format) => exportVendors(format, compactParams({ q: query.trim(), show: filter === "all" ? "" : filter }))} />
           <button onClick={() => setEditing({})} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
             + Add Vendor
           </button>

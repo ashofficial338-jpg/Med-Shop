@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "node --watch-path=src --watch-path=.env src/server.js",
     "start": "node server.js",
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
     "seed": "node src/utils/seedAdmin.js",
     "seed:demo": "node src/utils/seedDemoData.js",
     "check": "node src/utils/checkConsistency.js",
@@ -28,5 +29,8 @@
     "multer": "^2.0.0",
     "multer-storage-cloudinary": "^4.0.0",
     "pdfkit": "^0.20.2"
+  },
+  "devDependencies": {
+    "mongodb-memory-server-core": "^11.4.0"
   }
 }

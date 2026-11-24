@@ -14,7 +14,7 @@ import Batch from "../models/Batch.js";
 import { effectiveLocations } from "../utils/locations.js";
 import { cleanRack } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
-import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { shopDay, streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
 import { transactional, runInTransaction, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
 import { findOrCreateCustomer } from "../utils/parties.js";
@@ -83,7 +83,7 @@ router.get("/export", async (req, res) => {
   const sales = await Sale.find(filter).populate("customer", "name phone").populate("createdBy", "username").sort({ createdAt: -1 });
   const rows = sales.map((s) => ({
     billNo: s.billNo,
-    date: s.createdAt.toISOString().slice(0, 10),
+    date: shopDay(s.createdAt),
     customer: s.customer?.name || "Walk-in",
     paymentMode: s.paymentMode,
     subtotal: s.subtotal,

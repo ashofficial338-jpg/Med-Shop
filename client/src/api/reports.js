@@ -1,5 +1,5 @@
 import api from "./client";
-import { downloadFile, reportFileName } from "../utils/downloadFile";
+import { downloadFile, reportFileName, saveBlobAs } from "../utils/downloadFile";
 import { compactParams } from "../utils/query";
 
 // Reports & Analytics. Every call takes the page's filters
@@ -38,14 +38,7 @@ export async function fetchReport(params, format, onProgress) {
 }
 
 export function saveBlob(blob, base, format) {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = reportFileName(base, format);
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  saveBlobAs(blob, reportFileName(base, format));
 }
 
 // Management Reports - see server utils/managementReports.js.

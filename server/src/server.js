@@ -57,6 +57,7 @@ const corsOptions = {
   credentials: true,
   methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["Content-Disposition"], // the file name of a download
   optionsSuccessStatus: 204,
 };
 app.use(cors(corsOptions));
@@ -113,6 +114,14 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  // A download that fails part-way can only be cut off; one that fails before
+  // it starts answers with a message, not under the file's headers.
+  if (res.headersSent) {
+    console.error(err);
+    return next(err);
+  }
+  res.removeHeader("Content-Disposition");
+  res.removeHeader("Content-Type");
   // A malformed id in the URL (e.g. an old or mistyped link) is a missing
   // record, not a server fault; a model rule that rejects the input is the
   // user's to fix. Everything else is a real error.

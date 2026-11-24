@@ -1,7 +1,7 @@
 import { Router } from "express";
 import Expense, { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_MODES, NON_CASH_CATEGORIES } from "../models/Expense.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
+import { shopDay, streamExcelReport, streamPdfReport, periodLabel } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
 
 const router = Router();
@@ -25,7 +25,7 @@ router.get("/export", async (req, res) => {
   if (range) filter.date = range;
   const expenses = await Expense.find(filter).sort({ date: -1 });
   const rows = expenses.map((e) => ({
-    date: e.date.toISOString().slice(0, 10),
+    date: shopDay(e.date),
     category: e.category,
     amount: e.amount,
     paymentMode: e.paymentMode,

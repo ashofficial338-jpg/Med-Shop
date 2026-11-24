@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { monoText, useUnicodeFonts } from "./pdfFonts.js";
 import ExcelJS from "exceljs";
 import Sale from "../models/Sale.js";
 import Purchase from "../models/Purchase.js";
@@ -93,7 +94,7 @@ export function loadInvoice(kind, id) {
 
 function pdfToBuffer(write) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 30 });
+    const doc = useUnicodeFonts(new PDFDocument({ size: "A4", margin: 30 }));
     const chunks = [];
     doc.on("data", (c) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -129,7 +130,7 @@ export function invoicePdf(kind, invoice) {
       doc.text(`Invoice No: ${archiveFileName(invoice)}`, { lineGap: 2 });
       if (invoice.customer?.address) doc.font("Courier").fontSize(8).text(`Customer Address: ${invoice.customer.address}`, { lineGap: 2 });
       doc.font("Courier").fontSize(8);
-      doc.text(buildBillText(invoice), { lineGap: 1 });
+      monoText(doc, buildBillText(invoice), { lineGap: 1 });
       return;
     }
     doc.text(`${SHOP.name} - Purchase Invoice`, { align: "center" });
@@ -143,7 +144,7 @@ export function invoicePdf(kind, invoice) {
       ["Entered On", day(invoice.createdAt)],
       ["Payment Mode", invoice.paymentMode],
     ];
-    for (const [k, v] of rows) doc.text(`${k.padEnd(16)}: ${v ?? ""}`);
+    for (const [k, v] of rows) monoText(doc, `${k.padEnd(16)}: ${v ?? ""}`);
     doc.moveDown(0.5);
     const line = "-".repeat(98);
     const row = (cells) =>
@@ -152,7 +153,8 @@ export function invoicePdf(kind, invoice) {
     doc.text(row(["Product", "Batch", "Expiry", "Qty", "Rate", "GST", "Amount"]));
     doc.text(line);
     for (const it of invoice.items) {
-      doc.text(
+      monoText(
+        doc,
         row([
           productName(it),
           it.batchNo || "-",

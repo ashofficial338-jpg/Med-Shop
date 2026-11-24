@@ -7,7 +7,7 @@ import Purchase from "../models/Purchase.js";
 import SupplierPayment from "../models/SupplierPayment.js";
 import Product from "../models/Product.js";
 import { buildVendorReport } from "../utils/vendorReportHelpers.js";
-import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { shopDay, streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { runInTransaction } from "../utils/transaction.js";
 import { findVendorByName, partyKey } from "../utils/parties.js";
 import { nextSequence } from "../models/Counter.js";
@@ -34,18 +34,25 @@ router.get("/", async (req, res) => {
   );
 });
 
-// Directory export with the same search filter as the list.
+// Directory export with the same search and "Show" filter as the Vendor
+// Management page (client pages/Vendors.jsx).
+const SHOW = { due: "You owe them", clear: "Nothing owed", new: "No purchases yet" };
 router.get("/export", async (req, res) => {
-  const { q, format } = req.query;
+  const { format } = req.query;
+  const q = String(req.query.q || "").trim();
+  const show = Object.hasOwn(SHOW, String(req.query.show)) ? req.query.show : "all";
   const filter = { isActive: true };
-  if (q && q.trim()) {
-    const re = new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    filter.$or = [{ name: re }, { phone: re }];
+  if (q) {
+    const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [{ name: re }, { phone: re }, { contactPerson: re }, { gstNumber: re }, { email: re }];
   }
   const [records, outstandingMap] = await Promise.all([Vendor.find(filter).sort({ name: 1 }).lean(), vendorOutstandingMap()]);
-  const rows = records.map((r) => ({ ...r, outstandingPayable: outstandingMap.get(String(r._id)) || 0 }));
+  const totals = show === "new" ? await partyTotals("vendor", records.map((r) => r._id)) : null;
+  const rows = records
+    .map((r) => ({ ...r, outstandingPayable: outstandingMap.get(String(r._id)) || 0 }))
+    .filter((r) => (show === "due" ? r.outstandingPayable > 0 : show === "clear" ? !(r.outstandingPayable > 0) : show === "new" ? !totals.get(String(r._id))?.count : true));
   const total = rows.reduce((sum, r) => sum + r.outstandingPayable, 0);
-  const subtitle = `${q && q.trim() ? `Search: "${q.trim()}"` : "All active vendors"} · Total payable: Rs. ${total.toFixed(2)}`;
+  const subtitle = `${[SHOW[show], q && `Search: "${q}"`].filter(Boolean).join(" · ") || "All active vendors"} · Total payable: Rs. ${total.toFixed(2)}`;
 
   if (format === "pdf") {
     return streamPdfReport(res, "GuganMedicals_Vendors_Report.pdf", {
@@ -105,7 +112,7 @@ router.get("/:id/ledger/export", async (req, res) => {
 
   const { entries, outstandingBalance } = await buildSupplierLedger(vendor._id);
   const rows = entries.map((e) => ({
-    date: new Date(e.date).toISOString().slice(0, 10),
+    date: shopDay(e.date),
     type: e.type,
     ref: e.ref,
     debit: e.debit || 0,
@@ -116,7 +123,7 @@ router.get("/:id/ledger/export", async (req, res) => {
   if (req.query.format === "pdf") {
     return streamPdfReport(res, `GuganMedicals_Ledger_${vendor.name}.pdf`, {
       title: `${vendor.name} - Vendor Ledger`,
-      subtitle: `${vendor.phone} · Outstanding Payable: Rs. ${outstandingBalance.toFixed(2)}`,
+      subtitle: [vendor.phone, `Outstanding Payable: Rs. ${outstandingBalance.toFixed(2)}`].filter(Boolean).join(" · "),
       columns: [
         { header: "Date", key: "date" },
         { header: "Type", key: "type" },
@@ -224,7 +231,7 @@ router.get("/:id/report/export", async (req, res) => {
   if (req.query.format === "pdf") {
     return streamPdfReport(res, `GuganMedicals_VendorReport_${vendor.name}.pdf`, {
       title: `${vendor.name} - Purchase Report (${period}-wise)`,
-      subtitle: `${vendor.phone} · ${vendor.gstNumber}`,
+      subtitle: [vendor.phone, vendor.gstNumber].filter(Boolean).join(" · "),
       columns: [
         { header: "Period", key: "period" },
         { header: "Invoices", key: "invoiceCount", align: "right" },

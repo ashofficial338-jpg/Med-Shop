@@ -3,7 +3,7 @@ import Customer from "../models/Customer.js";
 import Sale from "../models/Sale.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { buildCustomerLedger, customerOutstandingMap, recordCustomerPayment, deleteCustomerPayment } from "../utils/ledgerHelpers.js";
-import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { shopDay, streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { runInTransaction } from "../utils/transaction.js";
 import { cleanPhone, findCustomer } from "../utils/parties.js";
 import { nextSequence } from "../models/Counter.js";
@@ -85,19 +85,31 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Admin-only directory export with the same search filter as the list, but
-// every match rather than the list's first 20.
+// Admin-only directory export with the same search and "Show" filter as the
+// Customer Management page (client pages/Customers.jsx).
+const SHOW = { due: "They owe you", top: "Top 10 by sales", new: "No bills yet" };
 router.get("/export", requireRole("admin"), async (req, res) => {
-  const { q, format } = req.query;
+  const { format } = req.query;
+  const q = String(req.query.q || "").trim();
+  const show = Object.hasOwn(SHOW, String(req.query.show)) ? req.query.show : "all";
   const filter = { isActive: true };
-  if (q && q.trim()) {
-    const re = new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    filter.$or = [{ name: re }, { phone: re }];
+  if (q) {
+    const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [{ name: re }, { phone: re }, { email: re }, { address: re }];
   }
   const [records, outstandingMap] = await Promise.all([Customer.find(filter).sort({ name: 1 }).lean(), customerOutstandingMap()]);
-  const rows = records.map((r) => ({ ...r, outstandingBalance: outstandingMap.get(String(r._id)) || 0 }));
+  const everyone = show === "top" ? await Customer.find({ isActive: true }, "_id").sort({ name: 1 }).lean() : records;
+  const totals = show === "top" || show === "new" ? await partyTotals("customer", everyone.map((r) => r._id)) : null;
+  // The ten best of all customers, whatever is searched for among them.
+  const top =
+    show === "top"
+      ? new Set(everyone.map((r) => [String(r._id), totals.get(String(r._id))?.total || 0]).filter(([, t]) => t > 0).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([id]) => id))
+      : null;
+  const rows = records
+    .map((r) => ({ ...r, outstandingBalance: outstandingMap.get(String(r._id)) || 0 }))
+    .filter((r) => (show === "due" ? r.outstandingBalance > 0 : show === "top" ? top.has(String(r._id)) : show === "new" ? !totals.get(String(r._id))?.count : true));
   const total = rows.reduce((sum, r) => sum + r.outstandingBalance, 0);
-  const subtitle = `${q && q.trim() ? `Search: "${q.trim()}"` : "All active customers"} · Total outstanding: Rs. ${total.toFixed(2)}`;
+  const subtitle = `${[SHOW[show], q && `Search: "${q}"`].filter(Boolean).join(" · ") || "All active customers"} · Total outstanding: Rs. ${total.toFixed(2)}`;
 
   if (format === "pdf") {
     return streamPdfReport(res, "GuganMedicals_Customers_Report.pdf", {
@@ -159,7 +171,7 @@ router.get("/:id/ledger/export", requireRole("admin"), async (req, res) => {
 
   const { entries, outstandingBalance } = await buildCustomerLedger(customer._id);
   const rows = entries.map((e) => ({
-    date: new Date(e.date).toISOString().slice(0, 10),
+    date: shopDay(e.date),
     type: e.type,
     ref: e.ref,
     debit: e.debit || 0,
@@ -170,7 +182,7 @@ router.get("/:id/ledger/export", requireRole("admin"), async (req, res) => {
   if (req.query.format === "pdf") {
     return streamPdfReport(res, `GuganMedicals_Ledger_${customer.name}.pdf`, {
       title: `${customer.name} - Customer Ledger`,
-      subtitle: `${customer.phone} · Outstanding: Rs. ${outstandingBalance.toFixed(2)}`,
+      subtitle: [customer.phone, `Outstanding: Rs. ${outstandingBalance.toFixed(2)}`].filter(Boolean).join(" · "),
       columns: [
         { header: "Date", key: "date" },
         { header: "Type", key: "type" },

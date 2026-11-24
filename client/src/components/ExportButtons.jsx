@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { toast } from "react-toastify";
+import { errorMessage } from "./ReportDownloadButtons";
 
 // Small "PDF" / "Excel" button pair reused across every report page - each
 // caller just provides onExport(format), which calls the matching export*()
@@ -10,6 +12,8 @@ export default function ExportButtons({ onExport }) {
     setExporting(format);
     try {
       await onExport(format);
+    } catch (err) {
+      toast.error((await errorMessage(err)) || `Couldn't download the ${format === "pdf" ? "PDF" : "Excel"} file. Please try again.`);
     } finally {
       setExporting("");
     }

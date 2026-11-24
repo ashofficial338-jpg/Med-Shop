@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import ExcelJS from "exceljs";
+import { useUnicodeFonts } from "./pdfFonts.js";
 
 const INK = "#133331";
 const MUTED = "#5B7A77";
@@ -12,6 +13,12 @@ const TIME_ZONE = "Asia/Kolkata";
 
 export function todayStamp() {
   return new Date().toLocaleDateString("en-CA", { timeZone: TIME_ZONE }); // YYYY-MM-DD
+}
+
+// "2026-09-26": the India day a record belongs to. (toISOString() gives the UTC
+// day, which is the day before for anything recorded before 5:30 AM.)
+export function shopDay(date) {
+  return new Date(date).toLocaleDateString("en-CA", { timeZone: TIME_ZONE });
 }
 
 // "2026-09-26 22:25" in shop time, for timestamp columns.
@@ -96,12 +103,12 @@ export async function streamExcelReport(res, filename, sheets) {
 export function streamPdfReport(res, filename, { title, subtitle, columns, rows, summaryLines, showCount = true }) {
   setDownloadHeaders(res, "application/pdf", filename);
 
-  const doc = new PDFDocument({
+  const doc = useUnicodeFonts(new PDFDocument({
     size: "A4",
     margin: 36,
     layout: columns.length > 6 ? "landscape" : "portrait",
     bufferPages: true, // needed to write "Page X of Y" once the total is known
-  });
+  }));
   doc.pipe(res);
 
   const startX = doc.page.margins.left;
@@ -127,9 +134,12 @@ export function streamPdfReport(res, filename, { title, subtitle, columns, rows,
     doc.moveDown(0.6);
   }
 
+  // A row never gets taller than a page (under its header): the rest of a very
+  // long text is left out with "…" here; the Excel file has all of it.
+  const maxRowHeight = bottomLimit - doc.page.margins.top - 60;
   function rowHeight(cells, font) {
     doc.font(font).fontSize(9);
-    return Math.max(...cells.map((text, i) => doc.heightOfString(text, { width: widths[i] - pad * 2 }))) + pad * 2;
+    return Math.min(Math.max(...cells.map((text, i) => doc.heightOfString(text, { width: widths[i] - pad * 2 }))) + pad * 2, maxRowHeight);
   }
 
   function drawRow(cells, { font, fill }) {
@@ -138,7 +148,7 @@ export function streamPdfReport(res, filename, { title, subtitle, columns, rows,
     if (fill) doc.rect(startX, y, usableWidth, height).fill(fill);
     doc.font(font).fontSize(9).fillColor(INK);
     cells.forEach((text, i) => {
-      doc.text(text, xs[i] + pad, y + pad, { width: widths[i] - pad * 2, align: columns[i].align || "left" });
+      doc.text(text, xs[i] + pad, y + pad, { width: widths[i] - pad * 2, align: columns[i].align || "left", ...(height >= maxRowHeight ? { height: height - pad * 2, ellipsis: true } : {}) });
     });
     doc.x = startX;
     doc.y = y + height;

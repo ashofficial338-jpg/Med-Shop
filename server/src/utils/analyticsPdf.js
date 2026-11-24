@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { useUnicodeFonts } from "./pdfFonts.js";
 
 // Reports & Analytics PDF: brand header, summary cards, vector charts and
 // tables with totals, built from a buildAnalytics() result so every figure
@@ -54,7 +55,7 @@ function ticks(min, max, count = 4) {
 const TRANSACTION_PDF_LIMIT = 1000;
 
 export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine, analytics: a, transactions, sections, consolidated: c }) {
-  const doc = new PDFDocument({ size: "A4", margin: 40, bufferPages: true, info: { Title: title, Author: shopName } });
+  const doc = useUnicodeFonts(new PDFDocument({ size: "A4", margin: 40, bufferPages: true, info: { Title: title, Author: shopName } }));
   doc.pipe(res);
 
   const L = doc.page.margins.left;
@@ -275,9 +276,11 @@ export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine,
     const widths = columns.map((c) => (W * (c.flex || 1)) / totalFlex);
     const xs = widths.map((_, i) => L + widths.slice(0, i).reduce((s, v) => s + v, 0));
     const cell = (c, row) => (c.format ? c.format(row[c.key], row) : String(row[c.key] ?? ""));
+    // Never taller than a page - see reportExport.js.
+    const maxHeight = bottom() - doc.page.margins.top - 60;
     const heightOf = (cells, font) => {
       doc.font(font).fontSize(8);
-      return Math.max(...cells.map((t, i) => doc.heightOfString(t, { width: widths[i] - pad * 2 }))) + pad * 2;
+      return Math.min(Math.max(...cells.map((t, i) => doc.heightOfString(t, { width: widths[i] - pad * 2 }))) + pad * 2, maxHeight);
     };
     const draw = (cells, { font = "Helvetica", fill, color = INK, rule } = {}) => {
       const h = heightOf(cells, font);
@@ -286,7 +289,7 @@ export function streamAnalyticsPdf(res, { shopName, title, subtitle, filterLine,
       doc.font(font).fontSize(8);
       cells.forEach((t, i) => {
         const tone = typeof color === "function" ? color(i) : color;
-        doc.fillColor(tone).text(t, xs[i] + pad, y + pad, { width: widths[i] - pad * 2, align: columns[i].align || "left" });
+        doc.fillColor(tone).text(t, xs[i] + pad, y + pad, { width: widths[i] - pad * 2, align: columns[i].align || "left", ...(h >= maxHeight ? { height: h - pad * 2, ellipsis: true } : {}) });
       });
       if (rule) doc.moveTo(L, y).lineTo(L + W, y).lineWidth(0.8).strokeColor(BRAND).stroke();
       doc.x = L;
