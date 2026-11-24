@@ -16,6 +16,7 @@ import { cleanRack } from "../utils/rack.js";
 import { generatePaymentNo } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { dayRange } from "../utils/queryFilters.js";
+import { transactional, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -23,6 +24,9 @@ router.use(requireAuth);
 const SALE_PAYMENT_MODES = ["Cash", "Card", "UPI", "Other", "Credit"];
 const BILLING_RECEIPT_NOTE = "Received at billing";
 const round2 = (n) => Number(Number(n).toFixed(2));
+// How money received with a credit bill was paid.
+const RECEIPT_MODES = ["Cash", "Card", "UPI", "Bank Transfer", "Other"];
+const receiptMode = (m) => (RECEIPT_MODES.includes(m) ? m : "Cash");
 
 function canAccessSale(sale, user) {
   return user.role === "admin" || String(sale.createdBy) === String(user._id);
@@ -133,9 +137,7 @@ router.get("/:id", async (req, res) => {
   if (!canAccessSale(sale, req.user)) return res.status(403).json({ message: "You do not have permission to perform this action." });
   // Split of amountPaid for the edit form: received at billing (editable) vs
   // collected later through the customer ledger (protected).
-  const atBilling = await CustomerPayment.find({ sale: sale._id, note: "Received at billing" });
-  const receivedAtBilling = Number(atBilling.reduce((s, p) => s + p.amount, 0).toFixed(2));
-  const collectedLater = sale.paymentMode === "Credit" ? Number(((sale.amountPaid ?? 0) - receivedAtBilling).toFixed(2)) : 0;
+  const { receiptTotal: receivedAtBilling, collectedLater } = await saleReceipts(sale);
   res.json({ ...sale.toObject(), billText: buildBillText(sale), receivedAtBilling, collectedLater });
 });
 
@@ -146,194 +148,174 @@ router.get("/:id/pdf", async (req, res) => {
   streamBillPdf(sale, res);
 });
 
-router.post("/", async (req, res) => {
-  const { customer, items, paymentMode, discount, overrideExpiredReason, amountReceived } = req.body;
+// Saving a bill IS the sales entry. In one transaction it takes the stock
+// (batch by batch), records the sale, the money received and the stock
+// movements; customer balances, the Day Book, the dashboard and every report
+// are worked out from these same records, so nothing is ever entered twice.
+router.post(
+  "/",
+  transactional(async (req, res) => {
+    const { customer, items, paymentMode, discount, overrideExpiredReason, amountReceived } = req.body;
 
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ message: "Add at least one product to the cart before completing payment." });
-  }
-  let customerId = null;
-  if (customer) {
-    const customerDoc = typeof customer === "string" ? await Customer.findById(customer).catch(() => null) : null;
-    if (!customerDoc) return res.status(400).json({ message: "The selected customer was not found. Please choose the customer again." });
-    customerId = customerDoc._id;
-  }
-  if (paymentMode === "Credit" && !customerId) {
-    return res.status(400).json({ message: "A customer must be selected for a credit sale." });
-  }
-  // Checked before any stock is taken: a value the Sale model rejects would
-  // otherwise fail only after stock had already been deducted.
-  if (paymentMode && !SALE_PAYMENT_MODES.includes(paymentMode)) {
-    return res.status(400).json({ message: "Please choose a valid payment mode." });
-  }
-  if (items.some((i) => i?.unitType !== "pack" && i?.unitType !== "loose")) {
-    return res.status(400).json({ message: "Please choose pack or loose for each line." });
-  }
-
-  const isAdmin = req.user.role === "admin";
-  const now = new Date();
-  const resolved = [];
-
-  // Sales Excel upload (Admin): the bill keeps the file's invoice number
-  // (importRef, one bill per number), its date, and each line's rate.
-  // Bills made at the counter send none of these.
-  const importRef = isAdmin && req.body.importRef ? String(req.body.importRef).trim().slice(0, 60) : "";
-  let billDate = null;
-  if (isAdmin && req.body.date) {
-    const m = String(req.body.date).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0) : null;
-    if (!d || Number.isNaN(d.getTime()) || d.getMonth() !== Number(m[2]) - 1) return res.status(400).json({ message: "Please enter a valid bill date." });
-    if (d.getTime() > now.getTime() + 86400000) return res.status(400).json({ message: "The bill date can't be in the future." });
-    // Today's date = now; an earlier day = midday of that day (shop time).
-    const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-    billDate = sameDay ? null : d;
-  }
-  if (importRef && (await Sale.exists({ importRef: new RegExp(`^${importRef.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }))) {
-    return res.status(409).json({ message: `Invoice ${importRef} has already been imported.` });
-  }
-
-  try {
-    for (const item of items) {
-      const product = await Product.findById(item.product);
-      if (!product || !product.isActive) {
-        return res.status(400).json({ message: "This product is no longer available." });
-      }
-      if (item.unitType === "loose" && product.soldAs !== "pack-and-loose") {
-        return res.status(400).json({ message: "This product cannot be sold loose." });
-      }
-
-      // FEFO means the batch that's about to run out first is always the one
-      // a sale would actually draw from, so that's the expiry that matters here.
-      // A line can name the exact lot the cashier picked; otherwise FEFO.
-      let pickedBatch = null;
-      if (item.batch) {
-        pickedBatch = mongoose.isValidObjectId(item.batch)
-          ? await Batch.findOne({ _id: item.batch, product: product._id, isDeleted: { $ne: true } })
-          : null;
-        if (!pickedBatch) return res.status(400).json({ message: `The selected batch of ${product.name} is no longer available.` });
-      }
-      const nextBatch = pickedBatch || (await earliestActiveBatch(product._id));
-      const isExpired = Boolean(nextBatch?.expiryDate) && new Date(nextBatch.expiryDate) < now;
-      // An admin can knowingly sell expired stock; the reason note is optional.
-      const overriding = isAdmin && (req.body.overrideExpired === true || Boolean(overrideExpiredReason));
-      if (isExpired && !overriding) {
-        return res.status(400).json({ message: "This batch has expired and cannot be sold." });
-      }
-
-      const qty = Number(item.qty);
-      if (!(qty > 0)) return res.status(400).json({ message: "Please enter a valid number." });
-
-      const internalQty = saleLineInternalQty(product, item.unitType, qty);
-      const hasRate = isAdmin && importRef && item.rate !== undefined && item.rate !== null && item.rate !== "";
-      const rate = hasRate ? round2(Number(item.rate)) : item.unitType === "pack" ? product.packRate : product.looseRate;
-      if (!(rate >= 0)) return res.status(400).json({ message: `Please enter a valid rate for ${product.name}.` });
-      const unitLabel = item.unitType === "pack" ? product.packUnit : product.looseUnitName;
-      const amount = Number((qty * rate).toFixed(2));
-      const gstAmount = Number(((amount * product.gstPercent) / 100).toFixed(2));
-
-      const unitName = product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit;
-      if (pickedBatch && pickedBatch.qtyRemaining < internalQty) {
-        return res.status(400).json({ message: `Only ${pickedBatch.qtyRemaining} ${unitName} left in batch ${pickedBatch.batchNo} of ${product.name}.` });
-      }
-      // An exact rack position may be picked too (only with a batch).
-      const pickedRack = pickedBatch && item.rack !== undefined && item.rack !== null ? cleanRack(item.rack) : null;
-      if (pickedRack !== null) {
-        const here = effectiveLocations(pickedBatch).find((l) => l.rack === pickedRack)?.qty || 0;
-        if (here < internalQty) {
-          return res.status(400).json({ message: `Only ${here} ${unitName} of ${product.name} batch ${pickedBatch.batchNo} on ${pickedRack || "No Rack"}.` });
-        }
-      }
-
-      resolved.push({
-        product,
-        internalQty,
-        batchId: pickedBatch?._id || null,
-        rack: pickedRack,
-        line: {
-          product: product._id,
-          name: product.name,
-          hsnCode: product.hsnCode || "",
-          unitType: item.unitType,
-          unitLabel,
-          qty,
-          rate,
-          gstPercent: product.gstPercent,
-          amount,
-          gstAmount,
-        },
-      });
+    // The same form sent again: answer with the bill it already made.
+    const clientRef = cleanClientRef(req.body.clientRef);
+    if (clientRef) {
+      const saved = await Sale.findOne({ clientRef, createdBy: req.user._id }).populate("customer", "name phone");
+      if (saved) return res.status(200).json({ ...saved.toObject(), alreadySaved: true });
     }
 
-    // The discount is checked against the bill amount before any stock moves,
-    // so a bill can never come out negative (same rule as editing a bill).
-    const appliedDiscount = isAdmin ? round2(Number(discount) || 0) : 0;
-    const subtotal = round2(resolved.reduce((s, r) => s + r.line.amount, 0));
-    const gstAmount = round2(resolved.reduce((s, r) => s + r.line.gstAmount, 0));
-    if (appliedDiscount < 0 || appliedDiscount > subtotal + gstAmount) {
-      return res.status(400).json({ message: "The discount can't be more than the bill amount." });
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Add at least one product to the bill." });
+    }
+    let customerId = null;
+    if (customer) {
+      const customerDoc = mongoose.isValidObjectId(customer) ? await Customer.findById(customer) : null;
+      if (!customerDoc) return res.status(400).json({ message: "The selected customer was not found. Please choose the customer again." });
+      customerId = customerDoc._id;
+    }
+    if (paymentMode === "Credit" && !customerId) {
+      return res.status(400).json({ message: "A customer must be selected for a credit sale." });
+    }
+    if (paymentMode && !SALE_PAYMENT_MODES.includes(paymentMode)) {
+      return res.status(400).json({ message: "Please choose a valid payment mode." });
+    }
+    if (items.some((i) => i?.unitType !== "pack" && i?.unitType !== "loose")) {
+      return res.status(400).json({ message: "Please choose pack or loose for each line." });
     }
 
-    // Guarded, atomic decrement per line against the product's total (race-safe
-    // against concurrent sales), then FEFO-allocate that same quantity across
-    // the product's batches so cost/expiry are always attributed to the actual
-    // lot(s) it came from. If anything fails partway, everything already
-    // reserved for earlier lines - both the product total and batch qtys - is put back.
-    const settled = [];
-    for (const { product, internalQty, line, batchId, rack } of resolved) {
-      const updated = await Product.findOneAndUpdate(
-        { _id: product._id, qty: { $gte: internalQty } },
-        { $inc: { qty: -internalQty } },
-        { new: true }
-      );
-      if (!updated) {
-        for (const s of settled) {
-          await Product.updateOne({ _id: s.product._id }, { $inc: { qty: s.internalQty } });
-          await reverseBreakdown(s.breakdown);
-        }
-        const fresh = await Product.findById(product._id);
-        return res.status(400).json({ message: `Only ${fresh.qty} ${product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit} of ${product.name} available in stock.` });
-      }
+    const isAdmin = req.user.role === "admin";
+    const now = new Date();
 
-      const breakdown = batchId ? await allocateFromBatch(product, batchId, internalQty, rack) : await allocateFefo(product, internalQty);
-      if (!breakdown) {
-        if (batchId) {
-          // The picked lot sold out meanwhile - undo and say so.
-          await Product.updateOne({ _id: product._id }, { $inc: { qty: internalQty } });
-          for (const s of settled) {
-            await Product.updateOne({ _id: s.product._id }, { $inc: { qty: s.internalQty } });
-            await reverseBreakdown(s.breakdown);
-          }
-          return res.status(400).json({ message: `The selected batch${rack !== null ? "/rack" : ""} of ${product.name} doesn't have enough stock left.` });
-        }
-        // Product-level total said there was enough, but the batch records
-        // disagree (data drift) - undo this line and everything before it.
-        await Product.updateOne({ _id: product._id }, { $inc: { qty: internalQty } });
-        for (const s of settled) {
-          await Product.updateOne({ _id: s.product._id }, { $inc: { qty: s.internalQty } });
-          await reverseBreakdown(s.breakdown);
-        }
-        return res.status(500).json({ message: "Something went wrong. Please try again." });
-      }
-
-      line.internalQtyDeducted = internalQty;
-      line.costAmount = Number(breakdown.reduce((sum, b) => sum + b.qty * b.costPricePerUnit, 0).toFixed(2));
-      line.batchBreakdown = breakdown;
-
-      settled.push({ product, internalQty, breakdown, line });
+    // Admins can date a bill (an earlier day's bill, or the Excel upload,
+    // which also keeps the file's invoice number as importRef).
+    const importRef = isAdmin && req.body.importRef ? String(req.body.importRef).trim().slice(0, 60) : "";
+    let billDate = null;
+    if (isAdmin && req.body.date) {
+      const m = String(req.body.date).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0) : null;
+      if (!d || Number.isNaN(d.getTime()) || d.getMonth() !== Number(m[2]) - 1) return res.status(400).json({ message: "Please enter a valid bill date." });
+      if (d.getTime() > now.getTime() + 86400000) return res.status(400).json({ message: "The bill date can't be in the future." });
+      // Today's date = now; an earlier day = midday of that day (shop time).
+      const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+      billDate = sameDay ? null : d;
+    }
+    if (importRef && (await Sale.exists({ importRef: new RegExp(`^${importRef.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }))) {
+      return res.status(409).json({ message: `Invoice ${importRef} has already been imported.` });
     }
 
-    const total = round2(subtotal + gstAmount - appliedDiscount);
-
-    const resolvedPaymentMode = paymentMode || "Cash";
-    const amountPaid =
-      resolvedPaymentMode === "Credit" ? Math.min(Math.max(Number(amountReceived) || 0, 0), total) : total;
-
-    let billNo;
-    let sale;
     try {
-      billNo = await generateBillNo();
-      sale = await Sale.create({
+      const resolved = [];
+      const ids = items.map((i) => i.product).filter((id) => mongoose.isValidObjectId(id));
+      const products = new Map((await Product.find({ _id: { $in: ids } })).map((p) => [String(p._id), p]));
+      for (const item of items) {
+        const product = products.get(String(item.product));
+        if (!product || !product.isActive) {
+          return res.status(400).json({ message: "This product is no longer available." });
+        }
+        if (item.unitType === "loose" && product.soldAs !== "pack-and-loose") {
+          return res.status(400).json({ message: `${product.name} cannot be sold loose.` });
+        }
+
+        // FEFO means the batch that's about to run out first is always the one
+        // a sale would actually draw from, so that's the expiry that matters here.
+        // A line can name the exact lot the cashier picked; otherwise FEFO.
+        let pickedBatch = null;
+        if (item.batch) {
+          pickedBatch = mongoose.isValidObjectId(item.batch)
+            ? await Batch.findOne({ _id: item.batch, product: product._id, isDeleted: { $ne: true } })
+            : null;
+          if (!pickedBatch) return res.status(400).json({ message: `The selected batch of ${product.name} is no longer available.` });
+        }
+        const nextBatch = pickedBatch || (await earliestActiveBatch(product._id));
+        const isExpired = Boolean(nextBatch?.expiryDate) && new Date(nextBatch.expiryDate) < now;
+        // An admin can knowingly sell expired stock; the reason note is optional.
+        const overriding = isAdmin && (req.body.overrideExpired === true || Boolean(overrideExpiredReason));
+        if (isExpired && !overriding) {
+          return res.status(400).json({ message: `Batch ${nextBatch.batchNo} of ${product.name} has expired and cannot be sold.`, expired: true });
+        }
+
+        const qty = Number(item.qty);
+        if (!(qty > 0) || (item.unitType === "pack" && !Number.isInteger(qty))) return res.status(400).json({ message: `Enter the quantity for ${product.name}.` });
+
+        const internalQty = saleLineInternalQty(product, item.unitType, qty);
+        // An admin can type the selling rate on the bill; everyone else sells
+        // at the product's own price.
+        const hasRate = isAdmin && item.rate !== undefined && item.rate !== null && item.rate !== "";
+        const rate = hasRate ? round2(Number(item.rate)) : item.unitType === "pack" ? product.packRate : product.looseRate;
+        if (!(rate >= 0)) return res.status(400).json({ message: `Please enter a valid rate for ${product.name}.` });
+        const amount = round2(qty * rate);
+
+        const unitName = product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit;
+        if (pickedBatch && pickedBatch.qtyRemaining < internalQty) {
+          return res.status(400).json({ message: `Only ${pickedBatch.qtyRemaining} ${unitName} left in batch ${pickedBatch.batchNo} of ${product.name}.` });
+        }
+        // An exact rack position may be picked too (only with a batch).
+        const pickedRack = pickedBatch && item.rack !== undefined && item.rack !== null ? cleanRack(item.rack) : null;
+        if (pickedRack !== null) {
+          const here = effectiveLocations(pickedBatch).find((l) => l.rack === pickedRack)?.qty || 0;
+          if (here < internalQty) {
+            return res.status(400).json({ message: `Only ${here} ${unitName} of ${product.name} batch ${pickedBatch.batchNo} on ${pickedRack || "No Rack"}.` });
+          }
+        }
+
+        resolved.push({
+          product,
+          internalQty,
+          unitName,
+          batchId: pickedBatch?._id || null,
+          rack: pickedRack,
+          line: {
+            product: product._id,
+            name: product.name,
+            hsnCode: product.hsnCode || "",
+            unitType: item.unitType,
+            unitLabel: item.unitType === "pack" ? product.packUnit : product.looseUnitName,
+            qty,
+            rate,
+            gstPercent: product.gstPercent,
+            amount,
+            gstAmount: round2((amount * product.gstPercent) / 100),
+          },
+        });
+      }
+
+      const appliedDiscount = isAdmin ? round2(Number(discount) || 0) : 0;
+      const subtotal = round2(resolved.reduce((s, r) => s + r.line.amount, 0));
+      const gstAmount = round2(resolved.reduce((s, r) => s + r.line.gstAmount, 0));
+      if (appliedDiscount < 0 || appliedDiscount > subtotal + gstAmount) {
+        return res.status(400).json({ message: "The discount can't be more than the bill amount." });
+      }
+
+      // Take the stock: the product's total, and the exact lot(s) it came from
+      // so cost and expiry are always attributed correctly. Any refusal below
+      // undoes everything (see transactional).
+      for (const { product, internalQty, unitName, line, batchId, rack } of resolved) {
+        const updated = await Product.findOneAndUpdate({ _id: product._id, qty: { $gte: internalQty } }, { $inc: { qty: -internalQty } }, { new: true });
+        if (!updated) {
+          const fresh = await Product.findById(product._id);
+          return res.status(400).json({ message: `Only ${fresh.qty} ${unitName} of ${product.name} available in stock.` });
+        }
+        const breakdown = batchId ? await allocateFromBatch(product, batchId, internalQty, rack) : await allocateFefo(product, internalQty);
+        if (!breakdown) {
+          return res.status(400).json({
+            message: batchId
+              ? `The selected batch${rack !== null ? "/rack" : ""} of ${product.name} doesn't have enough stock left.`
+              : `The batches of ${product.name} hold less than its total stock. Check this product in Stock before selling it.`,
+          });
+        }
+        line.internalQtyDeducted = internalQty;
+        line.costAmount = round2(breakdown.reduce((sum, b) => sum + b.qty * b.costPricePerUnit, 0));
+        line.batchBreakdown = breakdown;
+      }
+
+      const total = round2(subtotal + gstAmount - appliedDiscount);
+      const mode = paymentMode || "Cash";
+      const amountPaid = mode === "Credit" ? round2(Math.min(Math.max(Number(amountReceived) || 0, 0), total)) : total;
+
+      const billNo = await generateBillNo();
+      const sale = new Sale({
         ...(importRef ? { importRef } : {}),
+        ...(clientRef ? { clientRef } : {}),
         ...(billDate ? { createdAt: billDate } : {}),
         billNo,
         customer: customerId,
@@ -342,57 +324,37 @@ router.post("/", async (req, res) => {
         gstAmount,
         discount: appliedDiscount,
         total,
-        paymentMode: resolvedPaymentMode,
+        paymentMode: mode,
         amountPaid,
         createdBy: req.user._id,
       });
-    } catch (e) {
-      // The bill wasn't saved: put back every unit already taken for it.
-      for (const s of settled) {
-        await Product.updateOne({ _id: s.product._id }, { $inc: { qty: s.internalQty } });
-        await reverseBreakdown(s.breakdown);
-      }
-      throw e;
-    }
+      await sale.save();
 
-    if (resolvedPaymentMode === "Credit" && amountPaid > 0) {
-      const paymentNo = await generatePaymentNo("customer");
-      await CustomerPayment.create({
-        paymentNo,
-        customer: customerId,
-        sale: sale._id,
-        amount: amountPaid,
-        ...(billDate ? { date: billDate } : {}),
-        note: "Received at billing",
-        recordedBy: req.user._id,
-      });
-    }
-
-    for (const { line } of resolved) {
-      for (const b of line.batchBreakdown) {
-        await StockLedger.create({
-          product: line.product,
-          batch: b.batch,
-          type: "sale",
-          qtyChange: -b.qty,
-          rack: b.rack,
-          reason: `Sale ${billNo}`,
-          refId: sale._id,
-          performedBy: req.user._id,
+      if (mode === "Credit" && amountPaid > 0) {
+        await CustomerPayment.create({
+          paymentNo: await generatePaymentNo("customer"),
+          customer: customerId,
+          sale: sale._id,
+          amount: amountPaid,
+          mode: receiptMode(req.body.receivedMode),
+          ...(billDate ? { date: billDate } : {}),
+          note: BILLING_RECEIPT_NOTE,
+          recordedBy: req.user._id,
         });
       }
-    }
+      await StockLedger.insertMany(saleLedger(resolved, sale, `Sale ${billNo}`, req.user._id));
 
-    const populated = await sale.populate("customer", "name phone");
-    res.status(201).json(populated);
-  } catch (e) {
-    // Two uploads of the same invoice at once: the second one's stock was
-    // already put back when its bill failed to save.
-    if (e.code === 11000 && importRef) return res.status(409).json({ message: `Invoice ${importRef} has already been imported.` });
-    console.error(e);
-    res.status(500).json({ message: "Something went wrong. Please try again." });
-  }
-});
+      await sale.populate("customer", "name phone");
+      res.status(201).json(sale.toObject());
+    } catch (e) {
+      rethrowIfRetryable(e);
+      if (isDuplicateOf(e, "importRef")) return res.status(409).json({ message: `Invoice ${importRef} has already been imported.` });
+      if (isDuplicateOf(e, "clientRef")) return res.status(409).json({ message: "This bill has already been saved. Check Bills." });
+      console.error(e);
+      res.status(500).json({ message: "Something went wrong. Nothing was saved - please try again." });
+    }
+  })
+);
 
 // Corrects a completed bill (wrong item, quantity, rate, customer, discount
 // or payment mode). The bill keeps its number and date. Stock is put back
@@ -402,255 +364,227 @@ router.post("/", async (req, res) => {
 // stays as it was. Money already collected later through the customer
 // ledger is protected: such a bill stays on Credit for the same customer and
 // its total can't drop below what was collected.
-router.put("/:id", requireRole("admin"), async (req, res) => {
-  const { customer, items, paymentMode, discount, amountReceived, overrideExpired } = req.body;
+router.put(
+  "/:id",
+  requireRole("admin"),
+  transactional(async (req, res) => {
+    const { customer, items, paymentMode, discount, amountReceived, overrideExpired } = req.body;
 
-  const sale = await Sale.findById(req.params.id);
-  if (!sale) return res.status(404).json({ message: "No records found." });
-  if (sale.paymentStatus === "void") return res.status(400).json({ message: "A voided bill can't be edited." });
-  if (sale.items.some((i) => !i.batchBreakdown || i.batchBreakdown.length === 0)) {
-    return res.status(400).json({ message: "This bill was made before batch tracking and can't be edited. Void it and bill again instead." });
-  }
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ message: "A bill needs at least one product. To cancel the whole bill, void it instead." });
-  }
-
-  let customerId = null;
-  if (customer) {
-    const customerDoc = mongoose.isValidObjectId(customer) ? await Customer.findById(customer) : null;
-    if (!customerDoc) return res.status(400).json({ message: "No records found." });
-    customerId = customerDoc._id;
-  }
-  const mode = paymentMode || "Cash";
-  if (!SALE_PAYMENT_MODES.includes(mode)) return res.status(400).json({ message: "Please choose a valid payment mode." });
-  if (mode === "Credit" && !customerId) return res.status(400).json({ message: "A customer must be selected for a credit sale." });
-
-  // What was received at billing can be corrected freely; anything collected
-  // afterwards (customer ledger payments) can't be undone from here.
-  const billingReceipts = await CustomerPayment.find({ sale: sale._id, note: BILLING_RECEIPT_NOTE });
-  const receiptTotal = round2(billingReceipts.reduce((s, p) => s + p.amount, 0));
-  const collectedLater = sale.paymentMode === "Credit" ? round2((sale.amountPaid ?? 0) - receiptTotal) : 0;
-  if (collectedLater > 0) {
-    if (mode !== "Credit") {
-      return res.status(400).json({ message: `₹${collectedLater.toFixed(2)} has already been collected against this credit bill, so it has to stay on Credit.` });
+    const sale = await Sale.findById(req.params.id);
+    if (!sale) return res.status(404).json({ message: "No records found." });
+    if (sale.paymentStatus === "void") return res.status(400).json({ message: "A voided bill can't be edited." });
+    if (sale.items.some((i) => !i.batchBreakdown || i.batchBreakdown.length === 0)) {
+      return res.status(400).json({ message: "This bill was made before batch tracking and can't be edited. Void it and bill again instead." });
     }
-    if (String(customerId) !== String(sale.customer)) {
-      return res.status(400).json({ message: "Payments are already recorded against this bill for its customer, so the customer can't be changed." });
-    }
-  }
-
-  // Validate every corrected line before touching any stock.
-  const resolved = [];
-  for (const item of items) {
-    const product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
-    const original = sale.items.find((i) => String(i.product) === String(item.product) && i.unitType === item.unitType);
-    if (!product || (!product.isActive && !original)) return res.status(400).json({ message: "This product is no longer available." });
-    if (item.unitType !== "pack" && item.unitType !== "loose") return res.status(400).json({ message: "Please choose pack or loose for each line." });
-    if (item.unitType === "loose" && product.soldAs !== "pack-and-loose") {
-      return res.status(400).json({ message: `${product.name} cannot be sold loose.` });
-    }
-    const qty = Number(item.qty);
-    if (!(qty > 0)) return res.status(400).json({ message: `Enter the quantity for ${product.name}.` });
-    // The rate can be corrected too; otherwise the bill's own rate is kept
-    // (a new line uses the product's current price).
-    const hasRate = item.rate !== undefined && item.rate !== null && item.rate !== "";
-    const currentRate = item.unitType === "pack" ? product.packRate : product.looseRate;
-    const rate = hasRate ? Number(item.rate) : original ? original.rate : currentRate;
-    if (!(rate >= 0)) return res.status(400).json({ message: `Please enter a valid rate for ${product.name}.` });
-    const gstPercent = original ? original.gstPercent : product.gstPercent;
-    const amount = round2(qty * rate);
-    resolved.push({
-      product,
-      internalQty: saleLineInternalQty(product, item.unitType, qty),
-      line: {
-        product: product._id,
-        name: product.name,
-        hsnCode: product.hsnCode || "",
-        unitType: item.unitType,
-        unitLabel: item.unitType === "pack" ? product.packUnit : product.looseUnitName,
-        qty,
-        rate,
-        gstPercent,
-        amount,
-        gstAmount: round2((amount * gstPercent) / 100),
-      },
-    });
-  }
-
-  const subtotal = round2(resolved.reduce((s, r) => s + r.line.amount, 0));
-  const gstAmount = round2(resolved.reduce((s, r) => s + r.line.gstAmount, 0));
-  const appliedDiscount = round2(Number(discount) || 0);
-  if (appliedDiscount < 0 || appliedDiscount > subtotal + gstAmount) {
-    return res.status(400).json({ message: "The discount can't be more than the bill amount." });
-  }
-  const total = round2(subtotal + gstAmount - appliedDiscount);
-  const receivedNow = mode === "Credit" ? round2(Math.max(Number(amountReceived) || 0, 0)) : 0;
-  const amountPaid = mode === "Credit" ? round2(collectedLater + receivedNow) : total;
-  if (amountPaid > total) {
-    return res.status(400).json({
-      message: collectedLater > 0
-        ? `₹${amountPaid.toFixed(2)} has already been received for this bill, so the new total can't be less than that.`
-        : "Amount received can't be more than the bill total.",
-    });
-  }
-
-  try {
-    const now = new Date();
-    const originals = sale.items.map((i) => ({
-      productId: i.product,
-      internalQty: i.internalQtyDeducted,
-      breakdown: i.batchBreakdown.map((b) => ({ batch: b.batch, qty: b.qty, rack: b.rack })),
-    }));
-    // Lots/racks the original lines came from, per product - the corrected
-    // lines take from these first so unchanged lines keep their batches.
-    const pool = new Map();
-    for (const o of originals) {
-      const list = pool.get(String(o.productId)) || [];
-      list.push(...o.breakdown.map((b) => ({ ...b })));
-      pool.set(String(o.productId), list);
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "A bill needs at least one product. To cancel the whole bill, void it instead." });
     }
 
-    const restoreOriginal = async () => {
-      for (const o of originals) {
-        await Product.updateOne({ _id: o.productId }, { $inc: { qty: o.internalQty } });
-        await reverseBreakdown(o.breakdown);
-      }
-    };
-    // Only used to roll back a failed edit: takes the original stock again.
-    const retakeOriginal = async () => {
-      for (const o of originals) {
-        const product = await Product.findById(o.productId);
-        await Product.updateOne({ _id: o.productId }, { $inc: { qty: -o.internalQty } });
-        for (const b of o.breakdown) {
-          const got = await allocateFromBatch(product, b.batch, b.qty, b.rack);
-          if (!got) console.error(`Sale edit rollback: could not re-take ${b.qty} from batch ${b.batch} for sale ${sale.billNo}`);
-        }
-      }
-    };
-    const releaseLine = async (productId, internalQty, breakdown) => {
-      await Product.updateOne({ _id: productId }, { $inc: { qty: internalQty } });
-      await reverseBreakdown(breakdown);
-    };
-
-    const takeLine = async (product, internalQty) => {
-      const unitName = product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit;
-      const updated = await Product.findOneAndUpdate({ _id: product._id, qty: { $gte: internalQty } }, { $inc: { qty: -internalQty } }, { new: true });
-      if (!updated) {
-        const fresh = await Product.findById(product._id);
-        return { message: `Only ${fresh.qty} ${unitName} of ${product.name} available in stock.` };
-      }
-      const breakdown = [];
-      let remaining = internalQty;
-      for (const entry of pool.get(String(product._id)) || []) {
-        if (remaining <= 0) break;
-        const take = Math.min(entry.qty, remaining);
-        if (take <= 0) continue;
-        const got = await allocateFromBatch(product, entry.batch, take, entry.rack);
-        if (!got) continue;
-        breakdown.push(...got);
-        entry.qty -= take;
-        remaining -= take;
-      }
-      if (remaining > 0) {
-        const next = await earliestActiveBatch(product._id);
-        if (next?.expiryDate && new Date(next.expiryDate) < now && !overrideExpired) {
-          await releaseLine(product._id, internalQty - remaining, breakdown);
-          await Product.updateOne({ _id: product._id }, { $inc: { qty: remaining } });
-          return { message: `The next batch of ${product.name} has expired. Tick "Allow expired stock" to sell it anyway.`, expired: true };
-        }
-        const more = await allocateFefo(product, remaining);
-        if (!more) {
-          await releaseLine(product._id, internalQty - remaining, breakdown);
-          await Product.updateOne({ _id: product._id }, { $inc: { qty: remaining } });
-          return { message: `Not enough stock of ${product.name} for this quantity.` };
-        }
-        breakdown.push(...more);
-      }
-      return { breakdown };
-    };
-
-    await restoreOriginal();
-    const settled = [];
-    for (const r of resolved) {
-      const out = await takeLine(r.product, r.internalQty);
-      if (!out.breakdown) {
-        for (const s of settled) await releaseLine(s.product._id, s.internalQty, s.line.batchBreakdown);
-        await retakeOriginal();
-        return res.status(400).json({ message: out.message, expired: Boolean(out.expired) });
-      }
-      r.line.internalQtyDeducted = r.internalQty;
-      r.line.costAmount = round2(out.breakdown.reduce((s, b) => s + b.qty * b.costPricePerUnit, 0));
-      r.line.batchBreakdown = out.breakdown;
-      settled.push(r);
+    let customerId = null;
+    if (customer) {
+      const customerDoc = mongoose.isValidObjectId(customer) ? await Customer.findById(customer) : null;
+      if (!customerDoc) return res.status(400).json({ message: "The selected customer was not found. Please choose the customer again." });
+      customerId = customerDoc._id;
     }
+    const mode = paymentMode || "Cash";
+    if (!SALE_PAYMENT_MODES.includes(mode)) return res.status(400).json({ message: "Please choose a valid payment mode." });
+    if (mode === "Credit" && !customerId) return res.status(400).json({ message: "A customer must be selected for a credit sale." });
 
-    for (const o of originals) {
-      for (const b of o.breakdown) {
-        await StockLedger.create({
-          product: o.productId,
-          batch: b.batch,
-          type: "sale-edit",
-          qtyChange: b.qty,
-          rack: b.rack,
-          reason: `Edit of ${sale.billNo}: original line returned`,
-          refId: sale._id,
-          performedBy: req.user._id,
-        });
+    // What was received at billing can be corrected freely; anything collected
+    // afterwards (customer ledger payments) can't be undone from here.
+    const { billingReceipts, collectedLater } = await saleReceipts(sale);
+    if (collectedLater > 0) {
+      if (mode !== "Credit") {
+        return res.status(400).json({ message: `₹${collectedLater.toFixed(2)} has already been collected against this credit bill, so it has to stay on Credit.` });
       }
-    }
-    for (const { line } of resolved) {
-      for (const b of line.batchBreakdown) {
-        await StockLedger.create({
-          product: line.product,
-          batch: b.batch,
-          type: "sale",
-          qtyChange: -b.qty,
-          rack: b.rack,
-          reason: `Sale ${sale.billNo} (edited)`,
-          refId: sale._id,
-          performedBy: req.user._id,
-        });
+      if (String(customerId) !== String(sale.customer)) {
+        return res.status(400).json({ message: "Payments are already recorded against this bill for its customer, so the customer can't be changed." });
       }
     }
 
-    const receiptMode = billingReceipts[0]?.mode || "Cash";
-    const receiptDate = billingReceipts[0]?.date || sale.createdAt;
-    await CustomerPayment.deleteMany({ _id: { $in: billingReceipts.map((p) => p._id) } });
-    if (mode === "Credit" && receivedNow > 0) {
-      await CustomerPayment.create({
-        paymentNo: billingReceipts[0]?.paymentNo || (await generatePaymentNo("customer")),
-        customer: customerId,
-        sale: sale._id,
-        amount: receivedNow,
-        mode: receiptMode,
-        date: receiptDate,
-        note: BILLING_RECEIPT_NOTE,
-        recordedBy: req.user._id,
+    // Validate every corrected line before touching any stock.
+    const resolved = [];
+    for (const item of items) {
+      const product = mongoose.isValidObjectId(item.product) ? await Product.findById(item.product) : null;
+      const original = sale.items.find((i) => String(i.product) === String(item.product) && i.unitType === item.unitType);
+      if (!product || (!product.isActive && !original)) return res.status(400).json({ message: "This product is no longer available." });
+      if (item.unitType !== "pack" && item.unitType !== "loose") return res.status(400).json({ message: "Please choose pack or loose for each line." });
+      if (item.unitType === "loose" && product.soldAs !== "pack-and-loose") {
+        return res.status(400).json({ message: `${product.name} cannot be sold loose.` });
+      }
+      const qty = Number(item.qty);
+      if (!(qty > 0) || (item.unitType === "pack" && !Number.isInteger(qty))) return res.status(400).json({ message: `Enter the quantity for ${product.name}.` });
+      // The rate can be corrected too; otherwise the bill's own rate is kept
+      // (a new line uses the product's current price).
+      const hasRate = item.rate !== undefined && item.rate !== null && item.rate !== "";
+      const currentRate = item.unitType === "pack" ? product.packRate : product.looseRate;
+      const rate = hasRate ? round2(Number(item.rate)) : original ? original.rate : currentRate;
+      if (!(rate >= 0)) return res.status(400).json({ message: `Please enter a valid rate for ${product.name}.` });
+      const gstPercent = original ? original.gstPercent : product.gstPercent;
+      const amount = round2(qty * rate);
+      resolved.push({
+        product,
+        internalQty: saleLineInternalQty(product, item.unitType, qty),
+        line: {
+          product: product._id,
+          name: product.name,
+          hsnCode: product.hsnCode || "",
+          unitType: item.unitType,
+          unitLabel: item.unitType === "pack" ? product.packUnit : product.looseUnitName,
+          qty,
+          rate,
+          gstPercent,
+          amount,
+          gstAmount: round2((amount * gstPercent) / 100),
+        },
       });
     }
 
-    Object.assign(sale, {
-      customer: customerId,
-      items: resolved.map((r) => r.line),
-      subtotal,
-      gstAmount,
-      discount: appliedDiscount,
-      total,
-      paymentMode: mode,
-      amountPaid,
-      editedAt: now,
-      editedBy: req.user._id,
-    });
-    await sale.save();
-    await markInvoiceChanged("sales", sale._id, "edited");
+    const subtotal = round2(resolved.reduce((s, r) => s + r.line.amount, 0));
+    const gstAmount = round2(resolved.reduce((s, r) => s + r.line.gstAmount, 0));
+    const appliedDiscount = round2(Number(discount) || 0);
+    if (appliedDiscount < 0 || appliedDiscount > subtotal + gstAmount) {
+      return res.status(400).json({ message: "The discount can't be more than the bill amount." });
+    }
+    const total = round2(subtotal + gstAmount - appliedDiscount);
+    const receivedNow = mode === "Credit" ? round2(Math.max(Number(amountReceived) || 0, 0)) : 0;
+    const amountPaid = mode === "Credit" ? round2(collectedLater + receivedNow) : total;
+    if (amountPaid > total) {
+      return res.status(400).json({
+        message: collectedLater > 0
+          ? `₹${amountPaid.toFixed(2)} has already been received for this bill, so the new total can't be less than that.`
+          : "Amount received can't be more than the bill total.",
+      });
+    }
 
-    const populated = await Sale.findById(sale._id).populate("customer", "name phone").populate("createdBy", "username");
-    res.json({ ...populated.toObject(), billText: buildBillText(populated) });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: "Something went wrong. Please try again." });
-  }
-});
+    try {
+      const now = new Date();
+      // Lots/racks the original lines came from, per product - the corrected
+      // lines take from these first so unchanged lines keep their batches.
+      const pool = new Map();
+      const returned = [];
+      for (const i of sale.items) {
+        const breakdown = i.batchBreakdown.map((b) => ({ batch: b.batch, qty: b.qty, rack: b.rack }));
+        await Product.updateOne({ _id: i.product }, { $inc: { qty: i.internalQtyDeducted } });
+        await reverseBreakdown(breakdown);
+        const key = String(i.product);
+        pool.set(key, [...(pool.get(key) || []), ...breakdown.map((b) => ({ ...b }))]);
+        for (const b of breakdown) {
+          returned.push({
+            product: i.product,
+            batch: b.batch,
+            type: "sale-edit",
+            qtyChange: b.qty,
+            rack: b.rack,
+            reason: `Edit of ${sale.billNo}: original line returned`,
+            refId: sale._id,
+            performedBy: req.user._id,
+          });
+        }
+      }
+
+      // Any refusal here undoes everything, including the returns above.
+      for (const { product, internalQty, line } of resolved) {
+        const unitName = product.soldAs === "pack-and-loose" ? product.looseUnitName : product.packUnit;
+        const updated = await Product.findOneAndUpdate({ _id: product._id, qty: { $gte: internalQty } }, { $inc: { qty: -internalQty } }, { new: true });
+        if (!updated) {
+          const fresh = await Product.findById(product._id);
+          return res.status(400).json({ message: `Only ${fresh.qty} ${unitName} of ${product.name} available in stock.` });
+        }
+        const breakdown = [];
+        let remaining = internalQty;
+        for (const entry of pool.get(String(product._id)) || []) {
+          if (remaining <= 0) break;
+          const take = Math.min(entry.qty, remaining);
+          if (take <= 0) continue;
+          const got = await allocateFromBatch(product, entry.batch, take, entry.rack);
+          if (!got) continue;
+          breakdown.push(...got);
+          entry.qty -= take;
+          remaining -= take;
+        }
+        if (remaining > 0) {
+          const next = await earliestActiveBatch(product._id);
+          if (next?.expiryDate && new Date(next.expiryDate) < now && !overrideExpired) {
+            return res.status(400).json({ message: `The next batch of ${product.name} has expired. Tick "Allow expired stock" to sell it anyway.`, expired: true });
+          }
+          const more = await allocateFefo(product, remaining);
+          if (!more) return res.status(400).json({ message: `Not enough stock of ${product.name} for this quantity.`, expired: false });
+          breakdown.push(...more);
+        }
+        line.internalQtyDeducted = internalQty;
+        line.costAmount = round2(breakdown.reduce((s, b) => s + b.qty * b.costPricePerUnit, 0));
+        line.batchBreakdown = breakdown;
+      }
+
+      await StockLedger.insertMany([...returned, ...saleLedger(resolved, sale, `Sale ${sale.billNo} (edited)`, req.user._id)]);
+
+      await CustomerPayment.deleteMany({ _id: { $in: billingReceipts.map((p) => p._id) } });
+      if (mode === "Credit" && receivedNow > 0) {
+        await CustomerPayment.create({
+          paymentNo: billingReceipts[0]?.paymentNo || (await generatePaymentNo("customer")),
+          customer: customerId,
+          sale: sale._id,
+          amount: receivedNow,
+          mode: receiptMode(req.body.receivedMode || billingReceipts[0]?.mode),
+          date: billingReceipts[0]?.date || sale.createdAt,
+          note: BILLING_RECEIPT_NOTE,
+          recordedBy: req.user._id,
+        });
+      }
+
+      sale.set({
+        customer: customerId,
+        items: resolved.map((r) => r.line),
+        subtotal,
+        gstAmount,
+        discount: appliedDiscount,
+        total,
+        paymentMode: mode,
+        amountPaid,
+        editedAt: now,
+        editedBy: req.user._id,
+      });
+      await sale.save();
+      await markInvoiceChanged("sales", sale._id, "edited");
+
+      const populated = await Sale.findById(sale._id).populate("customer", "name phone");
+      await populated.populate("createdBy", "username");
+      res.json({ ...populated.toObject(), billText: buildBillText(populated) });
+    } catch (e) {
+      rethrowIfRetryable(e);
+      console.error(e);
+      res.status(500).json({ message: "Something went wrong. Nothing was changed - please try again." });
+    }
+  })
+);
+
+// What was received for a bill: at billing (its own receipts) and later,
+// through the customer ledger.
+async function saleReceipts(sale) {
+  const linked = await CustomerPayment.find({ sale: sale._id });
+  const billingReceipts = linked.filter((p) => p.note === BILLING_RECEIPT_NOTE);
+  const receiptTotal = round2(billingReceipts.reduce((s, p) => s + p.amount, 0));
+  const collectedLater =
+    sale.paymentStatus !== "void" && sale.paymentMode === "Credit" ? round2((sale.amountPaid ?? 0) - receiptTotal) : 0;
+  return { billingReceipts, receiptTotal, collectedLater, otherPayments: linked.length - billingReceipts.length };
+}
+
+// Stock ledger rows for a bill's lines, one per batch/rack taken from.
+function saleLedger(resolved, sale, reason, userId) {
+  return resolved.flatMap(({ line }) =>
+    line.batchBreakdown.map((b) => ({
+      product: line.product,
+      batch: b.batch,
+      type: "sale",
+      qtyChange: -b.qty,
+      rack: b.rack,
+      reason,
+      refId: sale._id,
+      performedBy: userId,
+    }))
+  );
+}
 
 // Puts every unit a bill took back where it came from, logging each return
 // with `label` (e.g. "Void of GM-000012: wrong customer").
@@ -689,66 +623,71 @@ async function returnSaleStock(sale, label, userId) {
   }
 }
 
-router.post("/:id/void", requireRole("admin"), async (req, res) => {
-  // The reason is optional; it is recorded when given.
-  const reason = String(req.body.reason || "").trim() || "No reason given";
+// Cancels a bill: the bill stays on record marked VOID, its stock goes back,
+// and it stops counting in sales, balances, the Day Book and every report.
+router.post(
+  "/:id/void",
+  requireRole("admin"),
+  transactional(async (req, res) => {
+    // The reason is optional; it is recorded when given.
+    const reason = String(req.body.reason || "").trim() || "No reason given";
 
-  const sale = await Sale.findById(req.params.id).populate("customer", "name phone").populate("createdBy", "username");
-  if (!sale) return res.status(404).json({ message: "No records found." });
-  if (sale.paymentStatus === "void") {
-    return res.status(400).json({ message: "This bill has already been voided." });
-  }
-  // Claim the void atomically, so a double click (or two admins at once)
-  // can never put the same bill's stock back twice.
-  const claimed = await Sale.updateOne({ _id: sale._id, paymentStatus: { $ne: "void" } }, { $set: { paymentStatus: "void" } });
-  if (!claimed.modifiedCount) {
-    return res.status(400).json({ message: "This bill has already been voided." });
-  }
+    const sale = await Sale.findById(req.params.id);
+    if (!sale) return res.status(404).json({ message: "No records found." });
+    if (sale.paymentStatus === "void") return res.status(400).json({ message: "This bill has already been voided." });
 
-  await returnSaleStock(sale, `Void of ${sale.billNo}: ${reason}`, req.user._id);
+    const { billingReceipts, collectedLater, otherPayments } = await saleReceipts(sale);
+    if (collectedLater > 0 || otherPayments > 0) {
+      return res.status(400).json({
+        message: "Payments were collected against this bill from the customer ledger. Delete those payments first, then void the bill.",
+      });
+    }
 
-  sale.paymentStatus = "void";
-  sale.voidReason = reason;
-  sale.voidedBy = req.user._id;
-  sale.voidedAt = new Date();
-  // A voided bill is dropped from the receivables ledger entirely (see
-  // ledgerHelpers.js's paymentStatus filter) - clear its balance too so it
-  // never shows outstanding money owed on a sale that no longer stands.
-  sale.amountPaid = sale.total;
-  await sale.save();
-  await markInvoiceChanged("sales", sale._id, "void");
+    await returnSaleStock(sale, `Void of ${sale.billNo}: ${reason}`, req.user._id);
+    // Money taken at billing is handed back with the bill, so it leaves the
+    // customer's account and the Day Book too.
+    await CustomerPayment.deleteMany({ _id: { $in: billingReceipts.map((p) => p._id) } });
 
-  res.json({ ...sale.toObject(), billText: buildBillText(sale) });
-});
+    sale.set({
+      paymentStatus: "void",
+      voidReason: reason,
+      voidedBy: req.user._id,
+      voidedAt: new Date(),
+      // Never shows money owed on a bill that no longer stands.
+      amountPaid: sale.total,
+    });
+    await sale.save();
+    await markInvoiceChanged("sales", sale._id, "void");
+
+    const populated = await Sale.findById(sale._id).populate("customer", "name phone");
+    await populated.populate("createdBy", "username");
+    res.json({ ...populated.toObject(), billText: buildBillText(populated) });
+  })
+);
 
 // Removes a bill completely (Admin). A bill that still stands has its stock
 // put back first; what was received at billing goes with it. Money collected
 // later through the customer ledger has to be deleted there first, so the
 // customer's account never shows a payment for a bill that doesn't exist.
-router.delete("/:id", requireRole("admin"), async (req, res) => {
-  const sale = await Sale.findById(req.params.id);
-  if (!sale) return res.status(404).json({ message: "No records found." });
+router.delete(
+  "/:id",
+  requireRole("admin"),
+  transactional(async (req, res) => {
+    const sale = await Sale.findById(req.params.id);
+    if (!sale) return res.status(404).json({ message: "No records found." });
 
-  const linked = await CustomerPayment.find({ sale: sale._id });
-  const atBilling = linked.filter((p) => p.note === BILLING_RECEIPT_NOTE);
-  const receiptTotal = round2(atBilling.reduce((s, p) => s + p.amount, 0));
-  const collectedLater =
-    sale.paymentStatus !== "void" && sale.paymentMode === "Credit" ? round2((sale.amountPaid ?? 0) - receiptTotal) : 0;
-  if (collectedLater > 0 || linked.length > atBilling.length) {
-    return res.status(400).json({
-      message: "Payments were collected against this bill from the customer ledger. Delete those payments first, then delete the bill.",
-    });
-  }
+    const { billingReceipts, collectedLater, otherPayments } = await saleReceipts(sale);
+    if (collectedLater > 0 || otherPayments > 0) {
+      return res.status(400).json({
+        message: "Payments were collected against this bill from the customer ledger. Delete those payments first, then delete the bill.",
+      });
+    }
 
-  try {
     if (sale.paymentStatus !== "void") await returnSaleStock(sale, `Deleted bill ${sale.billNo}`, req.user._id);
-    await CustomerPayment.deleteMany({ _id: { $in: atBilling.map((p) => p._id) } });
+    await CustomerPayment.deleteMany({ _id: { $in: billingReceipts.map((p) => p._id) } });
     await Sale.deleteOne({ _id: sale._id });
     res.json({ message: `Bill ${sale.billNo} deleted.` });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: "Something went wrong. Please try again." });
-  }
-});
+  })
+);
 
 export default router;

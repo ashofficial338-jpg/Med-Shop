@@ -128,7 +128,7 @@ export default function ProductTile({ product, canEdit, onEdit, onOpen }) {
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-accent py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Icon name={isOut ? "close" : "cart"} size={14} strokeWidth={2} />
-          {isDeleted ? "Deleted" : isOut ? "Unavailable" : isPackAndLoose ? `Add 1 ${product.packUnit}` : "Add to Cart"}
+          {isDeleted ? "Deleted" : isOut ? "Unavailable" : isPackAndLoose ? `Add 1 ${product.packUnit}` : "Add to Bill"}
         </button>
       </div>
     </div>

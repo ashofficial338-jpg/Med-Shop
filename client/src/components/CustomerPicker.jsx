@@ -141,7 +141,13 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
     return (
       <div>
         <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2 text-sm">
-          <span className="text-text">{selected.name} · {selected.phone}</span>
+          <span className="min-w-0 text-text">
+            <span className="block truncate font-semibold">{selected.name}</span>
+            <span className="block text-xs text-muted">
+              {selected.phone}
+              {selected.outstandingBalance > 0 && <span className="font-semibold text-danger">{selected.phone ? " · " : ""}Owes ₹{selected.outstandingBalance.toFixed(2)}</span>}
+            </span>
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -193,7 +199,7 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
     <div className="relative">
       <input
         type="text"
-        placeholder="Search by name or phone (optional — Walk-in if blank)"
+        placeholder="Name or phone (blank = walk-in)"
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -214,7 +220,8 @@ export default function CustomerPicker({ selected, onSelect, isAdmin }) {
                 onClick={() => choose(c)}
                 className="block w-full px-3 py-2 text-left text-sm text-text hover:bg-bg"
               >
-                {c.name} · {c.phone}
+                {[c.name, c.phone].filter(Boolean).join(" · ")}
+                {c.outstandingBalance > 0 && <span className="ml-2 text-xs font-semibold text-danger">owes ₹{c.outstandingBalance.toFixed(2)}</span>}
               </button>
             ))}
           {!searching && (

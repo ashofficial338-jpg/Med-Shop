@@ -36,10 +36,13 @@ async function allocateFifo(openDocs, amount) {
   }
 }
 
-function mergeLedgerEntries(debits, credits) {
+// `settled` entries were paid in full on the spot: they are shown as charged and
+// paid on one line, so the account's history is complete and its balance unmoved.
+function mergeLedgerEntries(debits, credits, settled = []) {
   const entries = [
     ...debits.map((e) => ({ ...e, debit: e.amount, credit: 0 })),
     ...credits.map((e) => ({ ...e, debit: 0, credit: e.amount })),
+    ...settled.map((e) => ({ ...e, debit: e.amount, credit: e.amount })),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   let balance = 0;
@@ -52,14 +55,17 @@ function mergeLedgerEntries(debits, credits) {
 }
 
 export async function buildCustomerLedger(customerId) {
-  const [sales, payments] = await Promise.all([
-    Sale.find({ customer: customerId, paymentMode: "Credit", paymentStatus: { $ne: "void" } }).sort({ createdAt: 1 }),
+  const [bills, payments] = await Promise.all([
+    Sale.find({ customer: customerId, paymentStatus: { $ne: "void" } }).sort({ createdAt: 1 }),
     CustomerPayment.find({ customer: customerId }).sort({ date: 1 }),
   ]);
+  const sales = bills.filter((s) => s.paymentMode === "Credit");
+  const saleEntry = (type) => (s) => ({ date: s.createdAt, type: type(s), ref: s.billNo, amount: s.total, saleId: s._id });
 
   const entries = mergeLedgerEntries(
-    sales.map((s) => ({ date: s.createdAt, type: "Credit Sale", ref: s.billNo, amount: s.total })),
-    payments.map((p) => ({ date: p.date, type: "Payment Received", ref: p.paymentNo, amount: p.amount, paymentId: p._id }))
+    sales.map(saleEntry(() => "Credit Sale")),
+    payments.map((p) => ({ date: p.date, type: "Payment Received", ref: p.paymentNo, amount: p.amount, paymentId: p._id })),
+    bills.filter((s) => s.paymentMode !== "Credit").map(saleEntry((s) => `Sale (${s.paymentMode})`))
   );
   const outstandingBalance = Number(sales.reduce((sum, s) => sum + balanceDue(s), 0).toFixed(2));
   const openSales = sales
@@ -69,14 +75,17 @@ export async function buildCustomerLedger(customerId) {
 }
 
 export async function buildSupplierLedger(vendorId) {
-  const [purchases, payments] = await Promise.all([
-    Purchase.find({ vendor: vendorId, paymentMode: "Credit" }).sort({ date: 1 }),
+  const [invoices, payments] = await Promise.all([
+    Purchase.find({ vendor: vendorId }).sort({ date: 1 }),
     SupplierPayment.find({ vendor: vendorId }).sort({ date: 1 }),
   ]);
+  const purchases = invoices.filter((p) => p.paymentMode === "Credit");
+  const purchaseEntry = (type) => (p) => ({ date: p.date, type: type(p), ref: p.invoiceNo, amount: p.total, purchaseId: p._id });
 
   const entries = mergeLedgerEntries(
-    purchases.map((p) => ({ date: p.date, type: "Purchase", ref: p.invoiceNo, amount: p.total })),
-    payments.map((p) => ({ date: p.date, type: "Payment Made", ref: p.paymentNo, amount: p.amount, paymentId: p._id }))
+    purchases.map(purchaseEntry(() => "Purchase")),
+    payments.map((p) => ({ date: p.date, type: "Payment Made", ref: p.paymentNo, amount: p.amount, paymentId: p._id })),
+    invoices.filter((p) => p.paymentMode !== "Credit").map(purchaseEntry((p) => `Purchase (${p.paymentMode})`))
   );
   const outstandingBalance = Number(purchases.reduce((sum, p) => sum + balanceDue(p), 0).toFixed(2));
   const openPurchases = purchases

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { getSale, openSalePdf, voidSale, deleteSale } from "../api/sales";
 import { useAuth } from "../context/AuthContext";
+import { useLiveRefresh } from "../context/LiveSync";
 import RequiredMark from "../components/RequiredMark";
 import SaleEditModal from "../components/SaleEditModal";
 
@@ -15,15 +16,22 @@ export default function BillPreview() {
   const [voidReason, setVoidReason] = useState("");
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    getSale(id).then(setSale);
+    getSale(id)
+      .then(setSale)
+      .catch((err) => setLoadError(err.response?.data?.message || "Could not load this bill."));
   }, [id]);
+  // A payment, edit or void made anywhere shows here.
+  useLiveRefresh(["sales"], () => {
+    if (!editing) getSale(id).then(setSale).catch(() => {});
+  });
 
   if (!sale) {
     return (
       <Layout>
-        <p className="text-sm text-muted">Loading…</p>
+        <p className={`text-sm ${loadError ? "text-danger" : "text-muted"}`}>{loadError || "Loading…"}</p>
       </Layout>
     );
   }
@@ -43,6 +51,7 @@ export default function BillPreview() {
     try {
       const updated = await voidSale(sale._id, voidReason);
       setSale(updated);
+      setError("");
       setShowVoidForm(false);
     } catch (err) {
       setError(err.response?.data?.message || "Something went wrong. Please try again.");
@@ -69,10 +78,10 @@ export default function BillPreview() {
           Print
         </button>
         <button
-          onClick={() => navigate("/products")}
+          onClick={() => navigate("/billing")}
           className="rounded-lg border border-border py-2.5 text-sm font-semibold text-text hover:bg-surface"
         >
-          Done / New Bill
+          New Bill
         </button>
 
         {user.role === "admin" && sale.paymentStatus !== "void" && (

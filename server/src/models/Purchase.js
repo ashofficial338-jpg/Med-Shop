@@ -17,6 +17,14 @@ const purchaseItemSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Trade discount on this line. lineAmount, GST and the stock's cost are all
+    // after it; costPrice stays the rate printed on the supplier's bill.
+    discountPercent: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
     batchNo: {
       type: String,
       trim: true,
@@ -112,6 +120,8 @@ const purchaseSchema = new mongoose.Schema(
     archiveVersion: { type: Number, default: 0 },
     archiveCopies: { type: Number, default: 0 },
     archiveChange: { type: String, enum: ["edited", "void"], default: "edited" },
+    // The entry form's own id, so one form is never saved twice (utils/transaction.js).
+    clientRef: { type: String },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -122,6 +132,7 @@ const purchaseSchema = new mongoose.Schema(
 );
 
 purchaseSchema.index({ vendor: 1, invoiceNo: 1 }, { unique: true });
+purchaseSchema.index({ clientRef: 1 }, { unique: true, partialFilterExpression: { clientRef: { $type: "string" } } });
 purchaseSchema.index({ archiveNo: 1 }, { unique: true, sparse: true });
 purchaseSchema.index({ archivedAt: 1, createdAt: 1 });
 

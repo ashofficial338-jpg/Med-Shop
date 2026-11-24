@@ -11,7 +11,7 @@ export default function FloatingCartBar() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4">
       <button
-        onClick={() => navigate("/checkout")}
+        onClick={() => navigate("/billing")}
         className="slide-up group flex w-full max-w-md items-center justify-between gap-3 rounded-full border border-white/10 bg-gradient-to-r from-[#0B2347] via-[#0A3B3C] to-primary-dark py-2 pl-2 pr-5 text-white shadow-[0_24px_48px_-16px_rgba(6,18,44,0.65)] ring-1 ring-black/5 backdrop-blur hover:-translate-y-0.5"
       >
         <span className="flex items-center gap-3">
@@ -22,12 +22,12 @@ export default function FloatingCartBar() {
             </span>
           </span>
           <span className="text-left leading-tight">
-            <span className="block text-[11px] text-white/60">{cartCount} item{cartCount === 1 ? "" : "s"} in order</span>
+            <span className="block text-[11px] text-white/60">{cartCount} item{cartCount === 1 ? "" : "s"} on this bill</span>
             <span className="block font-display text-base font-bold tnum">₹{cartTotal.toFixed(2)}</span>
           </span>
         </span>
         <span className="flex items-center gap-1.5 text-sm font-semibold">
-          Checkout
+          Go to bill
           <Icon name="arrowRight" size={16} strokeWidth={2} className="transition-transform duration-300 group-hover:translate-x-1" />
         </span>
       </button>

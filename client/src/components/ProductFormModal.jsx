@@ -480,7 +480,7 @@ export default function ProductFormModal({ product, onClose, onSaved, defaultRac
           {hasLooseSplit && (
             <div className="col-span-2 rounded-lg bg-bg px-3 py-2 text-sm text-text">
               ≈ ₹{computedPerUnit ?? "—"} per {form.looseUnitName || "unit"}{" "}
-              <span className="text-xs text-muted">(live: Pack Rate ÷ Units per Pack — this is what Checkout charges for a loose sale)</span>
+              <span className="text-xs text-muted">(live: Pack Rate ÷ Units per Pack — this is what a loose sale is billed at)</span>
             </div>
           )}
 

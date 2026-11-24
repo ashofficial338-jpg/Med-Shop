@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { upsertBatch } from "../utils/batchHelpers.js";
 import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { streamExcelReport, streamPdfReport, formatDateTime } from "../utils/reportExport.js";
+import { transactional } from "../utils/transaction.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
@@ -91,7 +92,7 @@ router.get("/export", async (req, res) => {
   ]);
 });
 
-router.post("/adjust", async (req, res) => {
+router.post("/adjust", transactional(async (req, res) => {
   const { product: productId, adjustmentType, qty, reason, batchId, batchNo, expiryDate, costPrice } = req.body;
   const rack = cleanRack(req.body.rack);
   // "No Rack" is an explicit choice (sent as NONE); a blank field is not.
@@ -179,6 +180,6 @@ router.post("/adjust", async (req, res) => {
   });
 
   res.status(201).json({ product, entry });
-});
+}));
 
 export default router;

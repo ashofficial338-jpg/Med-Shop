@@ -11,44 +11,45 @@ import { BRAND } from "../config/brand";
 
 export const STORE_NAME = BRAND.name;
 
-// "Orders" is the live order being built (the cart/checkout); completed orders
-// are bills, which live under Sales.
+// The two daily entries - New Bill (sales) and New Purchase - are the buttons
+// at the top of the menu. Everything below them is kept up to date by those
+// two; pages needed only now and then are folded under "More".
 const ADMIN_NAV = [
   {
     section: "Overview",
     items: [{ to: "/dashboard", label: "Dashboard", icon: "dashboard" }],
   },
   {
-    section: "Pharmacy",
+    section: "Records",
     items: [
-      { to: "/products", label: "Products", icon: "pill" },
-      { to: "/racks", label: "Rack Finder", icon: "rack" },
-      { to: "/rack-center", label: "Rack Center", icon: "boxes" },
-      { to: "/stock", label: "Inventory", icon: "boxes" },
-      { to: "/bills", label: "Sales", icon: "receipt" },
+      { to: "/bills", label: "Bills (Sales)", icon: "receipt" },
       { to: "/purchases", label: "Purchases", icon: "truck" },
-      { to: "/checkout", label: "Orders", icon: "cart", badge: "cart" },
+      { to: "/products", label: "Products", icon: "pill" },
+      { to: "/stock", label: "Stock", icon: "boxes" },
     ],
   },
   {
-    section: "People",
+    section: "Accounts",
     items: [
       { to: "/customers", label: "Customers", icon: "users" },
       { to: "/vendors", label: "Suppliers", icon: "building" },
-    ],
-  },
-  {
-    section: "Finance",
-    items: [
-      { to: "/reports", label: "Reports & Analytics", icon: "chart" },
-      { to: "/day-book", label: "Day Book", icon: "book" },
-      { to: "/reports/profitability", label: "Profitability", icon: "trendUp" },
       { to: "/expenses", label: "Expenses", icon: "wallet" },
+      { to: "/day-book", label: "Day Book", icon: "book" },
     ],
   },
   {
-    section: "System",
+    section: "Reports",
     items: [
+      { to: "/reports", label: "Reports & Analytics", icon: "chart", end: true },
+      { to: "/reports/profitability", label: "Profitability", icon: "trendUp" },
+    ],
+  },
+  {
+    section: "More",
+    folds: true,
+    items: [
+      { to: "/racks", label: "Rack Finder", icon: "rack" },
+      { to: "/rack-center", label: "Rack Center", icon: "boxes" },
       { action: "notifications", label: "Notifications", icon: "bell", badge: "alerts" },
       { to: "/users", label: "Users", icon: "user" },
       { to: "/roles", label: "Roles & Permissions", icon: "check" },
@@ -69,11 +70,10 @@ const STAFF_NAV = [
   {
     section: "Pharmacy",
     items: [
+      { to: "/bills", label: "My Bills", icon: "receipt" },
       { to: "/products", label: "Products", icon: "pill" },
       { to: "/racks", label: "Rack Finder", icon: "rack" },
       { to: "/rack-center", label: "Rack Center", icon: "boxes" },
-      { to: "/checkout", label: "Orders", icon: "cart", badge: "cart" },
-      { to: "/bills", label: "My Bills", icon: "receipt" },
     ],
   },
   {
@@ -85,6 +85,8 @@ const STAFF_NAV = [
   },
 ];
 
+const MORE_KEY = "ghm_nav_more";
+
 function Badge({ children, tone = "primary" }) {
   const cls =
     tone === "danger"
@@ -93,7 +95,26 @@ function Badge({ children, tone = "primary" }) {
   return <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold tnum ${cls}`}>{children}</span>;
 }
 
-function Sidebar({ nav, onNavigate, onOpenNotifications, badges }) {
+function Sidebar({ nav, isAdmin, onNavigate, onOpenNotifications, badges }) {
+  const { pathname } = useLocation();
+  const [moreOpen, setMoreOpen] = useState(() => {
+    try {
+      return localStorage.getItem(MORE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleMore = () => {
+    setMoreOpen(!moreOpen);
+    try {
+      localStorage.setItem(MORE_KEY, moreOpen ? "0" : "1");
+    } catch {
+      /* per-browser preference only */
+    }
+  };
+  // "More" opens by itself while one of its pages is on screen.
+  const isOpen = (group) => !group.folds || moreOpen || group.items.some((i) => i.to && pathname.startsWith(i.to));
+
   const itemCls = (active) =>
     `group relative flex w-full items-center gap-3 rounded-xl px-3 py-[7px] text-sm font-medium transition-all duration-300 ${
       active ? "nav-active text-white" : "text-white/60 hover:translate-x-0.5 hover:bg-white/[0.06] hover:text-white"
@@ -108,25 +129,53 @@ function Sidebar({ nav, onNavigate, onOpenNotifications, badges }) {
         <BrandLogo tone="light" size={42} subtitle="Management Suite" />
       </div>
 
-      {/* The most common task, one click from anywhere: start a sale. */}
-      <div className="relative px-4 pb-5">
+      {/* The two daily entries, one click from anywhere. */}
+      <div className="relative space-y-2 px-4 pb-5">
         <NavLink
-          to="/products"
+          to="/billing"
           onClick={onNavigate}
-          className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#12A06A] to-[#0E9C8A] py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(18,160,106,0.85)] ring-1 ring-white/15 hover:-translate-y-0.5 hover:brightness-110"
+          className={({ isActive }) =>
+            `group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#12A06A] to-[#0E9C8A] py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(18,160,106,0.85)] hover:-translate-y-0.5 hover:brightness-110 ${isActive ? "ring-2 ring-white/70" : "ring-1 ring-white/15"}`
+          }
         >
-          <Icon name="plus" size={16} strokeWidth={2.2} className="transition-transform duration-300 group-hover:rotate-90" />
-          New sale
+          <Icon name="receipt" size={16} strokeWidth={2} />
+          New Bill
+          {badges.cart ? <span className="rounded-full bg-white/25 px-2 py-0.5 text-[11px] tnum">{badges.cart}</span> : null}
         </NavLink>
+        {isAdmin && (
+          <NavLink
+            to="/purchases/new"
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              `group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#22B8CF] to-primary py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(34,184,207,0.7)] hover:-translate-y-0.5 hover:brightness-110 ${isActive ? "ring-2 ring-white/70" : "ring-1 ring-white/15"}`
+            }
+          >
+            <Icon name="truck" size={16} strokeWidth={2} />
+            New Purchase
+          </NavLink>
+        )}
       </div>
 
       <nav className="dark-scroll relative flex-1 space-y-5 overflow-y-auto px-3 pb-4" aria-label="Main">
         {nav.map((group) => (
           <div key={group.section}>
-            <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/30">
-              {group.section}
-            </p>
-            <div className="space-y-0.5">
+            {group.folds ? (
+              <button
+                type="button"
+                onClick={toggleMore}
+                aria-expanded={isOpen(group)}
+                className="flex w-full items-center justify-between rounded-lg px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45 hover:text-white"
+              >
+                {group.section}
+                <span className="flex items-center gap-2">
+                  {!isOpen(group) && badges.alerts ? <span className="rounded-full bg-danger px-1.5 py-0.5 text-[10px] tracking-normal text-white tnum">{badges.alerts}</span> : null}
+                  <Icon name="chevronDown" size={14} className={`transition-transform ${isOpen(group) ? "rotate-180" : ""}`} />
+                </span>
+              </button>
+            ) : (
+              <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/30">{group.section}</p>
+            )}
+            <div className={`space-y-0.5 ${isOpen(group) ? "" : "hidden"}`}>
               {group.items.map((item) => {
                 const badge = item.badge ? badges[item.badge] : null;
                 const content = (active) => (
@@ -152,8 +201,8 @@ function Sidebar({ nav, onNavigate, onOpenNotifications, badges }) {
                   );
                 }
                 return (
-                  <NavLink key={item.to} to={item.to} onClick={onNavigate} className={({ isActive }) => itemCls(isActive)}>
-                    {({ isActive }) => content(isActive)}
+                  <NavLink key={item.to} to={item.to} end={item.end} onClick={onNavigate} className={({ isActive }) => itemCls(isActive && pathname !== "/purchases/new")}>
+                    {({ isActive }) => content(isActive && pathname !== "/purchases/new")}
                   </NavLink>
                 );
               })}
@@ -169,7 +218,7 @@ function Sidebar({ nav, onNavigate, onOpenNotifications, badges }) {
           <p className="text-xs font-semibold">Dispense with care</p>
         </div>
         <p className="relative mt-1 text-xs leading-relaxed text-white/55">
-          Batches are sold first-expiry-first-out automatically at checkout.
+          Batches are sold first-expiry-first-out automatically.
         </p>
       </div>
     </div>
@@ -242,7 +291,7 @@ export default function Layout({ children, toolbar }) {
       <div key={location.pathname} className="route-progress" aria-hidden="true" />
 
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 shadow-[8px_0_40px_-20px_rgba(6,18,44,0.5)] lg:block">
-        <Sidebar nav={nav} badges={badges} onOpenNotifications={openNotifications} />
+        <Sidebar nav={nav} isAdmin={user.role === "admin"} badges={badges} onOpenNotifications={openNotifications} />
       </aside>
 
       {drawerOpen && (
@@ -258,6 +307,7 @@ export default function Layout({ children, toolbar }) {
             </button>
             <Sidebar
               nav={nav}
+              isAdmin={user.role === "admin"}
               badges={badges}
               onNavigate={() => setDrawerOpen(false)}
               onOpenNotifications={openNotifications}

@@ -7,7 +7,8 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
 import { computeSummary, describeFilters, resolveFilters, resolveRange } from "../utils/summaryHelpers.js";
 import { dayBookSummary } from "../utils/dayBookHelpers.js";
-import { salesOverview } from "../utils/salesOverview.js";
+import { purchasesOverview, salesOverview } from "../utils/salesOverview.js";
+import { customerOutstandingMap } from "../utils/ledgerHelpers.js";
 import { hasPermission, requirePermission } from "../utils/permissions.js";
 
 // Admins get the full, interactive dashboard (filters, date ranges, exports,
@@ -22,7 +23,7 @@ const SECTION_FIELDS = {
   "dashboard.profit": [
     "revenue", "cogs", "expenses", "totalExpenses", "expiredWriteOff", "grossProfit", "profit", "netProfit", "netLoss",
     "grossMarginPct", "netMarginPct", "investment", "allocatedExpenses", "unallocatedExpenses", "roiPct", "interest",
-    "taxes", "depreciation", "amortization", "ebitda", "ebitdaMarginPct", "productProfitability", "totalPurchases", "salesCount",
+    "taxes", "depreciation", "amortization", "ebitda", "ebitdaMarginPct", "productProfitability", "totalPurchases", "purchasesOverview", "salesCount",
   ],
   "dashboard.sales": ["outputGst", "inputGst", "netGst", "salesCount", "salesTrend", "revenueByCategory", "fastMovers", "salesOverview"],
   "dashboard.stock": [
@@ -38,16 +39,20 @@ router.get("/summary", requirePermission("dashboard.view"), async (req, res) => 
   // controls (and anything they send) are admin-only.
   const { start, end } = interactive ? resolveRange(req) : resolveRange({ query: {} });
   // The P&L summary and today's cash position don't depend on each other.
-  const [summary, today, overview] = await Promise.all([
+  const [summary, today, overview, purchases, customerDue] = await Promise.all([
     computeSummary(start, end, interactive ? resolveFilters(req) : {}),
     dayBookSummary(new Date()),
     salesOverview(start, end),
+    purchasesOverview(),
+    customerOutstandingMap(),
   ]);
   summary.salesOverview = overview;
+  summary.purchasesOverview = purchases;
 
   // Today's cash position (the Day Book's figures) - "right now", not range-bound.
   summary.cashToday = today;
-  summary.receivables = today.credit.closing;
+  // What customers owe, straight from their bills - the same figure as Customers.
+  summary.receivables = Number([...customerDue.values()].reduce((s, v) => s + v, 0).toFixed(2));
 
   const sections = Object.keys(SECTION_FIELDS).filter((key) => hasPermission(req.user, key));
   // Server-local calendar days, matching how resolveRange built the range.

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
+import { useLiveRefresh } from "../context/LiveSync";
 import { listExpenses, createExpense, deleteExpense, exportExpenses } from "../api/expenses";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import { todayLocal } from "../utils/date";
@@ -52,6 +53,9 @@ export default function Expenses() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, filterCategory]);
+  useLiveRefresh(["expenses"], () => {
+    listExpenses(buildParams()).then(setExpenses).catch(() => {});
+  });
 
   const inputCls =
     "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";

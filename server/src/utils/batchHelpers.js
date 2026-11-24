@@ -10,33 +10,69 @@ export async function upsertBatch({ product, batchNo, expiryDate, costPrice, add
   let batch = await Batch.findOne({ product: product._id, batchNo: cleanBatchNo });
 
   if (batch) {
-    // Same lot delivered again (maybe from another supplier, at another
-    // price): blend the cost by quantity instead of overwriting it, so stock
-    // already on hand keeps being valued at what it actually cost.
-    const onHand = Math.max(batch.qtyRemaining, 0);
-    const blended = onHand + addQty > 0 ? (onHand * batch.costPrice + addQty * Number(costPrice)) / (onHand + addQty) : Number(costPrice);
-    batch.qtyReceived += addQty;
-    batch.qtyRemaining += addQty;
-    batch.costPrice = Number(blended.toFixed(4));
-    batch.receivedAt = receivedAt || new Date();
-    if (purchase) batch.purchase = purchase;
-    if (rack) batch.rack = rack;
-    batch.isDeleted = false; // a re-delivery of a deleted lot brings it back
+    topUpBatch(batch, { costPrice, addQty, receivedAt, purchase, rack });
     await batch.save();
   } else {
-    batch = await Batch.create({
-      product: product._id,
-      batchNo: cleanBatchNo,
-      expiryDate,
-      costPrice,
-      qtyReceived: addQty,
-      qtyRemaining: addQty,
-      receivedAt: receivedAt || new Date(),
-      purchase: purchase || null,
-      rack: rack || "",
-    });
+    batch = await Batch.create(newBatch({ product, batchNo: cleanBatchNo, expiryDate, costPrice, addQty, receivedAt, purchase, rack }));
   }
   return batch;
+}
+
+// Same lot delivered again (maybe from another supplier, at another price):
+// blend the cost by quantity instead of overwriting it, so stock already on
+// hand keeps being valued at what it actually cost. Not saved here.
+function topUpBatch(batch, { costPrice, addQty, receivedAt, purchase, rack }) {
+  const onHand = Math.max(batch.qtyRemaining, 0);
+  const blended = onHand + addQty > 0 ? (onHand * batch.costPrice + addQty * Number(costPrice)) / (onHand + addQty) : Number(costPrice);
+  batch.qtyReceived += addQty;
+  batch.qtyRemaining += addQty;
+  batch.costPrice = Number(blended.toFixed(4));
+  batch.receivedAt = receivedAt || new Date();
+  if (purchase) batch.purchase = purchase;
+  if (rack) batch.rack = rack;
+  batch.isDeleted = false; // a re-delivery of a deleted lot brings it back
+}
+
+const newBatch = ({ product, batchNo, expiryDate, costPrice, addQty, receivedAt, purchase, rack }) => ({
+  product: product._id,
+  batchNo,
+  expiryDate,
+  costPrice,
+  qtyReceived: addQty,
+  qtyRemaining: addQty,
+  receivedAt: receivedAt || new Date(),
+  purchase: purchase || null,
+  rack: rack || "",
+});
+
+// upsertBatch for a whole purchase in a few round trips instead of two per
+// line. Returns the batch of each entry, in order.
+export async function upsertBatches(entries) {
+  const key = (product, batchNo) => `${product}|${batchNo}`;
+  const known = await Batch.find({ product: { $in: entries.map((e) => e.product._id) }, batchNo: { $in: entries.map((e) => e.batchNo) } });
+  const byKey = new Map(known.map((b) => [key(b.product, b.batchNo), b]));
+  const added = [];
+  const toppedUp = new Set();
+  const out = entries.map((e) => {
+    const k = key(e.product._id, e.batchNo);
+    let batch = byKey.get(k);
+    if (batch) {
+      topUpBatch(batch, e);
+      if (!added.includes(batch)) toppedUp.add(batch);
+    } else {
+      batch = new Batch(newBatch(e));
+      byKey.set(k, batch);
+      added.push(batch);
+    }
+    return batch;
+  });
+  for (const b of toppedUp) await b.save();
+  if (added.length) {
+    // insertMany skips the model's save hook, which fills these in.
+    for (const b of added) b.locations = effectiveLocations(b);
+    await Batch.insertMany(added);
+  }
+  return out;
 }
 
 // Brings a batch's stored locations in line with its qtyRemaining (saving

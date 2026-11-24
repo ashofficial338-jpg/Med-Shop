@@ -5,7 +5,6 @@ import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import VendorFormModal from "../components/VendorFormModal";
-import PurchaseFormModal from "../components/PurchaseFormModal";
 import { listVendors, setVendorActive, exportVendors, deleteVendor } from "../api/vendors";
 import { listProducts } from "../api/products";
 
@@ -30,7 +29,7 @@ function VendorProducts({ vendorId }) {
     <div className="mt-3 rounded-xl bg-bg p-3">
       <input
         type="text"
-        placeholder="Search this vendor's products…"
+        placeholder="Search this supplier's products…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         className="w-full max-w-xs rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
@@ -56,7 +55,6 @@ export default function Vendors() {
   const [loading, setLoading] = useState(true);
   const [editingVendor, setEditingVendor] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [purchaseVendor, setPurchaseVendor] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
 
   const load = (q = "") => {
@@ -98,7 +96,7 @@ export default function Vendors() {
   };
 
   const toggleActive = async (v) => {
-    if (!window.confirm(`Deactivate ${v.name}? They will be removed from the vendor list and purchase forms. Past purchases and payments stay on record.`)) return;
+    if (!window.confirm(`Deactivate ${v.name}? They will be removed from the supplier list and purchase form. Past purchases and payments stay on record.`)) return;
     try {
       await setVendorActive(v._id, !v.isActive);
       toast.success(`${v.name} deactivated.`);
@@ -111,20 +109,20 @@ export default function Vendors() {
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Vendors</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Suppliers</h1>
         <div className="flex flex-wrap gap-2">
           <ReportDownloadButtons onExport={(format) => exportVendors(format, query.trim() ? { q: query.trim() } : {})} />
           <Link
             to="/purchases"
             className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
           >
-            Purchase History
+            Purchases
           </Link>
           <button
             onClick={() => setShowAddForm(true)}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
           >
-            Add Vendor
+            Add Supplier
           </button>
         </div>
       </div>
@@ -154,7 +152,7 @@ export default function Vendors() {
                   <span>
                     <p className="font-medium text-text">{v.name}</p>
                     <p className="text-sm text-muted">
-                      {v.phone} · {v.gstNumber}
+                      {[v.phone, v.gstNumber].filter(Boolean).join(" · ")}
                       {v.overallRating != null && (
                         <span className="ml-2 text-warning">{"★".repeat(Math.round(v.overallRating))}<span className="text-muted">{v.overallRating.toFixed(1)}</span></span>
                       )}
@@ -177,12 +175,12 @@ export default function Vendors() {
                   >
                     Analysis
                   </Link>
-                  <button
-                    onClick={() => setPurchaseVendor(v)}
+                  <Link
+                    to={`/purchases/new?vendor=${v._id}`}
                     className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark"
                   >
                     New Purchase
-                  </button>
+                  </Link>
                   <button onClick={() => setEditingVendor(v)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:bg-bg">
                     Edit
                   </button>
@@ -208,17 +206,6 @@ export default function Vendors() {
             setEditingVendor(null);
           }}
           onSaved={handleSaved}
-        />
-      )}
-
-      {purchaseVendor && (
-        <PurchaseFormModal
-          vendor={purchaseVendor}
-          onClose={() => setPurchaseVendor(null)}
-          onSaved={() => {
-            setPurchaseVendor(null);
-            toast.success("Purchase recorded — stock updated.");
-          }}
         />
       )}
     </Layout>

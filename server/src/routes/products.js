@@ -14,10 +14,12 @@ import { upsertBatch } from "../utils/batchHelpers.js";
 import { cleanRack, rackPositionError } from "../utils/rack.js";
 import { buildStockReport, buildCompositionReport } from "../utils/stockReportHelpers.js";
 import Purchase from "../models/Purchase.js";
+import Sale from "../models/Sale.js";
 import { DOSAGE_FORMS, RELEASE_TYPES, compositionKey, compositionLabel, productSearchFilter } from "../utils/composition.js";
 import { weightedAvgCost, locationsByProduct } from "../utils/batchHelpers.js";
 import { effectiveLocations } from "../utils/locations.js";
 import { similarProducts } from "../utils/productAutoCreate.js";
+import { transactional, rethrowIfRetryable } from "../utils/transaction.js";
 
 // One ledger row per rack position a write-off came from, so each rack's
 // history shows it. costImpact is split by quantity.
@@ -405,7 +407,7 @@ router.get("/stock-report", requireAuth, requireRole("admin"), async (req, res) 
   res.json({ rows, totals });
 });
 
-router.post("/stock-clearance", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/stock-clearance", requireAuth, requireRole("admin"), transactional(async (req, res) => {
   const { batchIds } = req.body;
   if (!Array.isArray(batchIds) || batchIds.length === 0) {
     return res.status(400).json({ message: "Please select at least one item." });
@@ -436,7 +438,7 @@ router.post("/stock-clearance", requireAuth, requireRole("admin"), async (req, r
   }
 
   res.json({ cleared });
-});
+}));
 
 router.get("/:id", requireAuth, async (req, res) => {
   const product = await Product.findById(req.params.id).populate("category", "name").populate("vendor", "name");
@@ -535,7 +537,7 @@ async function findStockEntry(req, res) {
 
 // Edit one stock entry (batch). A quantity change moves Product.qty by the
 // same amount and is recorded in the stock ledger like a manual adjustment.
-router.patch("/:id/batches/:batchId", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id/batches/:batchId", requireAuth, requireRole("admin"), transactional(async (req, res) => {
   const { product, batch } = await findStockEntry(req, res);
   if (!batch) return;
   const b = req.body;
@@ -611,12 +613,12 @@ router.patch("/:id/batches/:batchId", requireAuth, requireRole("admin"), async (
   }
   await product.save();
   res.json(stripCostPriceIfStaff(batch, req.user.role));
-});
+}));
 
 // Delete one stock entry: whatever is left in it is written off (ledger
 // entry + Product.qty), and the batch is hidden. The record itself stays,
 // since past sales and purchases point at it.
-router.delete("/:id/batches/:batchId", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id/batches/:batchId", requireAuth, requireRole("admin"), transactional(async (req, res) => {
   const { product, batch } = await findStockEntry(req, res);
   if (!batch) return;
   const removed = batch.qtyRemaining;
@@ -636,7 +638,7 @@ router.delete("/:id/batches/:batchId", requireAuth, requireRole("admin"), async 
     await product.save();
   }
   res.json({ message: `Stock entry ${batch.batchNo} deleted.`, qtyRemoved: removed });
-});
+}));
 
 router.post("/", requireAuth, requirePermission("products.add"), (req, res) => {
   uploadProductImage(req, res, async (err) => {
@@ -798,6 +800,25 @@ router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
   });
 });
 
+// What the product's past bills and stock movements say was taken is also
+// restated in loose units (the same physical stock), so editing a purchase or
+// voiding a bill made before the change still moves the right quantity.
+async function convertHistoryToLoose(productId, unitsPerPack) {
+  await StockLedger.updateMany({ product: productId }, { $mul: { qtyChange: unitsPerPack } });
+  await StockLedger.updateMany({ product: productId, qtyMoved: { $exists: true } }, { $mul: { qtyMoved: unitsPerPack } });
+  const lines = { "line.product": productId };
+  await Sale.updateMany(
+    { "items.product": productId },
+    { $mul: { "items.$[line].internalQtyDeducted": unitsPerPack } },
+    { arrayFilters: [lines], timestamps: false }
+  );
+  await Sale.updateMany(
+    { items: { $elemMatch: { product: productId, "batchBreakdown.0": { $exists: true } } } },
+    { $mul: { "items.$[line].batchBreakdown.$[].qty": unitsPerPack, "items.$[line].batchBreakdown.$[].costPricePerUnit": 1 / unitsPerPack } },
+    { arrayFilters: [{ ...lines, "line.batchBreakdown.0": { $exists: true } }], timestamps: false }
+  );
+}
+
 // One-time, one-way conversion of an existing pack-only product to also sell
 // loose - not a generic field edit, because Product.qty and every Batch's
 // qtyReceived/qtyRemaining are stored in whatever unit the product's current
@@ -806,7 +827,7 @@ router.patch("/:id", requireAuth, requireRole("admin"), (req, res) => {
 // on hand is rescaled by the same unitsPerPack factor to keep representing
 // the same physical stock - see the PATCH "/:id" comment above for why this
 // can't just be another editable field.
-router.patch("/:id/enable-loose", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id/enable-loose", requireAuth, requireRole("admin"), transactional(async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ message: "No records found." });
   if (product.soldAs === "pack-and-loose") {
@@ -834,16 +855,19 @@ router.patch("/:id/enable-loose", requireAuth, requireRole("admin"), async (req,
     product.soldAs = "pack-and-loose";
     product.looseRate = computeLooseRate({ soldAs: "pack-and-loose", packRate: product.packRate, unitsPerPack });
     await product.save();
+    await convertHistoryToLoose(product._id, unitsPerPack);
 
-    const populated = await product.populate(["category", "vendor"].map((path) => ({ path, select: "name" })));
-    res.json(withGroup(stripCostPriceIfStaff(populated, req.user.role)));
+    await product.populate("category", "name");
+    await product.populate("vendor", "name");
+    res.json(withGroup(stripCostPriceIfStaff(product, req.user.role)));
   } catch (e) {
+    rethrowIfRetryable(e);
     if (e.name === "ValidationError") {
       return res.status(400).json({ message: Object.values(e.errors)[0].message });
     }
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
-});
+}));
 
 // Soft delete: past bills, purchases and the stock ledger still reference the
 // product. Blocked while stock remains, since hiding it would silently drop

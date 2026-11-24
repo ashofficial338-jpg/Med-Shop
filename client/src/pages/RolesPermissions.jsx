@@ -20,7 +20,7 @@ const ADMIN_CAN = [
   "Download dashboard and profitability reports (Excel / PDF)",
 ];
 const STAFF_CAN = [
-  "Products, orders/checkout and their own bills",
+  "Billing (New Bill), products and their own bills",
   "A view-only dashboard, if granted below - only the sections ticked",
   "Viewing products, stock and racks; adding new products or racks only if granted below",
   "View-only for everything already saved: they can't edit, modify or delete any entry",

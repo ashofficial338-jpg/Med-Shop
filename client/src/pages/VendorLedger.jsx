@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { getVendorLedger, recordSupplierPayment, exportVendorLedger, deleteSupplierPayment } from "../api/vendors";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import { todayLocal } from "../utils/date";
+import { useLiveRefresh } from "../context/LiveSync";
 
 export default function VendorLedger() {
   const { id } = useParams();
@@ -40,6 +41,9 @@ export default function VendorLedger() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+  useLiveRefresh(["vendors", "purchases"], () => {
+    getVendorLedger(id).then(setData).catch(() => {});
+  });
 
   const inputCls =
     "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
@@ -84,7 +88,7 @@ export default function VendorLedger() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">{vendor.name} — Ledger</h1>
-          <p className="text-sm text-muted">{vendor.phone} · {vendor.gstNumber}</p>
+          <p className="text-sm text-muted">{[vendor.phone, vendor.gstNumber].filter(Boolean).join(" · ")}</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-surface px-4 py-3 text-right shadow-sm">
@@ -179,7 +183,9 @@ export default function VendorLedger() {
               <tr key={i} className="border-b border-border last:border-0">
                 <td className="px-4 py-2">{new Date(entry.date).toLocaleDateString()}</td>
                 <td className="px-4 py-2">{entry.type}</td>
-                <td className="px-4 py-2 font-mono text-xs">{entry.ref}</td>
+                <td className="px-4 py-2 font-mono text-xs">
+                  {entry.purchaseId ? <Link to={`/purchases/${entry.purchaseId}/edit`} className="text-primary hover:underline">{entry.ref}</Link> : entry.ref}
+                </td>
                 <td className="px-4 py-2 text-right font-mono">{entry.debit > 0 ? `₹${entry.debit.toFixed(2)}` : ""}</td>
                 <td className="px-4 py-2 text-right font-mono">{entry.credit > 0 ? `₹${entry.credit.toFixed(2)}` : ""}</td>
                 <td className="px-4 py-2 text-right font-mono font-semibold">₹{entry.balance.toFixed(2)}</td>

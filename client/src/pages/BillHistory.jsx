@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLiveRefresh } from "../context/LiveSync";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { listSales, exportSales } from "../api/sales";
 import { listCategories } from "../api/products";
@@ -66,9 +66,12 @@ export default function BillHistory() {
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">
-          {user.role === "admin" ? "Bill History" : "My Bills"}
+          {user.role === "admin" ? "Bills (Sales)" : "My Bills"}
         </h1>
         <div className="flex flex-wrap items-center gap-2">
+          <Link to="/billing" className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            + New Bill
+          </Link>
           <ExportButtons onExport={(format) => exportSales(format, params)} />
           {user.role === "admin" && (
             <button

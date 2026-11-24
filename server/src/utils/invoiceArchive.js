@@ -158,7 +158,7 @@ export function invoicePdf(kind, invoice) {
           it.batchNo || "-",
           it.expiryDate ? day(it.expiryDate) : "-",
           String(it.qtyPacks),
-          money(it.costPrice),
+          it.discountPercent ? `${money(it.costPrice)}-${it.discountPercent}%` : money(it.costPrice),
           money(it.lineGst),
           money(it.lineAmount + it.lineGst),
         ])
@@ -262,6 +262,7 @@ export async function invoiceXlsx(kind, invoice) {
         { header: "Expiry", width: 12, value: (i) => (i.expiryDate ? day(i.expiryDate) : "") },
         { header: "Qty (packs)", width: 12, value: (i) => i.qtyPacks },
         { header: "Rate", width: 12, value: (i) => i.costPrice },
+        { header: "Disc %", width: 10, value: (i) => i.discountPercent || 0 },
         { header: "GST", width: 12, value: (i) => i.lineGst },
         { header: "Amount", width: 14, value: (i) => Number((i.lineAmount + i.lineGst).toFixed(2)) },
       ],

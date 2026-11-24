@@ -13,8 +13,8 @@ const GST_VALUES = [0, 5, 12, 18, 28];
 // Purchase entry from an uploaded bill: the bill's text is read in the
 // browser (PDF text layer, or Tesseract OCR for photos/scans), picked apart by
 // fixed rules (utils/invoiceParser.js), matched against the catalog, and then
-// handed to the SAME purchase forms used for manual entry - pre-filled, for
-// the user to check and correct before saving through the usual endpoints.
+// handed to the same Purchase Entry form - pre-filled, for the user to check
+// and correct before saving as usual.
 export default function InvoiceUploadModal({ vendors, onClose, onContinue }) {
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -113,49 +113,45 @@ export default function InvoiceUploadModal({ vendors, onClose, onContinue }) {
     return { it, product: m?.item || null, score: m?.score ?? null };
   });
 
-  // Same line shape the manual forms use, plus a `scan` note for hints.
-  const buildLines = (direct) =>
+  // Purchase Entry's line shape (utils/purchaseLine.js), plus a `scan` note for
+  // hints. A line that matches no product becomes a new product, by name.
+  const buildLines = () =>
     matched.map(({ it, product, score }) => {
-      const rateBefore = it.rate ?? (it.qty && it.amount ? round2(it.amount / it.qty) : null);
-      const cost = rateBefore != null && it.discountPercent ? round2(rateBefore * (1 - it.discountPercent / 100)) : rateBefore;
-      const line = {
+      const rate = it.rate ?? (it.qty && it.amount ? round2(it.amount / it.qty) : null);
+      const mrp = !product && it.mrp ? String(it.mrp) : "";
+      return {
         product: product?._id || "",
+        name: product?.name || it.name || "",
         qtyPacks: it.qty ? String(it.qty) : "",
-        costPrice: cost != null ? String(cost) : "",
-        costTouched: cost != null,
+        costPrice: rate != null ? String(rate) : "",
+        costTouched: rate != null,
+        discountPercent: it.discountPercent ? String(it.discountPercent) : "",
+        sellingPrice: mrp,
+        sellTouched: Boolean(mrp),
+        ...(GST_VALUES.includes(it.gstPercent) ? { gst: String(it.gstPercent) } : {}),
         batchNo: it.batchNo || "",
         expiryDate: it.expiryDate || "",
         rack: validPosition(product?.rack) || "",
         scan: {
           name: it.name,
           score: product ? score : null,
-          discountPercent: it.discountPercent,
-          rateBeforeDiscount: rateBefore,
           gstPercent: it.gstPercent,
           free: it.free,
           amount: it.amount,
         },
       };
-      if (!direct) return line;
-      return {
-        ...line,
-        isNew: !product,
-        name: product ? "" : it.name,
-        sellingPrice: product ? String(product.packRate ?? "") : it.mrp ? String(it.mrp) : "",
-        ...(GST_VALUES.includes(it.gstPercent) && !product ? { gstPercent: String(it.gstPercent) } : {}),
-      };
     });
 
   const handleContinue = () => {
     const direct = target === "unregistered" || target === "none";
-    const lines = buildLines(direct);
+    const lines = buildLines();
     const initialData = {
       invoiceNo: invoiceNo.trim(),
       date,
       supplierName: target === "unregistered" ? supplierName.trim() : "",
       lines,
       fileName: file?.name || "",
-      unmatchedCount: direct ? 0 : lines.filter((l) => !l.product).length,
+      newCount: lines.filter((l) => !l.product).length,
       billTotals: {
         subtotal: scan.parsed.subtotal,
         gstAmount: scan.parsed.gstAmount,
@@ -164,7 +160,7 @@ export default function InvoiceUploadModal({ vendors, onClose, onContinue }) {
       },
     };
     onContinue(
-      direct ? { mode: target, initialData } : { vendor: activeVendors.find((v) => v._id === target), initialData }
+      direct ? { initialData } : { vendor: activeVendors.find((v) => v._id === target), initialData }
     );
   };
 
@@ -260,8 +256,8 @@ export default function InvoiceUploadModal({ vendors, onClose, onContinue }) {
                       <option key={v._id} value={v._id}>{v.name}</option>
                     ))}
                   </optgroup>
-                  <option value="unregistered">Other / Unregistered supplier{supplierName.trim() ? ` — ${supplierName.trim()}` : ""}</option>
-                  <option value="none">Purchase without supplier</option>
+                  <option value="unregistered">Another supplier{supplierName.trim() ? ` — ${supplierName.trim()}` : ""}</option>
+                  <option value="none">No supplier</option>
                 </select>
                 {target === "unregistered" && !supplierName.trim() && (
                   <p className="mt-1 text-xs text-warning">Type the supplier's name above.</p>
@@ -330,7 +326,7 @@ export default function InvoiceUploadModal({ vendors, onClose, onContinue }) {
                               {product.name} <span className="text-success">({Math.round(score * 100)}%)</span>
                             </span>
                           ) : (
-                            <span className="text-warning">{target === "unregistered" || target === "none" ? "New product" : "Choose on next step"}</span>
+                            <span className="text-warning">New product</span>
                           )}
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono">{it.qty ?? "—"}{it.free ? ` +${it.free}` : ""}</td>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import SalesOverview from "../components/dashboard/SalesOverview";
+import TodaySummary from "../components/dashboard/TodaySummary";
 import { useLiveConnected, useLiveRefresh } from "../context/LiveSync";
 import { Link } from "react-router-dom";
 import Layout, { STORE_NAME } from "../components/Layout";
@@ -140,7 +141,7 @@ export default function Dashboard() {
             <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(11,74,143,0.9)]" />
             {STORE_NAME}
           </p>
-          <h1 className="text-gradient mt-3 font-display text-3xl font-extrabold tracking-tight sm:text-[34px]">Accounting Dashboard</h1>
+          <h1 className="text-gradient mt-3 font-display text-3xl font-extrabold tracking-tight sm:text-[34px]">Dashboard</h1>
           <p className="mt-1 text-sm text-muted">
             {interactive
               ? `Profit, sales, cash and stock at a glance — ${periodLabel}. Click any figure to see the records behind it.`
@@ -204,11 +205,20 @@ export default function Dashboard() {
 
       {summary && (
         <div className={`mt-6 space-y-8 transition-opacity ${loading ? "opacity-60" : ""}`}>
+          <TodaySummary summary={summary} shows={shows} interactive={interactive} />
           {shows("dashboard.profit") && (
             <>
               <ProfitLoss summary={summary} range={range} links={links} />
-              <Ebitda summary={summary} range={range} links={links} />
-              <ProductProfitability summary={summary} links={links} />
+              <details className="group">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-semibold text-primary hover:bg-primary-soft">
+                  <Icon name="chevronDown" size={16} className="transition-transform group-open:rotate-180" />
+                  Detailed analysis (EBITDA, product-wise profit)
+                </summary>
+                <div className="mt-4 space-y-8">
+                  <Ebitda summary={summary} range={range} links={links} />
+                  <ProductProfitability summary={summary} links={links} />
+                </div>
+              </details>
             </>
           )}
 

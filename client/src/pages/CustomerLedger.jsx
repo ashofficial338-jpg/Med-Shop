@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { getCustomerLedger, recordCustomerPayment, exportCustomerLedger, deleteCustomerPayment } from "../api/customers";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import { todayLocal } from "../utils/date";
+import { useLiveRefresh } from "../context/LiveSync";
 
 export default function CustomerLedger() {
   const { id } = useParams();
@@ -40,6 +41,9 @@ export default function CustomerLedger() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+  useLiveRefresh(["customers", "sales"], () => {
+    getCustomerLedger(id).then(setData).catch(() => {});
+  });
 
   const inputCls =
     "rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-primary focus:outline-none";
@@ -178,7 +182,9 @@ export default function CustomerLedger() {
               <tr key={i} className="border-b border-border last:border-0">
                 <td className="px-4 py-2">{new Date(entry.date).toLocaleDateString()}</td>
                 <td className="px-4 py-2">{entry.type}</td>
-                <td className="px-4 py-2 font-mono text-xs">{entry.ref}</td>
+                <td className="px-4 py-2 font-mono text-xs">
+                  {entry.saleId ? <Link to={`/bills/${entry.saleId}`} className="text-primary hover:underline">{entry.ref}</Link> : entry.ref}
+                </td>
                 <td className="px-4 py-2 text-right font-mono">{entry.debit > 0 ? `₹${entry.debit.toFixed(2)}` : ""}</td>
                 <td className="px-4 py-2 text-right font-mono">{entry.credit > 0 ? `₹${entry.credit.toFixed(2)}` : ""}</td>
                 <td className="px-4 py-2 text-right font-mono font-semibold">₹{entry.balance.toFixed(2)}</td>

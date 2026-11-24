@@ -8,6 +8,7 @@ import SupplierPayment from "../models/SupplierPayment.js";
 import Product from "../models/Product.js";
 import { buildVendorReport } from "../utils/vendorReportHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { runInTransaction } from "../utils/transaction.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
@@ -136,15 +137,17 @@ router.post("/:id/payments", async (req, res) => {
   const amountNum = Number(amount);
   if (!(amountNum > 0)) return res.status(400).json({ message: "Please enter a valid number." });
 
-  const result = await recordSupplierPayment({
-    vendorId: vendor._id,
-    amount: amountNum,
-    mode: mode || "Cash",
-    date,
-    note,
-    purchaseId: purchaseId || null,
-    recordedBy: req.user._id,
-  });
+  const result = await runInTransaction(() =>
+    recordSupplierPayment({
+      vendorId: vendor._id,
+      amount: amountNum,
+      mode: mode || "Cash",
+      date,
+      note,
+      purchaseId: purchaseId || null,
+      recordedBy: req.user._id,
+    })
+  );
   if (result.error) return res.status(400).json({ message: result.error });
 
   const ledger = await buildSupplierLedger(vendor._id);
@@ -155,7 +158,7 @@ router.post("/:id/payments", async (req, res) => {
 router.delete("/:id/payments/:paymentId", async (req, res) => {
   const vendor = await Vendor.findById(req.params.id).catch(() => null);
   if (!vendor) return res.status(404).json({ message: "No records found." });
-  const result = await deleteSupplierPayment(vendor._id, req.params.paymentId);
+  const result = await runInTransaction(() => deleteSupplierPayment(vendor._id, req.params.paymentId));
   if (result.error) return res.status(404).json({ message: result.error });
   const ledger = await buildSupplierLedger(vendor._id);
   res.json({ vendor, ...ledger });

@@ -95,7 +95,7 @@ export default function VendorAnalysis() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">{vendor.name} — Analysis</h1>
-          <p className="text-sm text-muted">{vendor.phone} · {vendor.gstNumber}</p>
+          <p className="text-sm text-muted">{[vendor.phone, vendor.gstNumber].filter(Boolean).join(" · ")}</p>
         </div>
         <Stars value={vendor.overallRating} />
       </div>

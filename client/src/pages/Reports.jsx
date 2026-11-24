@@ -194,9 +194,9 @@ function NoDataNotice({ hasProducts }) {
           <Icon name="plus" size={14} />
           {hasProducts ? "Products" : "Add / import products"}
         </Link>
-        <Link to="/checkout" className={linkCls}>
+        <Link to="/billing" className={linkCls}>
           <Icon name="cart" size={14} />
-          New sale
+          New bill
         </Link>
         <Link to="/purchases" className={linkCls}>
           <Icon name="truck" size={14} />

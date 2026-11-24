@@ -1,4 +1,5 @@
 import Sale from "../models/Sale.js";
+import Purchase from "../models/Purchase.js";
 
 // Dashboard "Sales overview": today / this month / this year (India time),
 // and for the dashboard's period: sales by payment mode, top customers, top
@@ -64,4 +65,18 @@ export async function salesOverview(start, end) {
     topProducts: products.map((p) => ({ productId: p._id, name: p.name, qty: r2(p.qty), total: r2(p.total) })),
     gst: { taxable: r2(gst[0]?.taxable), gst: r2(gst[0]?.gst), total: r2(gst[0]?.total) },
   };
+}
+
+// Purchases today / this month / this year, from the purchase entries.
+export async function purchasesOverview() {
+  const starts = istStarts();
+  const since = async (start) => {
+    const [row] = await Purchase.aggregate([
+      { $match: { date: { $gte: start } } },
+      { $group: { _id: null, total: { $sum: "$total" }, count: { $sum: 1 } } },
+    ]);
+    return { total: r2(row?.total), count: row?.count || 0 };
+  };
+  const [today, month, year] = await Promise.all([since(starts.today), since(starts.month), since(starts.year)]);
+  return { today, month, year };
 }

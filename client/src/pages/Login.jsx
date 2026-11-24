@@ -126,7 +126,7 @@ export default function Login() {
       } catch {
         // Storage unavailable (private mode) - remembering is a convenience only.
       }
-      navigate(user.role === "admin" ? "/dashboard" : "/products", { replace: true });
+      navigate(user.role === "admin" ? "/dashboard" : "/billing", { replace: true });
     } catch (err) {
       // No err.response means the request never got an answer (wrong API URL,
       // CORS block, backend down) - the network tab/console shows which.

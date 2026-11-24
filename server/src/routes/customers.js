@@ -4,6 +4,7 @@ import Sale from "../models/Sale.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { buildCustomerLedger, customerOutstandingMap, recordCustomerPayment, deleteCustomerPayment } from "../utils/ledgerHelpers.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { runInTransaction } from "../utils/transaction.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -27,7 +28,9 @@ router.get("/", async (req, res) => {
     const re = new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     filter.$or = [{ name: re }, { phone: re }];
   }
-  const customers = await Customer.find(filter).sort({ name: 1 }).limit(20);
+  // A search shows the closest 20; the Admin directory shows everyone.
+  const browsing = req.user.role === "admin" && !q?.trim();
+  const customers = await Customer.find(filter).sort({ name: 1 }).limit(browsing ? 2000 : 20);
 
   if (req.user.role !== "admin") return res.json(customers);
   const outstandingMap = await customerOutstandingMap();
@@ -180,15 +183,17 @@ router.post("/:id/payments", requireRole("admin"), async (req, res) => {
   const amountNum = Number(amount);
   if (!(amountNum > 0)) return res.status(400).json({ message: "Please enter a valid number." });
 
-  const result = await recordCustomerPayment({
-    customerId: customer._id,
-    amount: amountNum,
-    mode: mode || "Cash",
-    date,
-    note,
-    saleId: saleId || null,
-    recordedBy: req.user._id,
-  });
+  const result = await runInTransaction(() =>
+    recordCustomerPayment({
+      customerId: customer._id,
+      amount: amountNum,
+      mode: mode || "Cash",
+      date,
+      note,
+      saleId: saleId || null,
+      recordedBy: req.user._id,
+    })
+  );
   if (result.error) return res.status(400).json({ message: result.error });
 
   const ledger = await buildCustomerLedger(customer._id);
@@ -199,7 +204,7 @@ router.post("/:id/payments", requireRole("admin"), async (req, res) => {
 router.delete("/:id/payments/:paymentId", requireRole("admin"), async (req, res) => {
   const customer = await Customer.findById(req.params.id).catch(() => null);
   if (!customer) return res.status(404).json({ message: "No records found." });
-  const result = await deleteCustomerPayment(customer._id, req.params.paymentId);
+  const result = await runInTransaction(() => deleteCustomerPayment(customer._id, req.params.paymentId));
   if (result.error) return res.status(404).json({ message: result.error });
   const ledger = await buildCustomerLedger(customer._id);
   res.json({ customer, ...ledger });

@@ -1,15 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLiveRefresh } from "../context/LiveSync";
-import { useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { listPurchases, exportPurchases } from "../api/purchases";
 import { listVendors } from "../api/vendors";
 import { listCategories } from "../api/products";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
-import DirectPurchaseModal from "../components/DirectPurchaseModal";
-import PurchaseFormModal from "../components/PurchaseFormModal";
-import PurchaseEditModal from "../components/PurchaseEditModal";
-import InvoiceUploadModal from "../components/InvoiceUploadModal";
 import ExcelUploadModal from "../components/ExcelUploadModal";
 import { listUnregisteredSuppliers, deletePurchase } from "../api/purchases";
 import { toast } from "react-toastify";
@@ -19,21 +15,16 @@ import { compactParams } from "../utils/query";
 const FILTER_KEYS = ["vendor", "supplierName", "product", "payment", "from", "to", "category"];
 
 export default function PurchaseHistory() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [purchases, setPurchases] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [directMode, setDirectMode] = useState(null); // "unregistered" | "none" | null
-  const [supplierVendor, setSupplierVendor] = useState(null);
   const [unregistered, setUnregistered] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const [uploadOpen, setUploadOpen] = useState(false);
   const [excelOpen, setExcelOpen] = useState(false);
-  // Pre-fill for the purchase forms when the entry started from an uploaded bill.
-  const [scanData, setScanData] = useState(null);
 
   const handleDelete = async (p) => {
     if (!window.confirm(`Delete purchase ${p.invoiceNo}? Its stock comes off the shelves again. This cannot be undone.`)) return;
@@ -62,15 +53,6 @@ export default function PurchaseHistory() {
       compactParams({ ...filters, vendor: value.startsWith("name:") ? "" : value, supplierName: value.startsWith("name:") ? value.slice(5) : "" }),
       { replace: true }
     );
-  const saved = () => {
-    setDirectMode(null);
-    setSupplierVendor(null);
-    setScanData(null);
-    setEditingId(null);
-    setReloadKey((k) => k + 1);
-    listUnregisteredSuppliers().then(setUnregistered).catch(() => {});
-  };
-
   useEffect(() => {
     // Only the latest filters' answer is shown (typing fires several).
     let cancelled = false;
@@ -102,36 +84,16 @@ export default function PurchaseHistory() {
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Purchase History</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Purchases</h1>
         <div className="flex flex-wrap gap-2">
           <ReportDownloadButtons onExport={(format) => exportPurchases(format, params)} />
-          <select
-            aria-label="New purchase from a registered supplier"
-            value=""
-            onChange={(e) => setSupplierVendor(vendors.find((v) => v._id === e.target.value) || null)}
-            className="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-primary focus:outline-none"
-          >
-            <option value="">+ Registered Supplier…</option>
-            {vendors.filter((v) => v.isActive !== false).map((v) => (
-              <option key={v._id} value={v._id}>{v.name}</option>
-            ))}
-          </select>
+          <Link to="/purchases/new" className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            + New Purchase
+          </Link>
           <button
-            onClick={() => setDirectMode("unregistered")}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
-          >
-            Other / Unregistered Supplier
-          </button>
-          <button
-            onClick={() => setDirectMode("none")}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
-          >
-            Purchase Without Supplier
-          </button>
-          <button
-            onClick={() => setUploadOpen(true)}
+            onClick={() => navigate("/purchases/new", { state: { upload: true } })}
             title="Read a purchase bill (JPG, PNG or PDF) and fill the purchase form from it"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark"
+            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface"
           >
             Upload Bill (Image / PDF)
           </button>
@@ -205,13 +167,14 @@ export default function PurchaseHistory() {
                 </p>
                 <p className="text-xs text-muted">
                   {new Date(p.date).toLocaleDateString()} · {p.paymentMode}
+                  {p.balanceDue > 0 && <span className="font-semibold text-danger"> · ₹{p.balanceDue.toFixed(2)} due</span>}
                   {p.editedAt && ` · Edited ${new Date(p.editedAt).toLocaleDateString()}`}
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 <p className="font-mono text-sm font-semibold text-text">₹{p.total.toFixed(2)}</p>
                 <button
-                  onClick={() => setEditingId(p._id)}
+                  onClick={() => navigate(`/purchases/${p._id}/edit`)}
                   className="rounded-lg border border-border px-3 py-1 text-xs font-semibold text-primary hover:bg-bg"
                 >
                   Edit
@@ -229,6 +192,7 @@ export default function PurchaseHistory() {
               {p.items.map((item, i) => (
                 <li key={i}>
                   {item.product?.name} ({item.product?.productCode}) — {item.qtyPacks} × ₹{item.costPrice}
+                  {item.discountPercent > 0 && ` − ${item.discountPercent}%`}
                   {item.previousCostPrice != null && item.previousCostPrice !== item.costPrice && (
                     <span className={item.costPrice > item.previousCostPrice ? "text-danger" : "text-success"}>
                       {" "}(prev ₹{item.previousCostPrice})
@@ -241,41 +205,6 @@ export default function PurchaseHistory() {
           </div>
         ))}
       </div>
-      {directMode && (
-        <DirectPurchaseModal
-          initialMode={directMode}
-          initialData={scanData}
-          onClose={() => {
-            setDirectMode(null);
-            setScanData(null);
-          }}
-          onSaved={saved}
-        />
-      )}
-      {editingId && <PurchaseEditModal purchaseId={editingId} onClose={() => setEditingId(null)} onSaved={saved} />}
-      {supplierVendor && (
-        <PurchaseFormModal
-          vendor={supplierVendor}
-          initialData={scanData}
-          onClose={() => {
-            setSupplierVendor(null);
-            setScanData(null);
-          }}
-          onSaved={saved}
-        />
-      )}
-      {uploadOpen && (
-        <InvoiceUploadModal
-          vendors={vendors}
-          onClose={() => setUploadOpen(false)}
-          onContinue={({ vendor, mode, initialData }) => {
-            setUploadOpen(false);
-            setScanData(initialData);
-            if (vendor) setSupplierVendor(vendor);
-            else setDirectMode(mode);
-          }}
-        />
-      )}
       {excelOpen && (
         <ExcelUploadModal kind="purchases" onClose={() => setExcelOpen(false)} onSaved={() => setReloadKey((k) => k + 1)} />
       )}

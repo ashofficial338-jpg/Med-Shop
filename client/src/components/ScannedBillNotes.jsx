@@ -8,15 +8,15 @@ export function ScannedBillBanner({ scan, computedTotal }) {
   if (!scan) return null;
   const billTotal = scan.billTotals?.total;
   const differs = billTotal != null && Math.abs(billTotal - computedTotal) > 1;
-  const unmatched = scan.unmatchedCount || 0;
+  const added = scan.newCount || 0;
   return (
     <div className="space-y-1 rounded-xl border border-primary/30 bg-primary-soft p-3 text-xs text-text">
       <p className="font-semibold">
         Filled from scanned bill{scan.fileName ? ` “${scan.fileName}”` : ""} — please check every field before saving.
       </p>
-      {unmatched > 0 && (
+      {added > 0 && (
         <p className="text-warning">
-          {unmatched} line{unmatched === 1 ? "" : "s"} couldn't be matched to a product — choose {unmatched === 1 ? "it" : "them"} below (or remove the line).
+          {added} line{added === 1 ? " isn't" : "s aren't"} in your Product List – pick the right product below, or {added === 1 ? "it" : "they"} will be added as new.
         </p>
       )}
       {billTotal != null && (
@@ -33,7 +33,6 @@ export function ScannedLineHint({ line, productGst }) {
   const s = line.scan;
   if (!s) return null;
   const notes = [];
-  if (s.discountPercent) notes.push(`rate ${money(s.rateBeforeDiscount)} less ${s.discountPercent}% discount`);
   if (s.free) notes.push(`bill also lists ${s.free} free — add to Qty if received`);
   if (s.gstPercent != null && productGst != null && Number(productGst) !== Number(s.gstPercent)) {
     notes.push(`bill GST ${s.gstPercent}% vs product's ${productGst}% (product's rate is used)`);

@@ -18,7 +18,8 @@ const pageImports = {
   RackFinder: () => import("./pages/RackFinder"),
   Vendors: () => import("./pages/Vendors"),
   PurchaseHistory: () => import("./pages/PurchaseHistory"),
-  Checkout: () => import("./pages/Checkout"),
+  Billing: () => import("./pages/Billing"),
+  PurchaseEntry: () => import("./pages/PurchaseEntry"),
   BillPreview: () => import("./pages/BillPreview"),
   BillHistory: () => import("./pages/BillHistory"),
   Customers: () => import("./pages/Customers"),
@@ -40,7 +41,8 @@ const Products = lazy(pageImports.Products);
 const RackFinder = lazy(pageImports.RackFinder);
 const Vendors = lazy(pageImports.Vendors);
 const PurchaseHistory = lazy(pageImports.PurchaseHistory);
-const Checkout = lazy(pageImports.Checkout);
+const Billing = lazy(pageImports.Billing);
+const PurchaseEntry = lazy(pageImports.PurchaseEntry);
 const BillPreview = lazy(pageImports.BillPreview);
 const BillHistory = lazy(pageImports.BillHistory);
 const Customers = lazy(pageImports.Customers);
@@ -76,7 +78,7 @@ const pageLoader = <Loader label="Gugan Medicals" className="min-h-screen" />;
 
 function WorkspaceHome() {
   const { user } = useAuth();
-  return <Navigate to={user.role === "admin" ? "/dashboard" : "/products"} replace />;
+  return <Navigate to={user.role === "admin" ? "/dashboard" : "/billing"} replace />;
 }
 
 // "/": visitors get the public Gugan Medicals website; signed-in staff go
@@ -182,13 +184,31 @@ export default function App() {
             }
           />
           <Route
-            path="/checkout"
+            path="/purchases/new"
             element={
-              <ProtectedRoute>
-                <Checkout />
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseEntry />
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/purchases/:id/edit"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseEntry />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/billing"
+            element={
+              <ProtectedRoute>
+                <Billing />
+              </ProtectedRoute>
+            }
+          />
+          {/* Old address of the billing screen. */}
+          <Route path="/checkout" element={<Navigate to="/billing" replace />} />
           <Route
             path="/bills/:id"
             element={

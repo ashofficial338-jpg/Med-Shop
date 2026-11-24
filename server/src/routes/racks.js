@@ -12,6 +12,7 @@ import { effectiveLocations } from "../utils/locations.js";
 import { moveBetweenLocations, syncedBatch, refreshProductRack } from "../utils/batchHelpers.js";
 import { productSearchFilter } from "../utils/composition.js";
 import { streamExcelReport, streamPdfReport } from "../utils/reportExport.js";
+import { transactional } from "../utils/transaction.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -315,7 +316,7 @@ router.get("/locate", async (req, res) => {
 
 // Rack Transfer: move part or all of one batch from one position to
 // another. Total stock is unchanged; the move is recorded in the ledger.
-router.post("/transfer", requireRole("admin"), async (req, res) => {
+router.post("/transfer", requireRole("admin"), transactional(async (req, res) => {
   const { batch: batchId } = req.body;
   if (!mongoose.isValidObjectId(batchId)) return res.status(400).json({ message: "Please choose a batch." });
   const from = cleanRack(req.body.from);
@@ -352,12 +353,12 @@ router.post("/transfer", requireRole("admin"), async (req, res) => {
   });
   const locations = await refreshProductRack(product);
   res.json({ batch: { _id: moved._id, batchNo: moved.batchNo, locations: effectiveLocations(moved) }, productLocations: locations, productRack: product.rack });
-});
+}));
 
 // Stock Audit: physical counts for batches at positions in a scope. Saved
 // as a record; with apply, stock is corrected to the counts (ledger entries
 // per difference, totals updated immediately).
-router.post("/audit", requireRole("admin"), async (req, res) => {
+router.post("/audit", requireRole("admin"), transactional(async (req, res) => {
   const racks = await rackMap();
   const scope = resolveScope(req.body.scope, racks);
   if (!scope || scope.level === "all") return res.status(400).json({ message: "Choose a rack, shelf or position to audit." });
@@ -405,7 +406,7 @@ router.post("/audit", requireRole("admin"), async (req, res) => {
   }
   const audit = await StockAudit.create({ scope: scope.code || (scope.level === "none" ? "NONE" : ""), lines: auditLines, applied: apply, note: String(req.body.note || "").slice(0, 300), performedBy: req.user._id });
   res.status(201).json(audit);
-});
+}));
 
 router.get("/audits", async (req, res) => {
   const filter = req.query.scope ? { scope: String(req.query.scope).toUpperCase() } : {};

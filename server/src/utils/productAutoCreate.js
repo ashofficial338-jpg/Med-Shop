@@ -1,5 +1,5 @@
 import Product from "../models/Product.js";
-import { generateProductCode, resolveCategory } from "./productHelpers.js";
+import { computeLooseRate, deriveSoldAs, generateProductCode, resolveCategory } from "./productHelpers.js";
 
 // Products typed in on Purchase Entry: an existing product is
 // reused, a new name is added to the Product List (Product Master) when the
@@ -68,7 +68,8 @@ export async function similarProducts(name, limit = 5) {
 }
 
 // Finds the product for a typed line, creating it when it's new.
-// `details`: { hsnCode, unit, gstPercent, rate, vendor }. Returns
+// `details`: { hsnCode, unit, gstPercent, rate (selling price), vendor, category,
+// unitsPerPack, looseUnitName }. Returns
 // { product, created }. `cache` (a Map) lets one entry with the same new name
 // on several lines create it only once.
 export async function findOrCreateProduct(name, details = {}, cache = new Map()) {
@@ -77,7 +78,10 @@ export async function findOrCreateProduct(name, details = {}, cache = new Map())
   if (!key) throw new Error("Product name is empty.");
   if (cache.has(key)) return { product: cache.get(key), created: false };
 
-  const existing = await Product.findOne({ _id: (await findProductByName(clean))?._id ?? null });
+  // The product names are read once per entry, not once per line.
+  cache.list = cache.list || (await activeProducts());
+  const match = await findProductByName(clean, cache.list);
+  const existing = match ? await Product.findById(match._id) : null;
   if (existing) {
     // Fill in an HSN code the product didn't have yet; nothing else on an
     // existing product is changed (its price/GST drive POS billing).
@@ -92,16 +96,26 @@ export async function findOrCreateProduct(name, details = {}, cache = new Map())
 
   const gst = Number(details.gstPercent);
   const rate = Number(details.rate);
-  const category = await resolveCategory("Uncategorized");
+  const category = await resolveCategory(String(details.category || "").trim() || "Uncategorized");
+  const soldAs = deriveSoldAs(details.unitsPerPack);
+  const packRate = rate >= 0 && Number.isFinite(rate) ? rate : 0;
+  const loose = soldAs === "pack-and-loose";
   const product = await Product.create({
     name: clean,
     productCode: await generateProductCode(clean),
     category: category._id,
-    soldAs: "pack-only",
+    soldAs,
+    ...(loose
+      ? {
+          unitsPerPack: Number(details.unitsPerPack),
+          looseUnitName: details.looseUnitName || "Piece",
+          looseRate: computeLooseRate({ soldAs, packRate, unitsPerPack: details.unitsPerPack }) ?? 0,
+        }
+      : {}),
     packUnit: toPackUnit(details.unit),
     hsnCode: String(details.hsnCode || "").trim().slice(0, 20),
     gstPercent: GST_VALUES.includes(gst) ? gst : 0,
-    packRate: rate >= 0 && Number.isFinite(rate) ? rate : 0,
+    packRate,
     qty: 0,
     vendor: details.vendor || null,
   });

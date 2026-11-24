@@ -97,6 +97,8 @@ const saleSchema = new mongoose.Schema(
     // The invoice number a bill had in the Excel file it was imported from
     // (Sales Excel upload) - stops the same invoice being imported twice.
     importRef: { type: String, trim: true, maxlength: 60 },
+    // The entry form's own id, so one form is never saved twice (utils/transaction.js).
+    clientRef: { type: String },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -120,6 +122,8 @@ saleSchema.index({ archivedAt: 1, createdAt: 1 });
 // customer ledgers.
 saleSchema.index({ createdAt: -1 });
 saleSchema.index({ customer: 1, createdAt: -1 });
+// One bill per entry form (see clientRef).
+saleSchema.index({ clientRef: 1 }, { unique: true, partialFilterExpression: { clientRef: { $type: "string" } } });
 // One bill per imported invoice number (bills entered at the counter have none).
 saleSchema.index({ importRef: 1 }, { unique: true, partialFilterExpression: { importRef: { $type: "string" } } });
 
