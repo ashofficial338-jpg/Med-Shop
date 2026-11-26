@@ -23,7 +23,9 @@ const ADMIN_NAV = [
     section: "Records",
     items: [
       { to: "/bills", label: "Bills (Sales)", icon: "receipt" },
-      { to: "/purchases", label: "Purchases", icon: "truck" },
+      { to: "/purchase-orders", label: "Purchase Orders", icon: "clipboard" },
+      { to: "/purchases", label: "Purchase Invoices", icon: "truck" },
+      { to: "/purchase-returns", label: "Purchase Returns", icon: "arrowRight" },
       { to: "/products", label: "Products", icon: "pill" },
       { to: "/stock", label: "Stock", icon: "boxes" },
     ],

@@ -53,3 +53,8 @@ export function getManagementReport(params) {
 export function exportManagementReport(params, format, name) {
   return downloadFile("/reports/management", { ...compactParams(params), format }, reportFileName(`GuganMedicals_${name}`, format));
 }
+
+// The report's PDF as a file, for the Print preview.
+export function managementReportPdf(params) {
+  return api.get("/reports/management", { params: { ...compactParams(params), format: "pdf" }, responseType: "blob" }).then((r) => r.data);
+}

@@ -4,22 +4,27 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import Layout from "../components/Layout";
 import AdjustStockModal from "../components/AdjustStockModal";
+import ExtraStockModal from "../components/ExtraStockModal";
+import { ExtraStockTab, InwardReportTab } from "../components/stock/StockInTabs";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import { listStockLedger, getExpiryTracker, markStockClearance, exportStockLedger, exportExpiryTracker } from "../api/stock";
 import { getStockReport, exportStockReport, listCategories } from "../api/products";
 import { compactParams } from "../utils/query";
 
-const TABS = ["Stock Ledger", "Expiry Tracker", "Stock Report"];
-// ?tab=ledger|expiry|report lets dashboard links open the right tab.
-const TAB_SLUGS = { ledger: "Stock Ledger", expiry: "Expiry Tracker", report: "Stock Report" };
+const TABS = ["Stock Ledger", "Extra Stock", "Stock In Report", "Expiry Tracker", "Stock Report"];
+// ?tab=ledger|extra|inward|expiry|report lets dashboard links open the right tab.
+const TAB_SLUGS = { ledger: "Stock Ledger", extra: "Extra Stock", inward: "Stock In Report", expiry: "Expiry Tracker", report: "Stock Report" };
 const LEDGER_TYPES = [
   ["purchase", "Purchase"],
   ["sale", "Sale"],
+  ["extra-stock", "Extra stock addition"],
   ["manual-add", "Manual add"],
   ["manual-reduce", "Manual reduce"],
   ["void-reversal", "Void reversal"],
   ["sale-edit", "Bill edit (returned)"],
-  ["purchase-edit", "Purchase edit"],
+  ["purchase-edit", "Purchase edit / cancel"],
+  ["purchase-return", "Purchase return"],
+  ["purchase-return-cancel", "Purchase return cancelled"],
   ["stock-clearance", "Stock clearance (expired)"],
   ["rack-transfer", "Rack transfer"],
   ["stock-audit", "Stock audit"],
@@ -71,6 +76,7 @@ export default function StockManagement() {
   const [ledger, setLedger] = useState([]);
   const [loadingLedger, setLoadingLedger] = useState(true);
   const [showAdjust, setShowAdjust] = useState(false);
+  const [showExtra, setShowExtra] = useState(false);
 
   const [tracker, setTracker] = useState({ expired: [], expiringSoon: [], ok: [] });
   const [loadingTracker, setLoadingTracker] = useState(true);
@@ -167,12 +173,12 @@ export default function StockManagement() {
     <Layout>
       <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Stock Management</h1>
 
-      <div className="mt-4 flex gap-1 border-b border-border">
+      <div className="mt-4 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-semibold ${tab === t ? "border-b-2 border-primary text-primary" : "text-muted"}`}
+            className={`shrink-0 whitespace-nowrap px-4 py-2 text-sm font-semibold ${tab === t ? "border-b-2 border-primary text-primary" : "text-muted"}`}
           >
             {t}
           </button>
@@ -182,12 +188,20 @@ export default function StockManagement() {
       {tab === "Stock Ledger" && (
         <div className="mt-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              onClick={() => setShowAdjust(true)}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
-            >
-              Adjust Stock
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setShowAdjust(true)}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+              >
+                Adjust Stock
+              </button>
+              <button
+                onClick={() => setShowExtra(true)}
+                className="rounded-lg border border-primary px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
+              >
+                + Extra Stock Addition
+              </button>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <select aria-label="Movement type" value={ledgerType} onChange={(e) => setParam({ type: e.target.value })} className={selectCls}>
                 <option value="">All movements</option>
@@ -209,7 +223,7 @@ export default function StockManagement() {
                     {e.product?.name} <span className="font-mono text-xs text-muted">({e.product?.productCode})</span>
                   </p>
                   <p className="text-xs text-muted">
-                    {e.type} · {e.reason}{e.batch?.batchNo ? ` · Batch ${e.batch.batchNo}` : ""} · by {e.performedBy?.username}
+                    {e.type} · {e.reason}{e.remarks ? ` (${e.remarks})` : ""}{e.batch?.batchNo ? ` · Batch ${e.batch.batchNo}` : ""} · by {e.performedBy?.username}
                   </p>
                 </div>
                 <span className={`font-mono font-semibold ${e.qtyChange >= 0 ? "text-success" : "text-danger"}`}>
@@ -220,6 +234,10 @@ export default function StockManagement() {
           </div>
         </div>
       )}
+
+      {tab === "Extra Stock" && <ExtraStockTab params={Object.fromEntries(searchParams)} setParam={setParam} />}
+
+      {tab === "Stock In Report" && <InwardReportTab params={Object.fromEntries(searchParams)} setParam={setParam} />}
 
       {tab === "Expiry Tracker" && (
         <div className="mt-4">
@@ -329,6 +347,18 @@ export default function StockManagement() {
             </>
           )}
         </div>
+      )}
+
+      {showExtra && (
+        <ExtraStockModal
+          onClose={() => setShowExtra(false)}
+          onSaved={() => {
+            setShowExtra(false);
+            loadLedger();
+            loadTracker();
+            toast.success("Extra stock added.");
+          }}
+        />
       )}
 
       {showAdjust && (

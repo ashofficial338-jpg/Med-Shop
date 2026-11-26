@@ -20,6 +20,11 @@ import { dayRange } from "../utils/queryFilters.js";
 import { findOrCreateProduct } from "../utils/productAutoCreate.js";
 import { transactional, runInTransaction, rethrowIfRetryable, isDuplicateOf, cleanClientRef } from "../utils/transaction.js";
 import { findOrCreateVendor, partyKey } from "../utils/parties.js";
+import PurchaseOrder from "../models/PurchaseOrder.js";
+import PurchaseReturn from "../models/PurchaseReturn.js";
+import CancelledPurchase from "../models/CancelledPurchase.js";
+import { refreshPoStatus, piDocument } from "../utils/purchaseOrders.js";
+import { streamPurchaseDocPdf } from "../utils/purchaseDocPdf.js";
 
 const router = Router();
 router.use(requireAuth, requireRole("admin"));
@@ -69,6 +74,15 @@ async function buildPurchaseFilter(req) {
   else if (vendor && mongoose.isValidObjectId(vendor)) filter.vendor = vendor;
   if (supplierName) Object.assign(filter, { vendor: null, supplierName: new RegExp(`^${escapeRegex(String(supplierName).trim())}$`, "i") });
   if (product && mongoose.isValidObjectId(product)) filter["items.product"] = product;
+  if (req.query.purchaseOrder === "none") filter.purchaseOrder = null;
+  else if (req.query.purchaseOrder === "any") filter.purchaseOrder = { $ne: null };
+  else if (mongoose.isValidObjectId(req.query.purchaseOrder)) filter.purchaseOrder = req.query.purchaseOrder;
+  const text = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 60) : "";
+  if (text) {
+    const re = new RegExp(escapeRegex(text), "i");
+    const [vendors, pos] = await Promise.all([Vendor.find({ name: re }, "_id").lean(), PurchaseOrder.find({ poNo: re }, "_id").lean()]);
+    filter.$or = [{ invoiceNo: re }, { piNo: re }, { supplierName: re }, { vendor: { $in: vendors.map((v) => v._id) } }, { purchaseOrder: { $in: pos.map((p) => p._id) } }];
+  }
   // Payment status (only credit purchases can carry a balance).
   const paid = { $ifNull: ["$amountPaid", "$total"] };
   if (req.query.payment === "paid") filter.$expr = { $gte: [paid, "$total"] };
@@ -195,9 +209,16 @@ router.get("/", async (req, res) => {
   const filter = await buildPurchaseFilter(req);
   const purchases = await Purchase.find(filter)
     .populate("vendor", "name")
+    .populate("purchaseOrder", "poNo")
     .populate("items.product", "name productCode")
     .sort({ date: -1, createdAt: -1 });
-  res.json(purchases);
+  // Value returned against each invoice, for the list.
+  const returns = await PurchaseReturn.aggregate([
+    { $match: { purchase: { $in: purchases.map((p) => p._id) }, status: "Confirmed" } },
+    { $group: { _id: "$purchase", total: { $sum: "$total" }, count: { $sum: 1 } } },
+  ]);
+  const byId = new Map(returns.map((r) => [String(r._id), { total: round2(r.total), count: r.count }]));
+  res.json(purchases.map((p) => ({ ...p.toJSON(), returned: byId.get(String(p._id)) || null })));
 });
 
 // Registered before GET "/:id" - both are single-segment GET routes, and
@@ -206,8 +227,10 @@ router.get("/", async (req, res) => {
 router.get("/export", async (req, res) => {
   const { format, from, to, vendor } = req.query;
   const filter = await buildPurchaseFilter(req);
-  const purchases = await Purchase.find(filter).populate("vendor", "name").sort({ date: -1, createdAt: -1 });
+  const purchases = await Purchase.find(filter).populate("vendor", "name").populate("purchaseOrder", "poNo").sort({ date: -1, createdAt: -1 });
   const rows = purchases.map((p) => ({
+    piNo: p.piNo || "",
+    poNo: p.purchaseOrder?.poNo || "",
     invoiceNo: p.invoiceNo,
     date: shopDay(p.date),
     vendor: purchasePartyName(p),
@@ -225,7 +248,9 @@ router.get("/export", async (req, res) => {
       title: "Gugan Medicals - Purchases Report",
       subtitle: `${periodLabel(from, to)}${vendor || req.query.supplierName ? ` · Supplier: ${req.query.supplierName ? `${req.query.supplierName} (unregistered)` : vendor === "none" ? "No supplier" : vendor === "unregistered" ? "Unregistered suppliers" : purchases[0]?.vendor?.name || "selected vendor"}` : ""} · Total: Rs. ${rows.reduce((s, r) => s + r.total, 0).toFixed(2)}`,
       columns: [
+        { header: "PI No", key: "piNo" },
         { header: "Invoice No", key: "invoiceNo" },
+        { header: "PO Ref", key: "poNo" },
         { header: "Date", key: "date" },
         { header: "Vendor", key: "vendor" },
         { header: "Mode", key: "paymentMode" },
@@ -240,7 +265,9 @@ router.get("/export", async (req, res) => {
     {
       name: "Purchases",
       columns: [
+        { header: "PI No", key: "piNo", width: 12 },
         { header: "Invoice No", key: "invoiceNo", width: 16 },
+        { header: "PO Ref", key: "poNo", width: 12 },
         { header: "Date", key: "date", width: 14 },
         { header: "Vendor", key: "vendor", width: 20 },
         { header: "Payment Mode", key: "paymentMode", width: 14 },
@@ -262,15 +289,40 @@ router.get("/ids", async (req, res) => {
   res.json(rows.map((r) => r._id));
 });
 
-router.get("/:id", async (req, res) => {
+// Cancelled (or deleted) invoices, kept for the history.
+router.get("/cancelled", async (req, res) => {
+  const filter = {};
+  const range = dayRange(req.query.from, req.query.to);
+  if (range) filter.createdAt = range;
+  if (mongoose.isValidObjectId(req.query.vendor)) filter.vendor = req.query.vendor;
+  const rows = await CancelledPurchase.find(filter, "-snapshot").populate("vendor", "name").populate("purchaseOrder", "poNo").populate("cancelledBy", "username").sort({ createdAt: -1 }).limit(500).lean();
+  res.json(rows);
+});
+
+// The printable Purchase Invoice (inline for the preview, ?download=1 to save).
+router.get("/:id/pdf", async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: "No records found." });
   const purchase = await Purchase.findById(req.params.id)
+    .populate("vendor", "name contactPerson phone email address gstNumber")
+    .populate("purchaseOrder", "poNo")
+    .populate("items.product", "name productCode packUnit hsnCode gstPercent");
+  if (!purchase) return res.status(404).json({ message: "No records found." });
+  const returns = await PurchaseReturn.find({ purchase: purchase._id, status: "Confirmed" }, "returnNo total").lean();
+  streamPurchaseDocPdf(res, `${purchase.piNo || purchase.invoiceNo}.pdf`, piDocument(purchase, { returns }), { download: req.query.download === "1" });
+});
+
+router.get("/:id", async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: "No records found." });
+  const purchase = await Purchase.findById(req.params.id)
+    .populate("purchaseOrder", "poNo status")
     .populate("vendor", "name")
     .populate("items.product", "name productCode packUnit soldAs unitsPerPack");
   if (!purchase) return res.status(404).json({ message: "No records found." });
   // Split of amountPaid for the edit form: paid with the purchase itself
   // (editable) vs paid later through the supplier ledger (protected).
   const { atPurchase, paidAtPurchase, paidLater } = await purchasePayments(purchase);
-  res.json({ ...purchase.toObject(), paidAtPurchase, paidLater, paidMode: atPurchase[0]?.mode || "Cash" });
+  const returns = await PurchaseReturn.find({ purchase: purchase._id }, "returnNo date total status").sort({ date: 1 }).lean();
+  res.json({ ...purchase.toObject(), paidAtPurchase, paidLater, paidMode: atPurchase[0]?.mode || "Cash", returns });
 });
 
 // --- Saving a purchase ---------------------------------------------------
@@ -404,6 +456,17 @@ const savePurchase = transactional(async (req, res) => {
     // supplier if there is one, else added to the Supplier List with it.
     vendorDoc = (await findOrCreateVendor(req.body.supplierName)).vendor;
   }
+  // Received against a Purchase Order: the supplier is the order's.
+  let po = null;
+  if (req.body.purchaseOrder) {
+    po = mongoose.isValidObjectId(req.body.purchaseOrder) ? await PurchaseOrder.findById(req.body.purchaseOrder) : null;
+    if (!po) return res.status(400).json({ message: "The purchase order was not found." });
+    if (!["Pending", "Partially Received"].includes(po.status)) {
+      return res.status(400).json({ message: `Purchase order ${po.poNo} is ${po.status.toLowerCase()} - goods can only be received against a pending order.` });
+    }
+    if (vendorDoc && String(vendorDoc._id) !== String(po.vendor)) return res.status(400).json({ message: `Purchase order ${po.poNo} is for another supplier.` });
+    vendorDoc = await Vendor.findById(po.vendor);
+  }
   const vendorId = vendorDoc?._id || null;
   const supplierName = "";
 
@@ -424,6 +487,11 @@ const savePurchase = transactional(async (req, res) => {
       lines.push(read);
     }
 
+    if (po) {
+      const overError = await poReceiptError(po, lines.map((l) => l.line));
+      if (overError) return res.status(400).json({ message: overError });
+    }
+
     const subtotal = round2(lines.reduce((s, l) => s + l.line.lineAmount, 0));
     const gstAmount = round2(lines.reduce((s, l) => s + l.line.lineGst, 0));
     const total = round2(subtotal + gstAmount);
@@ -439,6 +507,7 @@ const savePurchase = transactional(async (req, res) => {
       ...(clientRef ? { clientRef } : {}),
       vendor: vendorId,
       supplierName,
+      purchaseOrder: po?._id || null,
       invoiceNo: resolvedInvoiceNo,
       date: date || new Date(),
       items: lines.map((l) => l.line),
@@ -503,8 +572,9 @@ const savePurchase = transactional(async (req, res) => {
       await refreshProductRack(await Product.findById(id));
     }
     await purchase.save();
+    if (po) await refreshPoStatus(po._id);
 
-    const populated = await Purchase.findById(purchase._id).populate("vendor", "name");
+    const populated = await Purchase.findById(purchase._id).populate("vendor", "name").populate("purchaseOrder", "poNo");
     await populated.populate("items.product", "name productCode");
     res.status(201).json({ ...populated.toObject(), createdProducts: lines.filter((l) => l.created).length });
   } catch (e) {
@@ -547,6 +617,9 @@ router.put(
     // A supplier can be changed, or put on a purchase that had none; once a
     // purchase has a supplier it keeps one.
     let vendorId = purchase.vendor ? String(purchase.vendor) : null;
+    if (purchase.purchaseOrder && vendor && String(vendor) !== vendorId) {
+      return res.status(400).json({ message: "This invoice was received against a purchase order, so its supplier can't change." });
+    }
     if (vendor && mongoose.isValidObjectId(vendor) && String(vendor) !== vendorId) {
       const v = await Vendor.findById(vendor);
       if (!v || !v.isActive) return res.status(400).json({ message: "Please choose a valid supplier." });
@@ -602,6 +675,12 @@ router.put(
         read.push(r);
       }
 
+      if (purchase.purchaseOrder) {
+        const po = await PurchaseOrder.findById(purchase.purchaseOrder);
+        const overError = po && (await poReceiptError(po, read.map((r) => r.line), purchase._id));
+        if (overError) return res.status(400).json({ message: overError });
+      }
+
       const subtotal = round2(read.reduce((s, r) => s + r.line.lineAmount, 0));
       const gstAmount = round2(read.reduce((s, r) => s + r.line.lineGst, 0));
       const total = round2(subtotal + gstAmount);
@@ -632,6 +711,17 @@ router.put(
         groups.set(key, g);
       }
       for (const g of groups.values()) g.cost = g.qty > 0 ? g.value / g.qty : 0;
+
+      // Goods already returned to the supplier from a lot can't be un-received.
+      const returnedByBatch = await returnedFrom(purchase._id);
+      for (const b of oldBatches) {
+        const back = returnedByBatch.get(String(b._id)) || 0;
+        const g = groups.get(`${b.product}|${b.batchNo}`);
+        if (back > 0 && (g ? g.qty : 0) < back) {
+          const p = g?.product || (await Product.findById(b.product));
+          return res.status(400).json({ message: `${p?.name || "A product"} batch ${b.batchNo}: ${back} ${stockUnitName(p)} were returned to the supplier, so it can't be received in a smaller quantity. Cancel the purchase return first.` });
+        }
+      }
 
       const plan = [];
       const productDelta = new Map();
@@ -773,6 +863,7 @@ router.put(
       });
       await purchase.save();
       await markInvoiceChanged("purchase", purchase._id, "edited");
+      await refreshPoStatus(purchase.purchaseOrder);
 
       await SupplierPayment.deleteMany({ _id: { $in: atPurchase.map((p) => p._id) } });
       if (mode === "Credit" && paidNow > 0) {
@@ -834,10 +925,14 @@ async function broughtIn(purchase) {
 // has been sold or used (correct the quantity with Edit instead), or while
 // payments made later through the supplier ledger point at it.
 // Runs in a transaction; returns { error, status, ref } or { ref }.
-async function deletePurchase(id, userId) {
+async function deletePurchase(id, userId, cancelReason = "") {
   const purchase = await Purchase.findById(id);
   if (!purchase) return { error: "No records found.", status: 404 };
   const refuse = (error) => ({ ref: purchase.invoiceNo, status: 400, error });
+  const openReturns = await PurchaseReturn.find({ purchase: purchase._id, status: "Confirmed" }, "returnNo").lean();
+  if (openReturns.length) {
+    return refuse(`Purchase return ${openReturns.map((r) => r.returnNo).join(", ")} was made from this invoice. Cancel the return first, then cancel the invoice.`);
+  }
 
   const { atPurchase, paidLater, otherPayments } = await purchasePayments(purchase);
   if (paidLater > 0 || otherPayments > 0) {
@@ -862,7 +957,7 @@ async function deletePurchase(id, userId) {
     if (p && p.qty + delta < 0) return refuse(`Only ${p.qty} ${stockUnitName(p)} of ${p.name} left in stock, so this purchase can't be deleted.`);
   }
 
-  const reason = `Deleted purchase ${purchase.invoiceNo}`;
+  const reason = `Cancelled purchase ${purchase.piNo ? `${purchase.piNo} / ` : ""}${purchase.invoiceNo}`;
   for (const b of batches) {
     const qty = qtyByBatch.get(String(b._id)) || 0;
     if (qty === 0) continue;
@@ -892,14 +987,28 @@ async function deletePurchase(id, userId) {
     if (p) await refreshProductRack(p);
   }
   await SupplierPayment.deleteMany({ _id: { $in: atPurchase.map((p) => p._id) } });
+  // Kept for the transaction history; it leaves every report and balance.
+  await CancelledPurchase.create({
+    purchaseId: purchase._id,
+    piNo: purchase.piNo || "",
+    invoiceNo: purchase.invoiceNo,
+    vendor: purchase.vendor,
+    purchaseOrder: purchase.purchaseOrder || null,
+    date: purchase.date,
+    total: purchase.total,
+    reason: String(cancelReason || "").trim().slice(0, 200),
+    snapshot: purchase.toObject(),
+    cancelledBy: userId,
+  });
   await Purchase.deleteOne({ _id: purchase._id });
+  await refreshPoStatus(purchase.purchaseOrder);
   return { ref: purchase.invoiceNo };
 }
 
 router.delete(
   "/:id",
   transactional(async (req, res) => {
-    const out = await deletePurchase(req.params.id, req.user._id);
+    const out = await deletePurchase(req.params.id, req.user._id, req.body?.reason);
     if (out.error) return res.status(out.status).json({ message: out.error });
     res.json({ message: `Purchase ${out.ref} deleted.` });
   })
@@ -929,4 +1038,37 @@ async function runBulkDelete(req, res) {
   res.json({ deleted, failed });
 }
 
+// Received on this invoice + already received on the order's other invoices
+// must not exceed what was ordered, and every item must be on the order.
+async function poReceiptError(po, lines, excludeId = null) {
+  const ordered = new Map();
+  for (const i of po.items) ordered.set(String(i.product), (ordered.get(String(i.product)) || 0) + i.qty);
+  const others = await Purchase.aggregate([
+    { $match: { purchaseOrder: po._id, ...(excludeId ? { _id: { $ne: excludeId } } : {}) } },
+    { $unwind: "$items" },
+    { $group: { _id: "$items.product", packs: { $sum: "$items.qtyPacks" } } },
+  ]);
+  const got = new Map(others.map((o) => [String(o._id), o.packs]));
+  const now = new Map();
+  for (const l of lines) now.set(String(l.product), (now.get(String(l.product)) || 0) + l.qtyPacks);
+  for (const [pid, qty] of now) {
+    const p = await Product.findById(pid, "name");
+    if (!ordered.has(pid)) return `${p?.name || "An item"} is not on purchase order ${po.poNo}.`;
+    const left = ordered.get(pid) - (got.get(pid) || 0);
+    if (qty > left) return `Only ${Math.max(left, 0)} of ${p?.name || "an item"} ${left === 1 ? "is" : "are"} still pending on purchase order ${po.poNo} (ordered ${ordered.get(pid)}).`;
+  }
+  return null;
+}
+
+// Stock units returned to the supplier from each batch of this invoice.
+async function returnedFrom(purchaseId) {
+  const rows = await PurchaseReturn.aggregate([
+    { $match: { purchase: purchaseId, status: "Confirmed" } },
+    { $unwind: "$items" },
+    { $group: { _id: "$items.batch", units: { $sum: "$items.qtyUnits" } } },
+  ]);
+  return new Map(rows.map((r) => [String(r._id), r.units]));
+}
+
+export { broughtIn, netUnitCost };
 export default router;

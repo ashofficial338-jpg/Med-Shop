@@ -21,6 +21,8 @@ import Sale from "../src/models/Sale.js";
 import Purchase from "../src/models/Purchase.js";
 import Expense from "../src/models/Expense.js";
 import User from "../src/models/User.js";
+import Product from "../src/models/Product.js";
+import StockLedger from "../src/models/StockLedger.js";
 
 process.env.TZ = "Asia/Kolkata";
 const SERVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -379,7 +381,7 @@ test("the browser on the live site may read every download (CORS)", async () => 
 });
 
 test("bad requests get a JSON message, never a server error or a broken file", async () => {
-  for (const u of ["/day-book/export?date=abc", "/day-book?date=abc", "/sales/export?from=abc", "/purchases/export?from=abc", "/expenses/export?to=abc", `/reports/management?report=sales-daily&from=abc`, "/reports/export?from=abc", "/dashboard/export?from=abc", "/dashboard/profitability/export?from=abc", "/customers/export?q[]=a", "/vendors/export?q[]=a", "/stock-ledger/export?product=abc", "/customers/abc/ledger/export", "/vendors/abc/ledger/export", "/vendors/abc/report/export"])
+  for (const u of ["/day-book/export?date=abc", "/day-book?date=abc", "/sales/export?from=abc", "/purchases/export?from=abc", "/expenses/export?to=abc", `/reports/management?report=sales-daily&from=abc`, "/reports/export?from=abc", "/dashboard/export?from=abc", "/dashboard/profitability/export?from=abc", "/customers/export?q[]=a", "/vendors/export?q[]=a", "/stock-ledger/export?product=abc", "/stock-ledger/extra/export?from=abc", "/stock-ledger/extra/export?product=abc", "/stock-ledger/inward-report/export?to=abc", "/stock-ledger/inward-report/export?product=abc", "/customers/abc/ledger/export", "/vendors/abc/ledger/export", "/vendors/abc/report/export"])
     for (const f of ["excel", "pdf"]) {
       const r = await get(withFormat(u, f));
       assert.ok(r.status < 500, `${u} ${f} -> ${r.status}`);
@@ -389,4 +391,64 @@ test("bad requests get a JSON message, never a server error or a broken file", a
         assert.equal(r.headers.get("content-disposition"), null);
       }
     }
+});
+
+// ---------- Extra Stock Addition ----------
+
+async function send(method, url, body) {
+  const r = await fetch(API + url, { method, headers: { Authorization: `Bearer ${tokens.admin}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return { status: r.status, body: await r.json() };
+}
+
+test("extra stock: raises stock, keeps its own history, never touches purchases", async () => {
+  const product = await Product.findOne({ qty: { $gt: 0 } }).lean();
+  const before = { qty: product.qty, purchases: await Purchase.countDocuments(), vendors: await Vendor.countDocuments(), purchaseQty: (await json(`/stock-ledger/inward-report?${ALL}`)).purchase.totalQty };
+  const today = new Date().toLocaleDateString("en-CA");
+  const base = { product: product._id, qty: 7, date: "2026-03-05", reason: "Found Stock", remarks: "Behind rack A" };
+
+  for (const [bad, why] of [[{ qty: 0 }, "zero"], [{ qty: 1.5 }, "fraction"], [{ reason: "" }, "no reason"], [{ reason: "Gift" }, "unknown reason"], [{ date: "" }, "no date"], [{ date: "2999-01-01" }, "future"], [{ reason: "Other", remarks: "" }, "other without remark"], [{ product: "" }, "no item"]]) {
+    const r = await send("POST", "/stock-ledger/extra", { ...base, ...bad });
+    assert.equal(r.status, 400, why);
+    assert.ok(r.body.message, why);
+  }
+  assert.equal((await Product.findById(product._id)).qty, before.qty, "a refused entry changes nothing");
+
+  const a = await send("POST", "/stock-ledger/extra", base);
+  assert.equal(a.status, 201, JSON.stringify(a.body));
+  const b = await send("POST", "/stock-ledger/extra", { ...base, qty: 5, date: today, reason: "Free Items", remarks: "", batchNo: "FREE-1", costPrice: 0 });
+  assert.equal(b.status, 201, JSON.stringify(b.body));
+
+  assert.equal((await Product.findById(product._id)).qty, before.qty + 12);
+  assert.equal(await Purchase.countDocuments(), before.purchases);
+  assert.equal(await Vendor.countDocuments(), before.vendors);
+  const entry = await StockLedger.findById(a.body.entry._id).lean();
+  assert.equal(entry.type, "extra-stock");
+  assert.equal(entry.refId, null);
+  assert.equal(entry.qtyChange, 7);
+
+  const list = await json(`/stock-ledger/extra?product=${product._id}`);
+  assert.equal(list.rows.length, 2);
+  assert.equal(list.totalQty, 12);
+  assert.deepEqual(list.rows.map((r) => r.date), [today, "2026-03-05"], "newest first, by the chosen date");
+  assert.equal(list.rows[1].remarks, "Behind rack A");
+  assert.equal(list.rows[1].user, "admin");
+  assert.equal((await json(`/stock-ledger/extra?product=${product._id}&reason=Free%20Items`)).rows.length, 1);
+  assert.equal((await json(`/stock-ledger/extra?product=${product._id}&from=2026-03-05&to=2026-03-05`)).rows.length, 1);
+
+  const report = await json(`/stock-ledger/inward-report?${ALL}`);
+  assert.equal(report.purchase.totalQty, before.purchaseQty, "purchase inward unchanged");
+  assert.ok(report.extra.rows.some((r) => r.id === String(entry._id)));
+  assert.equal(report.totalQty, report.purchase.totalQty + report.extra.totalQty);
+  assert.ok(report.purchase.rows.every((r) => r.invoiceNo && r.qty !== 0));
+
+  const sheets = await excel(`/stock-ledger/inward-report/export?${ALL}`);
+  assert.equal(sheets.length, 3);
+  assert.equal(sheets[1].length - 1, report.purchase.rows.length);
+  assert.equal(sheets[2].length - 1, report.extra.rows.length);
+  const extraSheet = (await excel(`/stock-ledger/extra/export?product=${product._id}`))[0];
+  assert.equal(extraSheet.length - 1, 2);
+  assert.equal(extraSheet[2][col(extraSheet, "Reason")], "Found Stock");
+  const { text } = await pdf(`/stock-ledger/inward-report/export?${ALL}`);
+  assert.ok(squash(text).includes(squash("Found Stock")));
+  await pdf(`/stock-ledger/extra/export?product=${product._id}`);
 });

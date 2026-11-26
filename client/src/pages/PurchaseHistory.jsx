@@ -7,13 +7,14 @@ import { listVendors } from "../api/vendors";
 import { listCategories } from "../api/products";
 import ReportDownloadButtons from "../components/ReportDownloadButtons";
 import ExcelUploadModal from "../components/ExcelUploadModal";
-import { listUnregisteredSuppliers, deletePurchase, listPurchaseIds, bulkDeletePurchases } from "../api/purchases";
+import { listUnregisteredSuppliers, cancelPurchase, listPurchaseIds, bulkDeletePurchases, purchaseInvoicePdf, listCancelledPurchases } from "../api/purchases";
+import DocumentViewer from "../components/DocumentViewer";
 import BulkDelete from "../components/BulkDelete";
 import { toast } from "react-toastify";
 import { compactParams } from "../utils/query";
 
 // Filters live in the URL so dashboard links open this list pre-filtered.
-const FILTER_KEYS = ["vendor", "supplierName", "product", "payment", "from", "to", "category"];
+const FILTER_KEYS = ["q", "vendor", "supplierName", "product", "payment", "from", "to", "category", "purchaseOrder"];
 
 export default function PurchaseHistory() {
   const navigate = useNavigate();
@@ -27,13 +28,21 @@ export default function PurchaseHistory() {
   const [deletingId, setDeletingId] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [excelOpen, setExcelOpen] = useState(false);
+  const [viewing, setViewing] = useState(null);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const [cancelled, setCancelled] = useState(null);
+
+  useEffect(() => {
+    if (showCancelled) listCancelledPurchases().then(setCancelled).catch(() => setCancelled([]));
+  }, [showCancelled, reloadKey]);
 
   const handleDelete = async (p) => {
-    if (!window.confirm(`Delete purchase ${p.invoiceNo}? Its stock comes off the shelves again. This cannot be undone.`)) return;
+    const reason = window.prompt(`Cancel purchase invoice ${p.piNo || p.invoiceNo}? Its stock comes off the shelves again and it leaves every report and balance (a copy stays in Cancelled invoices). Reason (optional):`);
+    if (reason === null) return;
     setDeletingId(p._id);
     try {
-      await deletePurchase(p._id);
-      toast.success(`Purchase ${p.invoiceNo} deleted.`);
+      await cancelPurchase(p._id, reason);
+      toast.success(`Purchase invoice ${p.piNo || p.invoiceNo} cancelled. Stock reversed.`);
       setReloadKey((k) => k + 1);
     } catch (err) {
       toast.error(err.response?.data?.message || "Something went wrong. Please try again.");
@@ -94,11 +103,14 @@ export default function PurchaseHistory() {
   return (
     <Layout>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Purchases</h1>
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Purchase Invoices</h1>
+          <p className="mt-0.5 text-sm text-muted">Confirming an invoice adds its stock. Receive against an order from <Link to="/purchase-orders?status=open" className="font-semibold text-primary hover:underline">Purchase Orders</Link>.</p>
+        </div>
         <div className="flex flex-wrap gap-2">
           <ReportDownloadButtons onExport={(format) => exportPurchases(format, params)} />
           <Link to="/purchases/new" className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-            + New Purchase
+            + New Purchase Invoice
           </Link>
           <button
             onClick={() => navigate("/purchases/new", { state: { upload: true } })}
@@ -118,6 +130,12 @@ export default function PurchaseHistory() {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
+        <input type="search" aria-label="Search" placeholder="Search PI / invoice / PO no, supplier…" value={filters.q} onChange={(e) => setFilter("q", e.target.value)} className={`${selectCls} min-w-0 flex-1 sm:max-w-xs`} />
+        <select aria-label="Purchase order" value={filters.purchaseOrder} onChange={(e) => setFilter("purchaseOrder", e.target.value)} className={selectCls}>
+          <option value="">With or without PO</option>
+          <option value="any">Against a PO</option>
+          <option value="none">Without a PO</option>
+        </select>
         <select aria-label="Supplier" value={supplierValue} onChange={(e) => setSupplier(e.target.value)} className={selectCls}>
           <option value="">All Suppliers</option>
           <optgroup label="Suppliers">
@@ -148,12 +166,33 @@ export default function PurchaseHistory() {
         </select>
         <input type="date" aria-label="From" value={filters.from} onChange={(e) => setFilter("from", e.target.value)} className={selectCls} />
         <input type="date" aria-label="To" value={filters.to} onChange={(e) => setFilter("to", e.target.value)} className={selectCls} />
+        <label className="flex items-center gap-1.5 px-2 text-sm text-text">
+          <input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} className="accent-primary" />
+          Cancelled invoices
+        </label>
         {Object.keys(params).length > 0 && (
           <button onClick={() => setSearchParams({}, { replace: true })} className="rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-surface">
             Clear filters
           </button>
         )}
       </div>
+
+      {showCancelled && (
+        <div className="mt-4 rounded-xl border border-danger/20 bg-danger/5 p-3">
+          <p className="text-sm font-semibold text-text">Cancelled purchase invoices</p>
+          {!cancelled && <p className="text-xs text-muted">Loading…</p>}
+          {cancelled?.length === 0 && <p className="text-xs text-muted">None.</p>}
+          <ul className="mt-1 space-y-1 text-xs text-muted">
+            {cancelled?.map((c) => (
+              <li key={c._id}>
+                <span className="font-mono font-semibold text-text">{c.piNo || "—"}</span> · {c.vendor?.name || "No supplier"} · inv {c.invoiceNo}
+                {c.purchaseOrder ? ` · ${c.purchaseOrder.poNo}` : ""} · ₹{Number(c.total).toFixed(2)} · cancelled {new Date(c.createdAt).toLocaleDateString()} by {c.cancelledBy?.username}
+                {c.reason ? ` – ${c.reason}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {!loading && purchases.length > 0 && (
         <p className="mt-3 text-xs text-muted">
@@ -163,13 +202,13 @@ export default function PurchaseHistory() {
 
       {purchases.length > 0 && (
         <BulkDelete
-          noun="purchase"
+          noun="purchase invoice"
           shownIds={purchases.map((p) => p._id)}
           selected={selected}
           setSelected={setSelected}
           loadAllIds={() => listPurchaseIds(params)}
           deleteMany={bulkDeletePurchases}
-          note="Their stock comes off the shelves and they leave every report and balance. A purchase whose stock has been sold is kept."
+          note="They are cancelled: their stock comes off the shelves and they leave every report and balance (copies stay in Cancelled invoices). One whose stock has been sold or returned is kept."
           onDeleted={() => setReloadKey((k) => k + 1)}
         />
       )}
@@ -185,7 +224,12 @@ export default function PurchaseHistory() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="font-medium text-text">
+                  {p.piNo && <span className="mr-1.5 font-mono text-primary">{p.piNo}</span>}
                   {p.vendor ? p.vendor.name : p.supplierName || "No supplier"} — {p.invoiceNo}
+                  {p.purchaseOrder && (
+                    <Link to={`/purchase-orders/${p.purchaseOrder._id}`} className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary hover:underline">{p.purchaseOrder.poNo}</Link>
+                  )}
+                  {p.returned && <span className="ml-2 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">Returned ₹{p.returned.total.toFixed(2)}</span>}
                   {!p.vendor && (
                     <span className="ml-2 rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-muted">
                       {p.supplierName ? "Unregistered" : "Without supplier"}
@@ -198,8 +242,20 @@ export default function PurchaseHistory() {
                   {p.editedAt && ` · Edited ${new Date(p.editedAt).toLocaleDateString()}`}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                <p className="font-mono text-sm font-semibold text-text">₹{p.total.toFixed(2)}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="mr-1 font-mono text-sm font-semibold text-text">₹{p.total.toFixed(2)}</p>
+                <button
+                  onClick={() => setViewing(p)}
+                  className="rounded-lg border border-border px-3 py-1 text-xs font-semibold text-primary hover:bg-bg"
+                >
+                  View / Print
+                </button>
+                <button
+                  onClick={() => navigate(`/purchase-returns/new?purchase=${p._id}`)}
+                  className="rounded-lg border border-border px-3 py-1 text-xs font-semibold text-primary hover:bg-bg"
+                >
+                  Return
+                </button>
                 <button
                   onClick={() => navigate(`/purchases/${p._id}/edit`)}
                   className="rounded-lg border border-border px-3 py-1 text-xs font-semibold text-primary hover:bg-bg"
@@ -211,7 +267,7 @@ export default function PurchaseHistory() {
                   disabled={deletingId === p._id}
                   className="rounded-lg border border-danger/40 px-3 py-1 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
                 >
-                  {deletingId === p._id ? "Deleting…" : "Delete"}
+                  {deletingId === p._id ? "Cancelling…" : "Cancel"}
                 </button>
               </div>
             </div>
@@ -233,6 +289,14 @@ export default function PurchaseHistory() {
           </div>
         ))}
       </div>
+      {viewing && (
+        <DocumentViewer
+          title={`Purchase Invoice ${viewing.piNo || viewing.invoiceNo}`}
+          filename={`${viewing.piNo || viewing.invoiceNo}.pdf`}
+          load={() => purchaseInvoicePdf(viewing._id)}
+          onClose={() => setViewing(null)}
+        />
+      )}
       {excelOpen && (
         <ExcelUploadModal kind="purchases" onClose={() => setExcelOpen(false)} onSaved={() => {
           setReloadKey((k) => k + 1);

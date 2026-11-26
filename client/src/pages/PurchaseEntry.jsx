@@ -11,6 +11,7 @@ import { useLiveRefresh } from "../context/LiveSync";
 import { listCategories, listProducts } from "../api/products";
 import { createPurchase, getPurchase, updatePurchase } from "../api/purchases";
 import { listVendors } from "../api/vendors";
+import { getPurchaseOrder } from "../api/purchaseOrders";
 import { todayLocal } from "../utils/date";
 import { enterMovesToNextField } from "../utils/formKeys";
 import { newEntryRef } from "../utils/entryRef";
@@ -35,6 +36,7 @@ function PurchaseForm({ purchaseId }) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const presetVendor = searchParams.get("vendor");
+  const presetPo = !purchaseId ? searchParams.get("po") : null;
   const editing = Boolean(purchaseId);
 
   const [original, setOriginal] = useState(null);
@@ -60,6 +62,8 @@ function PurchaseForm({ purchaseId }) {
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  // The Purchase Order these goods are received against (fixed supplier).
+  const [po, setPo] = useState(null);
   const entryRef = useRef(newEntryRef());
   const formRef = useRef(null);
 
@@ -116,6 +120,37 @@ function PurchaseForm({ purchaseId }) {
       })
       .catch((err) => setLoadError(err.response?.data?.message || "Could not load this purchase."));
   }, [purchaseId]);
+
+  // Receiving against a PO: supplier, items, pending quantities and rates come from the order.
+  useEffect(() => {
+    if (!presetPo) return;
+    getPurchaseOrder(presetPo)
+      .then((o) => {
+        if (!["Pending", "Partially Received"].includes(o.status)) {
+          setLoadError(`Purchase order ${o.poNo} is ${o.status.toLowerCase()} - goods can only be received against a pending order.`);
+          return;
+        }
+        setPo(o);
+        setVendor(o.vendor);
+        setSupplierName("");
+        setPaymentMode("Credit");
+        const pending = o.items.filter((i) => i.pending > 0);
+        setLines([
+          ...pending.map((i) =>
+            emptyLine({
+              product: i.product?._id,
+              name: i.product?.name || "",
+              qtyPacks: String(i.pending),
+              costPrice: String(i.rate),
+              costTouched: true,
+              discountPercent: i.discountPercent ? String(i.discountPercent) : "",
+            })
+          ),
+          emptyLine(),
+        ]);
+      })
+      .catch((err) => setLoadError(err.response?.data?.message || "Could not load the purchase order."));
+  }, [presetPo]);
 
   // Current selling prices, once the products are here (edit form).
   const productById = (pid) => products.find((p) => p._id === pid);
@@ -232,12 +267,13 @@ function PurchaseForm({ purchaseId }) {
       amountPaid: isCredit ? paidNow : undefined,
       paidMode: isCredit ? paidMode : undefined,
       ...(vendor ? { vendor: vendor._id } : { supplierName: supplierName.trim() }),
+      ...(po && !editing ? { purchaseOrder: po._id } : {}),
       items: filled.map(toItem),
     };
     try {
       if (editing) {
         const p = await updatePurchase(purchaseId, body);
-        toast.success(`Purchase ${p.invoiceNo} updated.`);
+        toast.success(`Purchase invoice ${p.piNo || p.invoiceNo} updated.`);
         navigate("/purchases");
         return;
       }
@@ -248,7 +284,11 @@ function PurchaseForm({ purchaseId }) {
         setError(`Your earlier attempt was saved as ${p.invoiceNo} (₹${p.total.toFixed(2)}). What's on screen is different - correct that purchase from Purchases, or save again to record a second one.`);
         return;
       }
-      toast.success(`Purchase ${p.invoiceNo} saved. Stock and balances are updated.`);
+      toast.success(`Purchase invoice ${p.piNo || p.invoiceNo} saved. Stock and balances are updated.`);
+      if (po) {
+        navigate(`/purchase-orders/${po._id}`);
+        return;
+      }
       if (then === "new") {
         setLastSaved(p);
         reset();
@@ -264,6 +304,14 @@ function PurchaseForm({ purchaseId }) {
   const labelCls = "mb-1 block text-xs font-medium text-muted";
   const pill = (active) =>
     `rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50 ${active ? "border-primary bg-primary text-white" : "border-border bg-surface text-text hover:border-primary/40"}`;
+
+  if (presetPo && !po) {
+    return (
+      <Layout>
+        <p className={`text-sm ${loadError ? "text-danger" : "text-muted"}`}>{loadError || "Loading purchase order…"}</p>
+      </Layout>
+    );
+  }
 
   if (editing && !original) {
     return (
@@ -285,14 +333,14 @@ function PurchaseForm({ purchaseId }) {
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">{editing ? `Edit Purchase ${original.invoiceNo}` : "New Purchase"}</h1>
+            <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">{editing ? `Edit Purchase Invoice ${original.piNo || original.invoiceNo}` : po ? `Receive against ${po.poNo}` : "New Purchase Invoice"}</h1>
             <p className="mt-0.5 text-sm text-muted">
               {editing
                 ? "Stock and balances move by the difference. A quantity can't go below what has already been sold."
                 : "Saving it adds the stock and updates the supplier's balance and every report."}
             </p>
           </div>
-          {!editing && (
+          {!editing && !po && (
             <button type="button" onClick={() => setScanOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-semibold text-primary hover:bg-bg">
               <Icon name="download" size={16} className="rotate-180" />
               Fill from a bill photo / PDF
@@ -305,7 +353,7 @@ function PurchaseForm({ purchaseId }) {
             <span className="flex items-center gap-2">
               <Icon name="check" size={18} className="text-success" />
               <span>
-                <strong>{lastSaved.invoiceNo}</strong> saved · ₹{lastSaved.total.toFixed(2)} · {lastSaved.vendor?.name || lastSaved.supplierName || "No supplier"}
+                <strong>{lastSaved.piNo || lastSaved.invoiceNo}</strong> saved · ₹{lastSaved.total.toFixed(2)} · {lastSaved.vendor?.name || lastSaved.supplierName || "No supplier"}
               </span>
             </span>
             <span className="flex gap-2">
@@ -321,6 +369,25 @@ function PurchaseForm({ purchaseId }) {
 
         <div className="mt-4 space-y-4">
           <ScannedBillBanner scan={scan} computedTotal={total} />
+          {(po || original?.purchaseOrder) && (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-text" role="status">
+              {po ? (
+                <>
+                  Receiving goods against <Link to={`/purchase-orders/${po._id}`} className="font-semibold text-primary hover:underline">{po.poNo}</Link> from <strong>{po.vendor?.name}</strong>.
+                  Quantities show what is still pending - change them to what actually arrived (remove lines that didn't come). Anything not received stays pending on the order.
+                </>
+              ) : (
+                <>
+                  Received against purchase order <Link to={`/purchase-orders/${original.purchaseOrder._id}`} className="font-semibold text-primary hover:underline">{original.purchaseOrder.poNo}</Link>. Quantities can't exceed what was ordered.
+                </>
+              )}
+            </div>
+          )}
+          {original?.returns?.some((r) => r.status === "Confirmed") && (
+            <p className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-2 text-xs text-text">
+              Goods were returned from this invoice ({original.returns.filter((r) => r.status === "Confirmed").map((r) => r.returnNo).join(", ")}). A quantity can't go below what was returned.
+            </p>
+          )}
 
           <section aria-label="Supplier" className="grid gap-3 rounded-2xl bg-surface p-4 shadow-sm sm:grid-cols-[2fr_1fr_1fr]">
             <div>
@@ -329,7 +396,7 @@ function PurchaseForm({ purchaseId }) {
                 vendors={vendors}
                 vendor={vendor}
                 name={supplierName}
-                locked={paidLater > 0}
+                locked={paidLater > 0 || Boolean(po) || Boolean(original?.purchaseOrder)}
                 onPick={chooseVendor}
                 onType={typeSupplier}
                 inputClassName={inputCls}
@@ -338,7 +405,7 @@ function PurchaseForm({ purchaseId }) {
               {editing && original.vendor && !vendor && !supplierName.trim() && <p className="mt-1 text-xs text-warning">Choose a supplier – otherwise it stays with {original.vendor.name}.</p>}
             </div>
             <div>
-              <label htmlFor="purchase-invoice" className={labelCls}>Invoice no</label>
+              <label htmlFor="purchase-invoice" className={labelCls}>Supplier invoice no{editing && original.piNo ? ` · ${original.piNo}` : ""}</label>
               <input id="purchase-invoice" type="text" maxLength={60} value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="Automatic if blank" className={inputCls} />
             </div>
             <div>
@@ -448,9 +515,9 @@ function PurchaseForm({ purchaseId }) {
 
         <div className="mt-4 flex flex-wrap gap-2 pb-6">
           <button type="submit" disabled={saving || filled.length === 0} className="rounded-xl bg-accent px-8 py-3 text-base font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
-            {saving ? "Saving…" : editing ? "Save Changes" : "Save Purchase"}
+            {saving ? "Saving…" : editing ? "Save Changes" : po ? "Confirm Invoice & Add Stock" : "Save Purchase"}
           </button>
-          {!editing && (
+          {!editing && !po && (
             <button type="button" onClick={() => save("new")} disabled={saving || filled.length === 0} className="rounded-xl border border-border bg-surface px-6 py-3 text-sm font-semibold text-primary hover:bg-bg disabled:opacity-50">
               Save & Enter Another
             </button>

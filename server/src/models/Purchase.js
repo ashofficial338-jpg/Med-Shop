@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { nextSequence } from "./Counter.js";
 
 const purchaseItemSchema = new mongoose.Schema(
   {
@@ -80,11 +81,17 @@ const purchaseSchema = new mongoose.Schema(
       maxlength: 100,
       default: "",
     },
+    // The supplier's own bill number (unique per supplier).
     invoiceNo: {
       type: String,
       required: true,
       trim: true,
     },
+    // The shop's own Purchase Invoice number (PI-000001), given to every
+    // purchase when it is first saved (hook below).
+    piNo: { type: String, trim: true, default: undefined },
+    // The Purchase Order this invoice receives goods against, if any.
+    purchaseOrder: { type: mongoose.Schema.Types.ObjectId, ref: "PurchaseOrder", default: null },
     date: {
       type: Date,
       required: true,
@@ -132,6 +139,13 @@ const purchaseSchema = new mongoose.Schema(
 );
 
 purchaseSchema.index({ vendor: 1, invoiceNo: 1 }, { unique: true });
+purchaseSchema.index({ piNo: 1 }, { unique: true, partialFilterExpression: { piNo: { $type: "string" } } });
+purchaseSchema.index({ purchaseOrder: 1 });
+
+// Validate (not save) middleware, so insertMany from the Excel import numbers them too.
+purchaseSchema.pre("validate", async function assignPiNo() {
+  if (this.isNew && !this.piNo) this.piNo = `PI-${String(await nextSequence("purchaseInvoiceNo")).padStart(6, "0")}`;
+});
 purchaseSchema.index({ clientRef: 1 }, { unique: true, partialFilterExpression: { clientRef: { $type: "string" } } });
 purchaseSchema.index({ archiveNo: 1 }, { unique: true, sparse: true });
 purchaseSchema.index({ archivedAt: 1, createdAt: 1 });

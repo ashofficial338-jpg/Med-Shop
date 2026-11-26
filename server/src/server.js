@@ -22,6 +22,9 @@ import racksRoutes from "./routes/racks.js";
 import vendorsRoutes from "./routes/vendors.js";
 import purchasesRoutes from "./routes/purchases.js";
 import stockLedgerRoutes from "./routes/stockLedger.js";
+import purchaseOrdersRoutes from "./routes/purchaseOrders.js";
+import purchaseReturnsRoutes from "./routes/purchaseReturns.js";
+import { backfillPiNumbers } from "./utils/purchaseOrders.js";
 import customersRoutes from "./routes/customers.js";
 import salesRoutes from "./routes/sales.js";
 import expensesRoutes from "./routes/expenses.js";
@@ -84,6 +87,8 @@ app.use("/api/racks", racksRoutes);
 app.use("/api/vendors", vendorsRoutes);
 app.use("/api/purchases", purchasesRoutes);
 app.use("/api/stock-ledger", stockLedgerRoutes);
+app.use("/api/purchase-orders", purchaseOrdersRoutes);
+app.use("/api/purchase-returns", purchaseReturnsRoutes);
 app.use("/api/customers", customersRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/expenses", expensesRoutes);
@@ -157,6 +162,7 @@ connectDB()
     app.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
     syncBatchLocations().catch((e) => console.error("Rack location sync failed:", e.message));
     ensureOptionalIndexes().catch((e) => console.error("Optional-field index update failed:", e.message));
+    backfillPiNumbers().catch((e) => console.error("Purchase invoice numbering failed:", e.message));
   })
   .catch((err) => {
     console.error("Failed to connect to MongoDB:", err.message);

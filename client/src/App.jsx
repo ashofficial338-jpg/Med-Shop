@@ -20,6 +20,11 @@ const pageImports = {
   PurchaseHistory: () => import("./pages/PurchaseHistory"),
   Billing: () => import("./pages/Billing"),
   PurchaseEntry: () => import("./pages/PurchaseEntry"),
+  PurchaseOrders: () => import("./pages/PurchaseOrders"),
+  PurchaseOrderForm: () => import("./pages/PurchaseOrderForm"),
+  PurchaseOrderDetail: () => import("./pages/PurchaseOrderDetail"),
+  PurchaseReturns: () => import("./pages/PurchaseReturns"),
+  PurchaseReturnForm: () => import("./pages/PurchaseReturnForm"),
   BillPreview: () => import("./pages/BillPreview"),
   BillHistory: () => import("./pages/BillHistory"),
   Customers: () => import("./pages/Customers"),
@@ -46,6 +51,11 @@ const Vendors = lazy(pageImports.Vendors);
 const PurchaseHistory = lazy(pageImports.PurchaseHistory);
 const Billing = lazy(pageImports.Billing);
 const PurchaseEntry = lazy(pageImports.PurchaseEntry);
+const PurchaseOrders = lazy(pageImports.PurchaseOrders);
+const PurchaseOrderForm = lazy(pageImports.PurchaseOrderForm);
+const PurchaseOrderDetail = lazy(pageImports.PurchaseOrderDetail);
+const PurchaseReturns = lazy(pageImports.PurchaseReturns);
+const PurchaseReturnForm = lazy(pageImports.PurchaseReturnForm);
 const BillPreview = lazy(pageImports.BillPreview);
 const BillHistory = lazy(pageImports.BillHistory);
 const Customers = lazy(pageImports.Customers);
@@ -202,6 +212,54 @@ export default function App() {
             element={
               <ProtectedRoute roles={["admin"]}>
                 <PurchaseEntry />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/purchase-orders"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseOrders />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/purchase-orders/new"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseOrderForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/purchase-orders/:id"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseOrderDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/purchase-orders/:id/edit"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseOrderForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/purchase-returns"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseReturns />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/purchase-returns/new"
+            element={
+              <ProtectedRoute roles={["admin"]}>
+                <PurchaseReturnForm />
               </ProtectedRoute>
             }
           />

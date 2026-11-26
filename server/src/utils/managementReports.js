@@ -6,6 +6,7 @@ import Vendor from "../models/Vendor.js";
 import { autoGranularity, bucketKey, bucketLabel, isoDay, previousRange } from "./analyticsHelpers.js";
 import { customerOutstandingMap, vendorOutstandingMap } from "./ledgerHelpers.js";
 import { computeSummary } from "./summaryHelpers.js";
+import { PURCHASE_STOCK_REPORTS } from "./purchaseReports.js";
 
 // Management Reports: every sales, purchase and business report, worked out
 // from the bills and purchases themselves each time it is opened - nothing is
@@ -526,6 +527,8 @@ const REPORTS = {
     },
   },
 };
+
+Object.assign(REPORTS, PURCHASE_STOCK_REPORTS);
 
 export const REPORT_LIST = Object.entries(REPORTS).map(([key, { group: g, title }]) => ({ key, group: g, title }));
 

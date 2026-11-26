@@ -8,3 +8,6 @@ export function stockDisplay(product) {
   }
   return `${product.qty} ${product.packUnit}${product.qty === 1 ? "" : "s"}`;
 }
+
+// Reasons offered for an Extra Stock Addition (the server accepts only these).
+export const EXTRA_STOCK_REASONS = ["Opening Balance", "Stock Correction", "Found Stock", "Free Items", "Adjustment", "Other"];

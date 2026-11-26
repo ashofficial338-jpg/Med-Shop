@@ -10,7 +10,8 @@ import { DateFilter, lastDays } from "../components/dashboard/ReportFilters";
 import { count, fullDate, money2, percent } from "../components/dashboard/format";
 import { useAuth } from "../context/AuthContext";
 import { useLiveRefresh } from "../context/LiveSync";
-import { exportManagementReport, getManagementOptions, getManagementReport } from "../api/reports";
+import { exportManagementReport, getManagementOptions, getManagementReport, managementReportPdf } from "../api/reports";
+import DocumentViewer from "../components/DocumentViewer";
 import { getErrorMessage } from "../api/client";
 import { can, isAdmin } from "../utils/permissions";
 import { compactParams } from "../utils/query";
@@ -19,6 +20,7 @@ import { todayLocal } from "../utils/date";
 const GROUPS = [
   ["Sales", "Sales reports"],
   ["Purchase", "Purchase reports"],
+  ["Inventory", "Purchase management & stock"],
   ["Business", "Business analysis"],
 ];
 const FILTERS = ["customer", "vendor", "product"];
@@ -31,7 +33,10 @@ function linkFor(report, row) {
   if (["purchase-vendor", "vendor-performance"].includes(report)) return `/vendors/${row.id}`;
   if (report === "sales-pending") return `/bills/${row.id}`;
   if (report === "purchase-pending") return `/purchases/${row.id}/edit`;
-  if (["sales-product", "purchase-product", "best-sellers"].includes(report)) return `/products?product=${row.id}`;
+  if (["sales-product", "purchase-product", "best-sellers", "current-stock", "stock-movement"].includes(report)) return `/products?product=${row.id}`;
+  if (report === "po-register") return `/purchase-orders/${row.id}`;
+  if (report === "pi-register") return `/purchases/${row.id}/edit`;
+  if (report === "supplier-purchase") return `/vendors/${row.id}`;
   return null;
 }
 
@@ -86,7 +91,10 @@ export default function ManagementReports() {
 
   const selectCls = "h-10 min-w-0 max-w-[14rem] rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text focus:border-primary focus:outline-none";
   const isSales = state.report.startsWith("sales-") && state.report !== "sales-vs-purchase";
-  const isPurchase = state.report.startsWith("purchase-");
+  const INVENTORY = ["po-register", "pi-register", "pr-register", "purchase-inward", "supplier-purchase", "current-stock", "stock-movement", "item-stock-ledger"];
+  const isPurchase = state.report.startsWith("purchase-") || INVENTORY.includes(state.report);
+  const [search, setSearch] = useState("");
+  const [printing, setPrinting] = useState(false);
   const current = options.reports.find((r) => r.key === state.report);
   const shown = report && report.key === state.report ? report : null;
 
@@ -109,6 +117,13 @@ export default function ManagementReports() {
     };
   });
 
+  // Search narrows the rows on screen (the totals are hidden while searching).
+  const searched = (rows) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => Object.values(r).some((v) => v !== null && typeof v !== "object" && String(v).toLowerCase().includes(q)));
+  };
+
   return (
     <Layout
       toolbar={
@@ -129,7 +144,12 @@ export default function ManagementReports() {
           <h1 className="font-display text-2xl font-bold tracking-tight text-text sm:text-[28px]">Management Reports</h1>
           <p className="mt-0.5 text-sm text-muted">Always up to date with every bill and purchase.</p>
         </div>
-        {can(user, "reports.export") && <ReportDownloadButtons onExport={(format) => exportManagementReport(JSON.parse(query), format, current?.title || "Report")} />}
+        {can(user, "reports.export") && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setPrinting(true)} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-surface">Print</button>
+            <ReportDownloadButtons onExport={(format) => exportManagementReport(JSON.parse(query), format, current?.title || "Report")} />
+          </div>
+        )}
       </div>
 
       <div className="mt-5 grid items-start gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
@@ -184,6 +204,7 @@ export default function ManagementReports() {
                 <option key={p._id} value={p._id}>{p.name}</option>
               ))}
             </select>
+            <input type="search" aria-label="Search rows" placeholder="Search in report…" value={search} onChange={(e) => setSearch(e.target.value)} className={`${selectCls} w-44`} />
             {FILTERS.some((k) => state[k]) && (
               <button type="button" onClick={() => update({ customer: "", vendor: "", product: "" })} className="h-10 rounded-xl px-3 text-sm font-semibold text-primary hover:bg-surface">
                 Clear filters
@@ -221,13 +242,21 @@ export default function ManagementReports() {
                 {shown.rows.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted">Nothing recorded for this period{FILTERS.some((k) => state[k]) ? " and filters" : ""}.</p>
                 ) : (
-                  <DataTable key={shown.key} columns={columns} rows={shown.rows} totals={shown.totals} rowKey={(r, i) => r.id || r.key || i} minWidth={Math.max(420, columns.length * 105)} />
+                  <DataTable key={shown.key} columns={columns} rows={searched(shown.rows)} totals={search.trim() ? undefined : shown.totals} rowKey={(r, i) => r.id || r.key || i} minWidth={Math.max(420, columns.length * 105)} />
                 )}
               </section>
             </div>
           )}
         </div>
       </div>
+      {printing && (
+        <DocumentViewer
+          title={current?.title || "Report"}
+          filename={`${(current?.title || "Report").replace(/[^\w]+/g, "_")}.pdf`}
+          load={() => managementReportPdf(JSON.parse(query))}
+          onClose={() => setPrinting(false)}
+        />
+      )}
     </Layout>
   );
 }

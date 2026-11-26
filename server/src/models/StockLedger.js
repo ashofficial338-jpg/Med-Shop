@@ -14,7 +14,7 @@ const stockLedgerSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["purchase", "sale", "manual-add", "manual-reduce", "void-reversal", "stock-clearance", "rack-transfer", "stock-audit", "sale-edit", "purchase-edit"],
+      enum: ["purchase", "sale", "manual-add", "manual-reduce", "void-reversal", "stock-clearance", "rack-transfer", "stock-audit", "sale-edit", "purchase-edit", "extra-stock", "purchase-return", "purchase-return-cancel"],
       required: true,
     },
     qtyChange: {
@@ -26,6 +26,11 @@ const stockLedgerSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    // Extra Stock Addition only: the day the stock was added (chosen on the
+    // form, may be earlier than createdAt) and free-text notes. Its reason
+    // is one of EXTRA_STOCK_REASONS. Never linked to a purchase or supplier.
+    entryDate: { type: Date, default: undefined },
+    remarks: { type: String, trim: true, default: undefined },
     refId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -56,5 +61,6 @@ stockLedgerSchema.index({ toRack: 1, createdAt: -1 });
 stockLedgerSchema.index({ refId: 1 });
 stockLedgerSchema.index({ product: 1, createdAt: -1 });
 stockLedgerSchema.index({ type: 1, createdAt: -1 });
+stockLedgerSchema.index({ type: 1, entryDate: -1 });
 
 export default mongoose.model("StockLedger", stockLedgerSchema);

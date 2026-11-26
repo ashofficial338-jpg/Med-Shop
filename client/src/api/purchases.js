@@ -47,3 +47,17 @@ export function listPurchaseIds(params) {
 export function bulkDeletePurchases(ids) {
   return api.post("/purchases/bulk-delete", { ids }, { timeout: 120_000 }).then((r) => r.data);
 }
+
+// The printable Purchase Invoice (the same PDF is previewed, printed and saved).
+export function purchaseInvoicePdf(id) {
+  return api.get(`/purchases/${id}/pdf`, { responseType: "blob" }).then((r) => r.data);
+}
+
+// Cancels an invoice: its stock and payment are reversed, and a copy is kept in the history.
+export function cancelPurchase(id, reason) {
+  return api.delete(`/purchases/${id}`, { data: { reason } }).then((r) => r.data);
+}
+
+export function listCancelledPurchases(params) {
+  return api.get("/purchases/cancelled", { params }).then((r) => r.data);
+}

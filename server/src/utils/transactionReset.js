@@ -1,3 +1,6 @@
+import PurchaseOrder from "../models/PurchaseOrder.js";
+import PurchaseReturn from "../models/PurchaseReturn.js";
+import CancelledPurchase from "../models/CancelledPurchase.js";
 import crypto from "node:crypto";
 import mongoose from "mongoose";
 import Batch from "../models/Batch.js";
@@ -37,6 +40,9 @@ export const TRANSACTIONS = {
   dayBookAdjustments: { model: DayBookAdjustment, label: "Day Book corrections" },
   stockLedger: { model: StockLedger, label: "Stock movement history" },
   stockAudits: { model: StockAudit, label: "Stock audits" },
+  purchaseOrders: { model: PurchaseOrder, label: "Purchase orders" },
+  purchaseReturns: { model: PurchaseReturn, label: "Purchase returns" },
+  cancelledPurchases: { model: CancelledPurchase, label: "Cancelled purchase invoices" },
   legacySalesEntries: { model: LegacySalesEntry, label: "Old Sales Entry records" },
 };
 // Kept, unless asked for (customers, vendors) or tied to stock (batches).
@@ -44,7 +50,7 @@ const MASTERS = { batches: Batch, products: Product, customers: Customer, vendor
 
 // Numbers that can restart at 1. Product codes and Invoice Saver file numbers
 // go on counting, so a code or a saved file name is never used twice.
-export const RESTARTING_COUNTERS = ["billNo", "purchaseNo", "directPurchaseNo", "customerPaymentNo", "supplierPaymentNo"];
+export const RESTARTING_COUNTERS = ["billNo", "purchaseNo", "directPurchaseNo", "customerPaymentNo", "supplierPaymentNo", "purchaseOrderNo", "purchaseInvoiceNo", "purchaseReturnNo"];
 
 const everything = () => [...Object.entries(TRANSACTIONS).map(([k, t]) => [k, t.model]), ...Object.entries(MASTERS)];
 
