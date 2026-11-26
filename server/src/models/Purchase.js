@@ -52,8 +52,6 @@ const purchaseItemSchema = new mongoose.Schema(
       ref: "Batch",
       default: null,
     },
-    // Free-text note on the line (Extra Purchase upload's Remarks column).
-    remarks: { type: String, trim: true, maxlength: 300, default: undefined },
     lineAmount: {
       type: Number,
       required: true,
@@ -94,11 +92,6 @@ const purchaseSchema = new mongoose.Schema(
     piNo: { type: String, trim: true, default: undefined },
     // The Purchase Order this invoice receives goods against, if any.
     purchaseOrder: { type: mongoose.Schema.Types.ObjectId, ref: "PurchaseOrder", default: null },
-    // "extra" = saved from an Extra Purchase Excel upload (never against a PO),
-    // with its own EXP-000001 reference and the upload it came from.
-    source: { type: String, enum: ["extra"], default: undefined },
-    extraRef: { type: String, trim: true, default: undefined },
-    importBatch: { type: mongoose.Schema.Types.ObjectId, ref: "ExtraImport", default: undefined },
     date: {
       type: Date,
       required: true,
@@ -148,8 +141,6 @@ const purchaseSchema = new mongoose.Schema(
 purchaseSchema.index({ vendor: 1, invoiceNo: 1 }, { unique: true });
 purchaseSchema.index({ piNo: 1 }, { unique: true, partialFilterExpression: { piNo: { $type: "string" } } });
 purchaseSchema.index({ purchaseOrder: 1 });
-purchaseSchema.index({ importBatch: 1 }, { sparse: true });
-purchaseSchema.index({ extraRef: 1 }, { unique: true, partialFilterExpression: { extraRef: { $type: "string" } } });
 
 // Validate (not save) middleware, so insertMany from the Excel import numbers them too.
 purchaseSchema.pre("validate", async function assignPiNo() {

@@ -25,7 +25,6 @@ const TOPICS = {
   purchases: ["purchases", "products", "stock", "vendors", "daybook", "purchase-orders"],
   "purchase-orders": ["purchase-orders"],
   "purchase-returns": ["purchase-returns", "purchases", "products", "stock"],
-  "extra-purchases": ["extra-purchases", "purchases", "products", "stock", "vendors", "daybook"],
   customers: ["customers", "sales", "daybook"],
   vendors: ["vendors", "products", "purchases", "daybook"],
   expenses: ["expenses", "daybook"],

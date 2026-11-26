@@ -74,8 +74,6 @@ async function buildPurchaseFilter(req) {
   else if (vendor && mongoose.isValidObjectId(vendor)) filter.vendor = vendor;
   if (supplierName) Object.assign(filter, { vendor: null, supplierName: new RegExp(`^${escapeRegex(String(supplierName).trim())}$`, "i") });
   if (product && mongoose.isValidObjectId(product)) filter["items.product"] = product;
-  if (req.query.source === "extra") filter.source = "extra";
-  else if (req.query.source === "entry") filter.source = { $exists: false };
   if (req.query.purchaseOrder === "none") filter.purchaseOrder = null;
   else if (req.query.purchaseOrder === "any") filter.purchaseOrder = { $ne: null };
   else if (mongoose.isValidObjectId(req.query.purchaseOrder)) filter.purchaseOrder = req.query.purchaseOrder;
@@ -409,7 +407,6 @@ async function readLine(item, { vendorId, newProducts, known, rackErrors, keepIn
       batchNo,
       expiryDate: item.expiryDate || null,
       rack,
-      ...(item.remarks ? { remarks: String(item.remarks).trim().slice(0, 300) } : {}),
       ...lineFigures({ qtyPacks, costPrice, discountPercent }, product.gstPercent),
     },
   };
@@ -511,9 +508,6 @@ const savePurchase = transactional(async (req, res) => {
       vendor: vendorId,
       supplierName,
       purchaseOrder: po?._id || null,
-      ...(req.extraImport
-        ? { source: "extra", importBatch: req.extraImport.id, extraRef: `EXP-${String(await nextSequence("extraPurchaseNo")).padStart(6, "0")}` }
-        : {}),
       invoiceNo: resolvedInvoiceNo,
       date: date || new Date(),
       items: lines.map((l) => l.line),
@@ -594,7 +588,6 @@ const savePurchase = transactional(async (req, res) => {
 });
 
 router.post("/", savePurchase);
-export { savePurchase };
 // The old address for purchases without a registered supplier: same entry.
 router.post("/direct", (req, res, next) => {
   req.body.vendor = undefined;
@@ -678,7 +671,6 @@ router.put(
         if (r.error) return res.status(400).json({ message: r.error });
         if (!r.line.batchNo) r.line.batchNo = resolvedInvoiceNo.slice(0, 30);
         r.line.previousCostPrice = original ? original.previousCostPrice : undefined;
-        if (original?.remarks && !r.line.remarks) r.line.remarks = original.remarks;
         r.rackChanged = Boolean(original) && cleanRack(original.rack) !== r.line.rack;
         read.push(r);
       }

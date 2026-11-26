@@ -25,7 +25,6 @@ const pageImports = {
   PurchaseOrderDetail: () => import("./pages/PurchaseOrderDetail"),
   PurchaseReturns: () => import("./pages/PurchaseReturns"),
   PurchaseReturnForm: () => import("./pages/PurchaseReturnForm"),
-  ExtraPurchases: () => import("./pages/ExtraPurchases"),
   BillPreview: () => import("./pages/BillPreview"),
   BillHistory: () => import("./pages/BillHistory"),
   Customers: () => import("./pages/Customers"),
@@ -57,7 +56,6 @@ const PurchaseOrderForm = lazy(pageImports.PurchaseOrderForm);
 const PurchaseOrderDetail = lazy(pageImports.PurchaseOrderDetail);
 const PurchaseReturns = lazy(pageImports.PurchaseReturns);
 const PurchaseReturnForm = lazy(pageImports.PurchaseReturnForm);
-const ExtraPurchases = lazy(pageImports.ExtraPurchases);
 const BillPreview = lazy(pageImports.BillPreview);
 const BillHistory = lazy(pageImports.BillHistory);
 const Customers = lazy(pageImports.Customers);
@@ -262,14 +260,6 @@ export default function App() {
             element={
               <ProtectedRoute roles={["admin"]}>
                 <PurchaseReturnForm />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/extra-purchases"
-            element={
-              <ProtectedRoute roles={["admin"]}>
-                <ExtraPurchases />
               </ProtectedRoute>
             }
           />
