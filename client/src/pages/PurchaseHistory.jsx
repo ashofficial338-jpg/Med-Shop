@@ -14,7 +14,7 @@ import { toast } from "react-toastify";
 import { compactParams } from "../utils/query";
 
 // Filters live in the URL so dashboard links open this list pre-filtered.
-const FILTER_KEYS = ["q", "vendor", "supplierName", "product", "payment", "from", "to", "category", "purchaseOrder"];
+const FILTER_KEYS = ["q", "vendor", "supplierName", "product", "payment", "from", "to", "category", "purchaseOrder", "source"];
 
 export default function PurchaseHistory() {
   const navigate = useNavigate();
@@ -136,6 +136,11 @@ export default function PurchaseHistory() {
           <option value="any">Against a PO</option>
           <option value="none">Without a PO</option>
         </select>
+        <select aria-label="Source" value={filters.source} onChange={(e) => setFilter("source", e.target.value)} className={selectCls}>
+          <option value="">All sources</option>
+          <option value="extra">Extra purchases (Excel)</option>
+          <option value="entry">Entered here</option>
+        </select>
         <select aria-label="Supplier" value={supplierValue} onChange={(e) => setSupplier(e.target.value)} className={selectCls}>
           <option value="">All Suppliers</option>
           <optgroup label="Suppliers">
@@ -229,6 +234,7 @@ export default function PurchaseHistory() {
                   {p.purchaseOrder && (
                     <Link to={`/purchase-orders/${p.purchaseOrder._id}`} className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary hover:underline">{p.purchaseOrder.poNo}</Link>
                   )}
+                  {p.extraRef && <Link to="/extra-purchases?tab=history" className="ml-2 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-semibold text-secondary hover:underline">{p.extraRef}</Link>}
                   {p.returned && <span className="ml-2 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">Returned ₹{p.returned.total.toFixed(2)}</span>}
                   {!p.vendor && (
                     <span className="ml-2 rounded-full bg-bg px-2 py-0.5 text-[11px] font-semibold text-muted">

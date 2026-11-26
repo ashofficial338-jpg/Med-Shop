@@ -26,6 +26,7 @@ const ADMIN_NAV = [
       { to: "/purchase-orders", label: "Purchase Orders", icon: "clipboard" },
       { to: "/purchases", label: "Purchase Invoices", icon: "truck" },
       { to: "/purchase-returns", label: "Purchase Returns", icon: "arrowRight" },
+      { to: "/extra-purchases", label: "Extra Purchases", icon: "download" },
       { to: "/products", label: "Products", icon: "pill" },
       { to: "/stock", label: "Stock", icon: "boxes" },
     ],

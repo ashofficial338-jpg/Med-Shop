@@ -159,6 +159,7 @@ export function piDocument(p, { returns = [] } = {}) {
       ["Invoice Date", pdfDay(p.date)],
       ["Supplier Inv No", p.invoiceNo],
       ["PO Reference", p.purchaseOrder?.poNo || ""],
+      ["Extra Purchase", p.extraRef || ""],
       ["Payment", p.paymentMode],
       ["Balance Due", p.paymentMode === "Credit" ? `Rs. ${r2(p.total - (p.amountPaid ?? p.total)).toFixed(2)}` : ""],
       ["Returned", returned ? `Rs. ${returned.toFixed(2)} (${returns.map((r) => r.returnNo).join(", ")})` : ""],
@@ -166,7 +167,10 @@ export function piDocument(p, { returns = [] } = {}) {
     columns: "invoice",
     items,
     totals: { gross, discount: r2(gross - p.subtotal), taxable: p.subtotal, gst: p.gstAmount, total: p.total },
-    notes: p.tdsAmount ? `TDS: Rs. ${Number(p.tdsAmount).toFixed(2)} (tracked separately)` : "",
+    notes: [
+      p.tdsAmount ? `TDS: Rs. ${Number(p.tdsAmount).toFixed(2)} (tracked separately)` : "",
+      ...p.items.filter((i) => i.remarks).map((i) => `${i.product?.name || "Item"}: ${i.remarks}`),
+    ].filter(Boolean).join("\n"),
     footerNote: "Goods received in good condition. Stock was added when this invoice was confirmed.",
   };
 }

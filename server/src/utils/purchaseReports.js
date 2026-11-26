@@ -135,6 +135,7 @@ export const PURCHASE_STOCK_REPORTS = {
           ref: p.piNo || p.invoiceNo,
           invoiceNo: p.invoiceNo,
           poNo: p.purchaseOrder?.poNo || "",
+          source: p.purchaseOrder ? "Purchase order" : p.source === "extra" ? `Extra (${p.extraRef})` : "Direct entry",
           date: p.date,
           party: supplierName(p),
           mode: p.paymentMode,
@@ -147,7 +148,7 @@ export const PURCHASE_STOCK_REPORTS = {
         };
       });
       return {
-        columns: [col("ref", "PI No"), col("invoiceNo", "Supplier Inv No"), col("poNo", "PO Ref"), col("date", "Date", "date"), col("party", "Supplier"), col("mode", "Payment"), col("taxable", "Taxable", "money"), col("gst", "GST", "money"), col("total", "Invoice Total", "money"), col("returned", "Returned", "money"), col("net", "Net", "money"), col("balance", "Balance Due", "money")],
+        columns: [col("ref", "PI No"), col("invoiceNo", "Supplier Inv No"), col("poNo", "PO Ref"), col("source", "Source"), col("date", "Date", "date"), col("party", "Supplier"), col("mode", "Payment"), col("taxable", "Taxable", "money"), col("gst", "GST", "money"), col("total", "Invoice Total", "money"), col("returned", "Returned", "money"), col("net", "Net", "money"), col("balance", "Balance Due", "money")],
         rows,
         totals: addUp(rows, ["taxable", "gst", "total", "returned", "net", "balance"]),
         summary: [
